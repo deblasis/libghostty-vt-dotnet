@@ -74,6 +74,9 @@ internal partial class GhosttyTerminal : HwndHost
     [LibraryImport("user32")]
     private static partial uint GetDpiForWindow(IntPtr hwnd);
 
+    [LibraryImport("user32", EntryPoint = "SetFocus")]
+    private static partial IntPtr Win32SetFocus(IntPtr hwnd);
+
     [LibraryImport("user32")]
     private static partial IntPtr SetCapture(IntPtr hwnd);
 
@@ -187,6 +190,14 @@ internal partial class GhosttyTerminal : HwndHost
         _ghostty.SetOcclusion(true);
         _ghostty.SetFocus(true);
 
+        // Give the child window Win32 keyboard focus.
+        // HwndHost manages WPF focus but doesn't automatically
+        // call Win32 SetFocus on the child HWND.
+        Win32SetFocus(_childHwnd);
+
+        // Forward WPF focus to Win32 focus on the child.
+        GotFocus += (_, _) => Win32SetFocus(_childHwnd);
+
         return new HandleRef(this, _childHwnd);
     }
 
@@ -247,12 +258,14 @@ internal partial class GhosttyTerminal : HwndHost
                 return IntPtr.Zero;
             }
 
-            // No control char filter here -- testing whether WPF/HwndHost
-            // has the same double-input issue as WinForms.
+            // Filter control chars (< 0x20) -- same double-input issue as WinForms.
+            // Backspace, tab, enter, escape are already handled as key events above.
             case WM_CHAR:
             {
                 if (_ghostty == null) break;
                 var wc = (char)(int)wp;
+                if (wc < ' ' && wc != '\r')
+                    return IntPtr.Zero;
                 if (char.IsHighSurrogate(wc))
                 {
                     _highSurrogate = wc;
@@ -278,6 +291,7 @@ internal partial class GhosttyTerminal : HwndHost
                 return IntPtr.Zero;
 
             case WM_LBUTTONDOWN:
+                Win32SetFocus(hwnd);
                 SetCapture(hwnd);
                 _ghostty?.SendMouseButton(
                     ghostty_input_mouse_state_e.GHOSTTY_MOUSE_PRESS,

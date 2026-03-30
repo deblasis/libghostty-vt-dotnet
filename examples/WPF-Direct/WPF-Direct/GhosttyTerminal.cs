@@ -77,6 +77,9 @@ internal partial class GhosttyTerminal : HwndHost
     [LibraryImport("user32")]
     private static partial uint GetDpiForWindow(IntPtr hwnd);
 
+    [LibraryImport("user32", EntryPoint = "SetFocus")]
+    private static partial IntPtr Win32SetFocus(IntPtr hwnd);
+
     [LibraryImport("user32")]
     private static partial IntPtr SetCapture(IntPtr hwnd);
 
@@ -248,6 +251,9 @@ internal partial class GhosttyTerminal : HwndHost
         NativeMethods.ghostty_surface_set_occlusion(_surface, true);
         NativeMethods.ghostty_surface_set_focus(_surface, true);
 
+        Win32SetFocus(_childHwnd);
+        GotFocus += (_, _) => Win32SetFocus(_childHwnd);
+
         return new HandleRef(this, _childHwnd);
     }
 
@@ -320,11 +326,13 @@ internal partial class GhosttyTerminal : HwndHost
                 return IntPtr.Zero;
             }
 
-            // No control char filter -- testing raw behavior.
+            // Filter control chars (< 0x20) -- same double-input issue as WinForms.
             case WM_CHAR:
             {
                 if (_surface == 0) break;
                 var wc = (char)(int)wp;
+                if (wc < ' ' && wc != '\r')
+                    return IntPtr.Zero;
                 if (char.IsHighSurrogate(wc))
                 {
                     _highSurrogate = wc;
@@ -358,6 +366,7 @@ internal partial class GhosttyTerminal : HwndHost
                 return IntPtr.Zero;
 
             case WM_LBUTTONDOWN:
+                Win32SetFocus(hwnd);
                 SetCapture(hwnd);
                 if (_surface != 0)
                     NativeMethods.ghostty_surface_mouse_button(_surface,
