@@ -1,6 +1,6 @@
 # libghostty-dotnet
 
-.NET examples and interop bindings for [libghostty](https://github.com/ghostty-org/ghostty).
+.NET examples and interop bindings for [libghostty windows soft fork](https://github.com/deblasis/ghostty).
 
 ## Prerequisites
 
