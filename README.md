@@ -6,7 +6,7 @@
 
 - [Zig](https://ziglang.org/download/) (0.15+) -- builds libghostty from source
 - [.NET SDK 9.0](https://dotnet.microsoft.com/download/dotnet/9.0) -- builds and runs examples
-- [ClangSharp](https://github.com/dotnet/ClangSharp) -- regenerates bindings when the C API changes (optional)
+- [ClangSharp](https://github.com/dotnet/ClangSharp) -- regenerates bindings when the C API changes
 
 ### Install on Windows
 
@@ -18,7 +18,7 @@ winget install Microsoft.DotNet.SDK.9
 # or choco
 choco install zig dotnet-sdk
 
-# ClangSharp (dotnet global tool, optional)
+# ClangSharp (dotnet global tool)
 dotnet tool install --global ClangSharpPInvokeGenerator
 ```
 
