@@ -6,7 +6,6 @@
 
 - [Zig](https://ziglang.org/download/) (0.15+) -- builds libghostty from source
 - [.NET SDK 9.0](https://dotnet.microsoft.com/download/dotnet/9.0) -- builds and runs examples
-- [just](https://github.com/casey/just) -- task runner (optional, for `just build-all`)
 - [ClangSharp](https://github.com/dotnet/ClangSharp) -- regenerates bindings when the C API changes (optional)
 
 ### Install on Windows
@@ -15,12 +14,11 @@
 # winget
 winget install zig.zig
 winget install Microsoft.DotNet.SDK.9
-winget install Casey.Just
 
 # or choco
-choco install zig dotnet-sdk just
+choco install zig dotnet-sdk
 
-# ClangSharp (dotnet global tool)
+# ClangSharp (dotnet global tool, optional)
 dotnet tool install --global ClangSharpPInvokeGenerator
 ```
 
