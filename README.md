@@ -20,13 +20,13 @@ After setup, open any example `.slnx` in Visual Studio or run with `dotnet run`.
 
 | Example | Description | Status |
 |---------|-------------|--------|
-| Win32 | Raw Win32 P/Invoke, direct port of the C example | Phase 1 |
-| WinForms | Panel-based embedding with WinForms events | Phase 1 |
-| WPF-Simple | HwndHost embedding with GhosttyApp wrapper | Phase 2 |
-| WPF-Direct | HwndHost embedding with raw NativeMethods | Phase 2 |
-| WinUI 3 | SwapChainPanel composition surface | Phase 2 |
-| Unity | In-game terminal via render texture | Phase 3 |
-| Avalonia | Cross-platform NativeControlHost | Phase 3 |
+| [Win32](examples/Win32/) | Raw Win32 P/Invoke, direct port of the C example | Done |
+| [WinForms](examples/WinForms/) | Panel-based embedding with WinForms events | Done |
+| [WPF-Simple](examples/WPF-Simple/) | HwndHost embedding with GhosttyApp wrapper | Done |
+| [WPF-Direct](examples/WPF-Direct/) | HwndHost embedding with raw NativeMethods | Done |
+| WinUI 3 | SwapChainPanel composition surface ([#3](https://github.com/deblasis/libghostty-dotnet/issues/3)) | WIP |
+| Unity | In-game terminal via render texture | Planned |
+| Avalonia | Cross-platform NativeControlHost | Planned |
 
 ## Updating libghostty
 
