@@ -22,7 +22,8 @@ After setup, open any example `.slnx` in Visual Studio or run with `dotnet run`.
 |---------|-------------|--------|
 | Win32 | Raw Win32 P/Invoke, direct port of the C example | Phase 1 |
 | WinForms | Panel-based embedding with WinForms events | Phase 1 |
-| WPF | HwndHost embedding | Phase 2 |
+| WPF-Simple | HwndHost embedding with GhosttyApp wrapper | Phase 2 |
+| WPF-Direct | HwndHost embedding with raw NativeMethods | Phase 2 |
 | WinUI 3 | SwapChainPanel composition surface | Phase 2 |
 | Unity | In-game terminal via render texture | Phase 3 |
 | Avalonia | Cross-platform NativeControlHost | Phase 3 |
