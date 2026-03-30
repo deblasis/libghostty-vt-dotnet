@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="../../src/Ghostty.Interop/Ghostty.Interop.csproj" />
+  <Project Path="Win32/Win32.csproj" />
+</Solution>
