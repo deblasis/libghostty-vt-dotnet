@@ -7,7 +7,6 @@ public partial class MainForm : Form
 {
     private readonly Panel _terminalPanel;
     private GhosttyApp? _ghostty;
-    private char _highSurrogate;
 
     private const int WM_APP = 0x8000;
     private const int WM_GHOSTTY_WAKEUP = WM_APP + 1;
