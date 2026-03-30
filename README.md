@@ -14,7 +14,7 @@
 ```
 
 This clones and builds libghostty from source, then restores .NET packages.
-After setup, open any example `.sln` in Visual Studio or run with `dotnet run`.
+After setup, open any example `.slnx` in Visual Studio or run with `dotnet run`.
 
 ## Examples
 
