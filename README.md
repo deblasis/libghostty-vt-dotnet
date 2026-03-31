@@ -47,14 +47,54 @@ After setup, open any example `.slnx` in Visual Studio or run with `dotnet run`.
 
 ## Visual Testing
 
-The test suite uses [FlaUI](https://github.com/FlaUI/FlaUI) for UI automation and [ImageSharp](https://github.com/SixLabors/ImageSharp) for screenshot comparison. Every example is tested for:
+The test suite uses [FlaUI](https://github.com/FlaUI/FlaUI) for UI automation and [ImageSharp](https://github.com/SixLabors/ImageSharp) for screenshot comparison.
 
-| Category | What's tested |
-|----------|--------------|
-| Smoke | App launches, window has title and valid size, terminal renders (not blank), clean shutdown |
-| Interaction | Typing produces visible output, Enter executes input, Backspace deletes, resize updates terminal, minimum size doesn't crash, focus shows cursor |
-| Functional | `echo` command output, prompt returns after command, scrollback via Shift+PageUp, clipboard copy/paste cycle, long-running command updates over time |
-| DPI | Launch in Unaware / SystemAware / PerMonitorV2 modes, DPI mode affects rendering, `GetDpiForWindow` reports valid values |
+### Test coverage
+
+| Feature | Tested | Notes |
+|---------|--------|-------|
+| App launch | Yes | Window appears within timeout |
+| Window title | Yes | Not empty |
+| Window size | Yes | Valid dimensions, reasonable bounds |
+| Terminal renders | Yes | Screenshot is not blank |
+| Clean shutdown | Yes | WM_CLOSE, exit code 0, no crash dialog |
+| Keyboard input (typing) | Yes | Visible output after keystrokes |
+| Enter executes command | Yes | Screen changes after Enter |
+| Backspace | Yes | Visible change after deleting characters |
+| Window resize | Yes | Terminal updates, two sizes compared |
+| Minimum window size | Yes | Shrink to 320x240, no crash |
+| Focus/cursor | Yes | Cursor visible when focused |
+| Command execution | Yes | `echo` output, prompt returns |
+| Scrollback | Yes | Shift+PageUp after generating output |
+| Clipboard copy/paste | Yes | Select, copy, type, paste cycle |
+| Long-running commands | Yes | Output updates over time (`ping`) |
+| DPI: Unaware mode | Yes | Launches and renders |
+| DPI: SystemAware mode | Yes | Launches and renders |
+| DPI: PerMonitorV2 mode | Yes | Launches and renders |
+| DPI: mode affects rendering | Yes | Screenshots differ across modes (high-DPI displays) |
+| DPI: window reports value | Yes | `GetDpiForWindow` >= 96 |
+| Unicode/emoji input | No | |
+| Mouse click | No | `SendMouseButton` API exists |
+| Mouse selection (drag) | No | |
+| Mouse scroll (wheel) | No | `SendMouseScroll` API exists |
+| Ctrl+C (interrupt) | No | |
+| Tab completion | No | |
+| ANSI colors/formatting | No | Verify colored output renders differently |
+| Cursor styles | No | Block, beam, underline |
+| Window maximize/restore | No | |
+| Window minimize/restore | No | |
+| Multi-monitor (move between) | No | DPI change on move |
+| Fullscreen toggle | No | |
+| Content scale changes | No | `SetContentScale` API exists |
+| Occlusion handling | No | `SetOcclusion` API exists |
+| Modifier keys (Ctrl, Alt, Shift) | No | Key combos beyond clipboard |
+| Rapid input (stress) | No | Fast typing, no dropped keys |
+| Rapid resize (stress) | No | Continuous resize, no crash |
+| Resource cleanup | No | No handle/memory leaks after close |
+| Selection clipboard | No | `supports_selection_clipboard` in config |
+| Surface close callback | No | Terminal-initiated close |
+| Multiple surfaces | No | More than one terminal per app |
+| Config loading | No | `ghostty_config_load_default_files` |
 
 ```powershell
 # Run all visual tests
