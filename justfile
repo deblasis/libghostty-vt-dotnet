@@ -24,3 +24,20 @@ clean:
     dotnet clean examples/WinForms/WinForms.slnx
     dotnet clean examples/WPF-Simple/WPF-Simple.slnx
     dotnet clean examples/WPF-Direct/WPF-Direct.slnx
+
+# Run all visual tests
+test-visual:
+    dotnet test tests/Ghostty.Tests.Visual/Ghostty.Tests.Visual.csproj
+
+# CI pipeline
+ci: build-all ci-test-smoke ci-test-visual
+
+ci-test-smoke:
+    dotnet test tests/Ghostty.Tests.Visual/Ghostty.Tests.Visual.csproj --filter "Category=Smoke" --logger "trx;LogFileName=smoke.trx" --results-directory TestResults
+
+ci-test-visual:
+    dotnet test tests/Ghostty.Tests.Visual/Ghostty.Tests.Visual.csproj --logger "trx;LogFileName=visual.trx" --results-directory TestResults
+
+# Update screenshot baselines
+update-baselines:
+    dotnet test tests/Ghostty.Tests.Visual/Ghostty.Tests.Visual.csproj -- TestConfiguration:UpdateBaselines=true
