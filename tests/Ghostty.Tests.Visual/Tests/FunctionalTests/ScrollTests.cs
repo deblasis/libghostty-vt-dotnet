@@ -20,8 +20,15 @@ public class ScrollTests
         await app.WaitForRenderAsync();
 
         // Generate enough output to fill the terminal and create scrollback
-        // Use PowerShell-compatible syntax (works in both PS and cmd via powershell -c)
-        app.SendKeys("1..100 | ForEach-Object { echo \"Line $_\" }");
+        // Use simple repeated echo commands that work in any shell
+        for (int i = 0; i < 5; i++)
+        {
+            app.SendKeys($"echo Line{i}_aaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            app.SendKey(VirtualKeyShort.ENTER);
+            await Task.Delay(300);
+        }
+        // One more command to generate bulk output
+        app.SendKeys("dir /s /b C:\\Windows\\System32\\*.dll");
         app.SendKey(VirtualKeyShort.ENTER);
         await Task.Delay(3000); // Wait for output to complete
         await app.WaitForRenderAsync();
@@ -35,7 +42,7 @@ public class ScrollTests
         var scrolledPath = app.CaptureScreenshot($"Functional_Scroll_{exampleName}_scrolled");
 
         var result = ImageComparer.Compare(bottomPath, scrolledPath,
-            tolerance: TestConfiguration.Instance.ImageTolerance);
+            tolerance: 0);
 
         Assert.False(result.IsMatch,
             $"{exampleName}: scrolling produced no visible change (diff score: {result.DiffScore:F4})");

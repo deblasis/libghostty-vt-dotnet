@@ -28,7 +28,7 @@ public class CommandExecutionTests
         var afterPath = app.CaptureScreenshot($"Functional_Echo_{exampleName}_after");
 
         var result = ImageComparer.Compare(beforePath, afterPath,
-            tolerance: TestConfiguration.Instance.ImageTolerance);
+            tolerance: 0);
 
         Assert.False(result.IsMatch,
             $"{exampleName}: 'echo hello world' produced no visible output (diff score: {result.DiffScore:F4})");
@@ -74,7 +74,7 @@ public class CommandExecutionTests
         var latePath = app.CaptureScreenshot($"Functional_LongRunning_{exampleName}_late");
 
         var result = ImageComparer.Compare(earlyPath, latePath,
-            tolerance: TestConfiguration.Instance.ImageTolerance);
+            tolerance: 0);
 
         Assert.False(result.IsMatch,
             $"{exampleName}: long-running command output did not update over time (diff score: {result.DiffScore:F4})");

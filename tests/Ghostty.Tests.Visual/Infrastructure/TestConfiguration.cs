@@ -18,7 +18,9 @@ public sealed class TestConfiguration
     {
         // Resolve paths relative to the test assembly location
         var assemblyDir = Path.GetDirectoryName(typeof(TestConfiguration).Assembly.Location)!;
-        var projectDir = Path.GetFullPath(Path.Combine(assemblyDir, "..", "..", "..", ".."));
+        // From bin/Debug/net9.0-windows/ up to repo root: 5 levels
+        // net9.0-windows -> Debug -> bin -> Ghostty.Tests.Visual -> tests -> repo root
+        var projectDir = Path.GetFullPath(Path.Combine(assemblyDir, "..", "..", "..", "..", ".."));
 
         ExamplesRootPath = Path.GetFullPath(
             Environment.GetEnvironmentVariable("TEST_EXAMPLES_ROOT")

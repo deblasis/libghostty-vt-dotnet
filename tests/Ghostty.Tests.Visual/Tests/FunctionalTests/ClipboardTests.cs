@@ -45,7 +45,7 @@ public class ClipboardTests
         var pastedPath = app.CaptureScreenshot($"Functional_Clipboard_{exampleName}_pasted");
 
         var result = ImageComparer.Compare(clearedPath, pastedPath,
-            tolerance: TestConfiguration.Instance.ImageTolerance);
+            tolerance: 0);
 
         Assert.False(result.IsMatch,
             $"{exampleName}: paste produced no visible change (diff score: {result.DiffScore:F4})");

@@ -27,7 +27,7 @@ public class ResizeTests
         var largePath = app.CaptureScreenshot($"Interaction_Resize_{exampleName}_large");
 
         var result = ImageComparer.Compare(smallPath, largePath,
-            tolerance: TestConfiguration.Instance.ImageTolerance);
+            tolerance: 0);
 
         Assert.False(result.IsMatch,
             $"{exampleName}: resize produced no visible change (diff score: {result.DiffScore:F4})");

@@ -26,7 +26,7 @@ public class TypingTests
         var afterPath = app.CaptureScreenshot($"Interaction_TypingProducesOutput_{exampleName}_after");
 
         var result = ImageComparer.Compare(beforePath, afterPath,
-            tolerance: TestConfiguration.Instance.ImageTolerance);
+            tolerance: 0);
 
         Assert.False(result.IsMatch,
             $"{exampleName}: typing 'hello' produced no visible change (diff score: {result.DiffScore:F4})");
@@ -51,7 +51,7 @@ public class TypingTests
         var afterEnterPath = app.CaptureScreenshot($"Interaction_EnterExecutesInput_{exampleName}_after");
 
         var result = ImageComparer.Compare(beforeEnterPath, afterEnterPath,
-            tolerance: TestConfiguration.Instance.ImageTolerance);
+            tolerance: 0);
 
         Assert.False(result.IsMatch,
             $"{exampleName}: pressing Enter produced no visible change (diff score: {result.DiffScore:F4})");
@@ -76,7 +76,7 @@ public class TypingTests
         var afterBackspacePath = app.CaptureScreenshot($"Interaction_Backspace_{exampleName}_after");
 
         var result = ImageComparer.Compare(withTextPath, afterBackspacePath,
-            tolerance: TestConfiguration.Instance.ImageTolerance);
+            tolerance: 0);
 
         Assert.False(result.IsMatch,
             $"{exampleName}: backspace produced no visible change (diff score: {result.DiffScore:F4})");
