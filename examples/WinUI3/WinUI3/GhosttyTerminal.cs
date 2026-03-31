@@ -20,7 +20,9 @@ internal sealed partial class GhosttyTerminal : SwapChainPanel, IDisposable
     private readonly Window _window;
     private bool _disposed;
     private nint _swapChainPanelNativePtr;
+    private double _scale = 1.0;
 
+    private const double USER_DEFAULT_SCREEN_DPI = 96.0;
     private const uint WM_USER = 0x0400;
     private const uint WM_GHOSTTY_WAKEUP = WM_USER + 1;
     private const uint WM_CHAR = 0x0102;
@@ -80,6 +82,9 @@ internal sealed partial class GhosttyTerminal : SwapChainPanel, IDisposable
     {
         _window = window;
 
+        HorizontalAlignment = HorizontalAlignment.Stretch;
+        VerticalAlignment = VerticalAlignment.Stretch;
+
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
         SizeChanged += OnSizeChanged;
@@ -103,15 +108,28 @@ internal sealed partial class GhosttyTerminal : SwapChainPanel, IDisposable
         _swapChainPanelNativePtr = GetSwapChainPanelNativePtr();
 
         var dpi = GetDpiForWindow(hwnd);
-        var scale = dpi / 96.0;
+        _scale = dpi / USER_DEFAULT_SCREEN_DPI;
 
         InstallWakeupHandler(hwnd);
+
+        _loaded = true;
+        // If SizeChanged already fired with a valid size, create ghostty now.
+        // Otherwise it will be created on the next SizeChanged.
+        TryCreateGhostty();
+    }
+
+    private bool _loaded;
+
+    private void TryCreateGhostty()
+    {
+        if (_ghostty != null || !_loaded) return;
+        if (_pendingWidth <= 0 || _pendingHeight <= 0) return;
 
         // Pass hwnd=0 so the Zig renderer takes the composition path
         // (it checks hwnd first, only falls through to swap_chain_panel if hwnd is null).
         // We keep the hwnd locally for PostMessage wakeup.
         _ghostty = new GhosttyApp(
-            IntPtr.Zero, _swapChainPanelNativePtr, scale,
+            IntPtr.Zero, _swapChainPanelNativePtr, _scale,
             wakeup: _ => PostMessageW(_hwnd, WM_GHOSTTY_WAKEUP, IntPtr.Zero, IntPtr.Zero),
             action: (_, _, _) => false,
             readClipboard: (_, _, _) => false,
@@ -124,10 +142,7 @@ internal sealed partial class GhosttyTerminal : SwapChainPanel, IDisposable
 
         _ghostty.SetOcclusion(true);
 
-        var width = (uint)ActualWidth;
-        var height = (uint)ActualHeight;
-        if (width > 0 && height > 0)
-            _ghostty.SetSize(width, height);
+        ApplySize();
     }
 
     private nint GetSwapChainPanelNativePtr()
@@ -187,11 +202,26 @@ internal sealed partial class GhosttyTerminal : SwapChainPanel, IDisposable
 
     private void OnSizeChanged(object sender, SizeChangedEventArgs e)
     {
-        if (_ghostty == null) return;
-        var w = (uint)e.NewSize.Width;
-        var h = (uint)e.NewSize.Height;
+        _pendingWidth = e.NewSize.Width;
+        _pendingHeight = e.NewSize.Height;
+
+        if (_ghostty == null)
+        {
+            TryCreateGhostty();
+            return;
+        }
+        ApplySize();
+    }
+
+    private double _pendingWidth;
+    private double _pendingHeight;
+
+    private void ApplySize()
+    {
+        var w = (uint)(_pendingWidth * _scale);
+        var h = (uint)(_pendingHeight * _scale);
         if (w > 0 && h > 0)
-            _ghostty.SetSize(w, h);
+            _ghostty!.SetSize(w, h);
     }
 
     // --- Focus ---
