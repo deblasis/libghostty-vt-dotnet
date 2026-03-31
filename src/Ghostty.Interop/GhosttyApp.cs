@@ -12,6 +12,7 @@ public sealed class GhosttyApp : IDisposable
     private nint _app;
     private nint _surface;
     private bool _disposed;
+    private static int _initialized; // 0 = not yet, 1 = done
 
     // Pin delegates so GC does not collect them while native code holds pointers.
     private GCHandle[] _pinnedDelegates = Array.Empty<GCHandle>();
@@ -73,10 +74,16 @@ public sealed class GhosttyApp : IDisposable
         _pinnedDelegates[4] = GCHandle.Alloc(writeClipboard);
         _pinnedDelegates[5] = GCHandle.Alloc(closeSurface);
 
-        // 1. Init global state
-        var result = NativeMethods.ghostty_init(0, nint.Zero);
-        if (result != 0)
-            throw new InvalidOperationException("ghostty_init failed");
+        // 1. Init global state (once per process)
+        if (Interlocked.CompareExchange(ref _initialized, 1, 0) == 0)
+        {
+            var result = NativeMethods.ghostty_init(0, nint.Zero);
+            if (result != 0)
+            {
+                Volatile.Write(ref _initialized, 0); // allow retry on failure
+                throw new InvalidOperationException("ghostty_init failed");
+            }
+        }
 
         // 2. Config
         var config = NativeMethods.ghostty_config_new();
@@ -152,12 +159,22 @@ public sealed class GhosttyApp : IDisposable
 
     public void SendText(string text)
     {
-        var bytes = Encoding.UTF8.GetBytes(text);
+        var maxBytes = Encoding.UTF8.GetMaxByteCount(text.Length);
         unsafe
         {
-            fixed (byte* ptr = bytes)
+            if (maxBytes <= 256)
             {
-                NativeMethods.ghostty_surface_text(_surface, (nint)ptr, (nuint)bytes.Length);
+                byte* buf = stackalloc byte[maxBytes];
+                int len;
+                fixed (char* chars = text)
+                    len = Encoding.UTF8.GetBytes(chars, text.Length, buf, maxBytes);
+                NativeMethods.ghostty_surface_text(_surface, (nint)buf, (nuint)len);
+            }
+            else
+            {
+                var bytes = Encoding.UTF8.GetBytes(text);
+                fixed (byte* ptr = bytes)
+                    NativeMethods.ghostty_surface_text(_surface, (nint)ptr, (nuint)bytes.Length);
             }
         }
     }

@@ -29,35 +29,39 @@ internal sealed partial class GhosttyTerminal : SwapChainPanel, IDisposable
     private delegate IntPtr SUBCLASSPROC(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam,
         nuint uIdSubclass, nuint dwRefData);
 
-    [DllImport("user32.dll")]
-    private static extern bool PostMessageW(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool PostMessageW(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
 
-    [DllImport("user32.dll")]
-    private static extern uint GetDpiForWindow(IntPtr hwnd);
+    [LibraryImport("user32.dll")]
+    private static partial uint GetDpiForWindow(IntPtr hwnd);
 
-    [DllImport("user32.dll")]
-    private static extern uint MapVirtualKeyW(uint uCode, uint uMapType);
+    [LibraryImport("user32.dll")]
+    private static partial uint MapVirtualKeyW(uint uCode, uint uMapType);
 
-    [DllImport("user32.dll")]
-    private static extern short GetAsyncKeyState(int vKey);
+    [LibraryImport("user32.dll")]
+    private static partial short GetAsyncKeyState(int vKey);
 
-    [DllImport("user32.dll")]
-    private static extern int ToUnicode(uint wVirtKey, uint wScanCode, byte[] lpKeyState,
-        [MarshalAs(UnmanagedType.LPWStr)] System.Text.StringBuilder pwszBuff, int cchBuff, uint wFlags);
+    [LibraryImport("user32.dll")]
+    private static unsafe partial int ToUnicode(uint wVirtKey, uint wScanCode, byte* lpKeyState,
+        char* pwszBuff, int cchBuff, uint wFlags);
 
-    [DllImport("user32.dll")]
-    private static extern bool GetKeyboardState(byte[] lpKeyState);
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static unsafe partial bool GetKeyboardState(byte* lpKeyState);
 
-    [DllImport("comctl32.dll")]
-    private static extern bool SetWindowSubclass(IntPtr hWnd, SUBCLASSPROC pfnSubclass,
+    [LibraryImport("comctl32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool SetWindowSubclass(IntPtr hWnd, SUBCLASSPROC pfnSubclass,
         nuint uIdSubclass, nuint dwRefData);
 
-    [DllImport("comctl32.dll")]
-    private static extern bool RemoveWindowSubclass(IntPtr hWnd, SUBCLASSPROC pfnSubclass,
+    [LibraryImport("comctl32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool RemoveWindowSubclass(IntPtr hWnd, SUBCLASSPROC pfnSubclass,
         nuint uIdSubclass);
 
-    [DllImport("comctl32.dll")]
-    private static extern IntPtr DefSubclassProc(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam);
+    [LibraryImport("comctl32.dll")]
+    private static partial IntPtr DefSubclassProc(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam);
 
     private SUBCLASSPROC? _subclassProc;
     private IntPtr _hwnd;
@@ -113,22 +117,33 @@ internal sealed partial class GhosttyTerminal : SwapChainPanel, IDisposable
         var hwnd = GetWindowHandle(_window);
 
         _swapChainPanelNativePtr = GetSwapChainPanelNativePtr();
-
-        var dpi = GetDpiForWindow(hwnd);
-        _scale = dpi / USER_DEFAULT_SCREEN_DPI;
-
-        InstallWakeupHandler(hwnd);
-
-        // Wire keyboard to the window root so input works regardless of
-        // which XAML element has focus (SwapChainPanel focus is unreliable).
-        if (_window.Content is FrameworkElement root)
+        try
         {
-            root.PreviewKeyDown += OnKeyDown;
-            root.PreviewKeyUp += OnKeyUp;
-        }
+            var dpi = GetDpiForWindow(hwnd);
+            _scale = dpi / USER_DEFAULT_SCREEN_DPI;
 
-        _loaded = true;
-        TryCreateGhostty();
+            InstallWakeupHandler(hwnd);
+
+            // Wire keyboard to the window root so input works regardless of
+            // which XAML element has focus (SwapChainPanel focus is unreliable).
+            if (_window.Content is FrameworkElement root)
+            {
+                root.PreviewKeyDown += OnKeyDown;
+                root.PreviewKeyUp += OnKeyUp;
+            }
+
+            _loaded = true;
+            TryCreateGhostty();
+        }
+        catch
+        {
+            if (_swapChainPanelNativePtr != 0)
+            {
+                Marshal.Release(_swapChainPanelNativePtr);
+                _swapChainPanelNativePtr = 0;
+            }
+            throw;
+        }
     }
 
     private bool _loaded;
@@ -163,7 +178,8 @@ internal sealed partial class GhosttyTerminal : SwapChainPanel, IDisposable
         var unknown = Marshal.GetIUnknownForObject(this);
         try
         {
-            Marshal.QueryInterface(unknown, in IID_ISwapChainPanelNative, out var native);
+            var hr = Marshal.QueryInterface(unknown, in IID_ISwapChainPanelNative, out var native);
+            Marshal.ThrowExceptionForHR(hr);
             return native;
         }
         finally
@@ -260,17 +276,20 @@ internal sealed partial class GhosttyTerminal : SwapChainPanel, IDisposable
 
         // Generate character text from the key press via ToUnicode.
         // This replaces WM_CHAR which WinUI 3 does not reliably deliver.
-        var keyboardState = new byte[256];
-        GetKeyboardState(keyboardState);
-        var buf = new System.Text.StringBuilder(4);
-        var chars = ToUnicode(vk, scanCode, keyboardState, buf, buf.Capacity, 0);
-        if (chars > 0)
+        unsafe
         {
-            var text = buf.ToString(0, chars);
-            // Only send printable characters as text; control characters
-            // (backspace, enter, tab, etc.) are handled by SendKey above.
-            if (text.Length > 0 && text[0] >= 32)
-                _ghostty.SendText(text);
+            var keyboardState = stackalloc byte[256];
+            GetKeyboardState(keyboardState);
+            var buf = stackalloc char[4];
+            var chars = ToUnicode(vk, scanCode, keyboardState, buf, 4, 0);
+            if (chars > 0)
+            {
+                var text = new string(buf, 0, chars);
+                // Only send printable characters as text; control characters
+                // (backspace, enter, tab, etc.) are handled by SendKey above.
+                if (text.Length > 0 && text[0] >= 32)
+                    _ghostty.SendText(text);
+            }
         }
 
         e.Handled = true;

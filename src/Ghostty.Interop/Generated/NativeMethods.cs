@@ -522,12 +522,15 @@ public struct ghostty_target_s
 // matching the largest union member, since most consumers only
 // check the tag. Individual fields can be read via Unsafe.As
 // or explicit struct overlays when needed.
+//
+// IMPORTANT: This size (32 bytes) was verified against ghostty.h at
+// commit 4661ab0af. If ghostty_action_s changes size in a newer
+// libghostty, update _data accordingly.
 [StructLayout(LayoutKind.Sequential)]
 public unsafe struct ghostty_action_u
 {
-    // The union's largest member is ~24 bytes on 64-bit.
-    // Use 32 bytes for safety.
-    public fixed byte _data[32];
+    public const int Size = 32;
+    public fixed byte _data[Size];
 }
 
 [StructLayout(LayoutKind.Sequential)]
