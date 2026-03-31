@@ -459,6 +459,7 @@ public struct ghostty_platform_ios_s
 public struct ghostty_platform_windows_s
 {
     public nint hwnd;
+    public nint swap_chain_panel;
 }
 
 [StructLayout(LayoutKind.Explicit)]
