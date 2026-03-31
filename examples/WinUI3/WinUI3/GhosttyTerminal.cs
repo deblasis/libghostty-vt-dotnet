@@ -25,7 +25,6 @@ internal sealed partial class GhosttyTerminal : SwapChainPanel, IDisposable
     private const double USER_DEFAULT_SCREEN_DPI = 96.0;
     private const uint WM_USER = 0x0400;
     private const uint WM_GHOSTTY_WAKEUP = WM_USER + 1;
-    private const uint WM_CHAR = 0x0102;
 
     private delegate IntPtr SUBCLASSPROC(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam,
         nuint uIdSubclass, nuint dwRefData);
@@ -41,6 +40,13 @@ internal sealed partial class GhosttyTerminal : SwapChainPanel, IDisposable
 
     [DllImport("user32.dll")]
     private static extern short GetAsyncKeyState(int vKey);
+
+    [DllImport("user32.dll")]
+    private static extern int ToUnicode(uint wVirtKey, uint wScanCode, byte[] lpKeyState,
+        [MarshalAs(UnmanagedType.LPWStr)] System.Text.StringBuilder pwszBuff, int cchBuff, uint wFlags);
+
+    [DllImport("user32.dll")]
+    private static extern bool GetKeyboardState(byte[] lpKeyState);
 
     [DllImport("comctl32.dll")]
     private static extern bool SetWindowSubclass(IntPtr hWnd, SUBCLASSPROC pfnSubclass,
@@ -89,8 +95,7 @@ internal sealed partial class GhosttyTerminal : SwapChainPanel, IDisposable
         Unloaded += OnUnloaded;
         SizeChanged += OnSizeChanged;
 
-        KeyDown += OnKeyDown;
-        KeyUp += OnKeyUp;
+        // Mouse and focus events on the panel itself
         PointerMoved += OnPointerMoved;
         PointerPressed += OnPointerPressed;
         PointerReleased += OnPointerReleased;
@@ -98,6 +103,8 @@ internal sealed partial class GhosttyTerminal : SwapChainPanel, IDisposable
         GotFocus += OnGotFocus;
         LostFocus += OnLostFocus;
 
+        // Keyboard events are wired to the window root in OnLoaded,
+        // because SwapChainPanel may not reliably receive keyboard focus.
         IsTabStop = true;
     }
 
@@ -112,9 +119,15 @@ internal sealed partial class GhosttyTerminal : SwapChainPanel, IDisposable
 
         InstallWakeupHandler(hwnd);
 
+        // Wire keyboard to the window root so input works regardless of
+        // which XAML element has focus (SwapChainPanel focus is unreliable).
+        if (_window.Content is FrameworkElement root)
+        {
+            root.PreviewKeyDown += OnKeyDown;
+            root.PreviewKeyUp += OnKeyUp;
+        }
+
         _loaded = true;
-        // If SizeChanged already fired with a valid size, create ghostty now.
-        // Otherwise it will be created on the next SizeChanged.
         TryCreateGhostty();
     }
 
@@ -173,15 +186,6 @@ internal sealed partial class GhosttyTerminal : SwapChainPanel, IDisposable
         {
             _ghostty?.Tick();
             return IntPtr.Zero;
-        }
-        if (uMsg == WM_CHAR)
-        {
-            var ch = (int)wParam;
-            if (ch >= 32)
-            {
-                _ghostty?.SendText(char.ConvertFromUtf32(ch));
-                return IntPtr.Zero;
-            }
         }
         return DefSubclassProc(hWnd, uMsg, wParam, lParam);
     }
@@ -242,15 +246,34 @@ internal sealed partial class GhosttyTerminal : SwapChainPanel, IDisposable
     {
         if (_ghostty == null) return;
 
+        var vk = (uint)e.Key;
+        var scanCode = MapVirtualKeyW(vk, 0);
+
         var key = new ghostty_input_key_s
         {
             action = ghostty_input_action_e.GHOSTTY_ACTION_PRESS,
             mods = GetMods(),
-            keycode = MapVirtualKeyW((uint)e.Key, 0),
+            keycode = scanCode,
         };
 
-        if (_ghostty.SendKey(key))
-            e.Handled = true;
+        _ghostty.SendKey(key);
+
+        // Generate character text from the key press via ToUnicode.
+        // This replaces WM_CHAR which WinUI 3 does not reliably deliver.
+        var keyboardState = new byte[256];
+        GetKeyboardState(keyboardState);
+        var buf = new System.Text.StringBuilder(4);
+        var chars = ToUnicode(vk, scanCode, keyboardState, buf, buf.Capacity, 0);
+        if (chars > 0)
+        {
+            var text = buf.ToString(0, chars);
+            // Only send printable characters as text; control characters
+            // (backspace, enter, tab, etc.) are handled by SendKey above.
+            if (text.Length > 0 && text[0] >= 32)
+                _ghostty.SendText(text);
+        }
+
+        e.Handled = true;
     }
 
     private void OnKeyUp(object sender, KeyRoutedEventArgs e)
