@@ -13,6 +13,9 @@ internal sealed partial class GhosttyTerminal : SwapChainPanel, IDisposable
     private static readonly Guid IID_ISwapChainPanelNative =
         new("63aad0b8-7c24-40ff-85a8-640d944cc325");
 
+    private static readonly Guid IID_IWindowNative =
+        new("EECDBF0E-BAE9-4CB6-A68E-9598E1CB57BB");
+
     private GhosttyApp? _ghostty;
     private readonly Window _window;
     private bool _disposed;
@@ -22,7 +25,6 @@ internal sealed partial class GhosttyTerminal : SwapChainPanel, IDisposable
     private const uint WM_GHOSTTY_WAKEUP = WM_USER + 1;
     private const uint WM_CHAR = 0x0102;
 
-    // Win32 subclass for wakeup message
     private delegate IntPtr SUBCLASSPROC(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam,
         nuint uIdSubclass, nuint dwRefData);
 
@@ -52,15 +54,26 @@ internal sealed partial class GhosttyTerminal : SwapChainPanel, IDisposable
     private SUBCLASSPROC? _subclassProc;
     private IntPtr _hwnd;
 
-    // Track last pressed mouse button for release events
     private ghostty_input_mouse_button_e _lastMouseButton;
 
-    [ComImport]
-    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    [Guid("EECDBF0E-BAE9-4CB6-A68E-9598E1CB57BB")]
-    internal interface IWindowNative
+    private static unsafe IntPtr GetWindowHandle(Window window)
     {
-        IntPtr WindowHandle { get; }
+        var unknown = Marshal.GetIUnknownForObject(window);
+        try
+        {
+            Marshal.QueryInterface(unknown, in IID_IWindowNative, out var windowNativePtr);
+            // IWindowNative vtable: IUnknown (3 slots) + get_WindowHandle at slot 3
+            var vtable = Marshal.ReadIntPtr(windowNativePtr);
+            var getWindowHandle = Marshal.ReadIntPtr(vtable, 3 * IntPtr.Size);
+            var hr = ((delegate* unmanaged[Stdcall]<IntPtr, out IntPtr, int>)getWindowHandle)(windowNativePtr, out var hwnd);
+            Marshal.Release(windowNativePtr);
+            Marshal.ThrowExceptionForHR(hr);
+            return hwnd;
+        }
+        finally
+        {
+            Marshal.Release(unknown);
+        }
     }
 
     public GhosttyTerminal(Window window)
@@ -73,7 +86,6 @@ internal sealed partial class GhosttyTerminal : SwapChainPanel, IDisposable
 
         KeyDown += OnKeyDown;
         KeyUp += OnKeyUp;
-        // Text input handled via WM_CHAR in the window subclass proc
         PointerMoved += OnPointerMoved;
         PointerPressed += OnPointerPressed;
         PointerReleased += OnPointerReleased;
@@ -86,8 +98,7 @@ internal sealed partial class GhosttyTerminal : SwapChainPanel, IDisposable
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        var windowNative = (IWindowNative)_window;
-        var hwnd = windowNative.WindowHandle;
+        var hwnd = GetWindowHandle(_window);
 
         _swapChainPanelNativePtr = GetSwapChainPanelNativePtr();
 
@@ -96,8 +107,11 @@ internal sealed partial class GhosttyTerminal : SwapChainPanel, IDisposable
 
         InstallWakeupHandler(hwnd);
 
+        // Pass hwnd=0 so the Zig renderer takes the composition path
+        // (it checks hwnd first, only falls through to swap_chain_panel if hwnd is null).
+        // We keep the hwnd locally for PostMessage wakeup.
         _ghostty = new GhosttyApp(
-            hwnd, _swapChainPanelNativePtr, scale,
+            IntPtr.Zero, _swapChainPanelNativePtr, scale,
             wakeup: _ => PostMessageW(_hwnd, WM_GHOSTTY_WAKEUP, IntPtr.Zero, IntPtr.Zero),
             action: (_, _, _) => false,
             readClipboard: (_, _, _) => false,
@@ -254,7 +268,6 @@ internal sealed partial class GhosttyTerminal : SwapChainPanel, IDisposable
     private void OnPointerReleased(object sender, PointerRoutedEventArgs e)
     {
         if (_ghostty == null) return;
-        // Use tracked button since IsXxxButtonPressed is false on release
         _ghostty.SendMouseButton(
             ghostty_input_mouse_state_e.GHOSTTY_MOUSE_RELEASE,
             _lastMouseButton, GetMods());
