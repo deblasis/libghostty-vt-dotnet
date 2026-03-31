@@ -22,6 +22,9 @@ jobs:
         with:
           version: 0.15.0  # Must match the version compatible with libghostty pinned commit
 
+      - name: Install just
+        uses: extractions/setup-just@v2
+
       - name: Build libghostty
         run: ./setup.ps1
 

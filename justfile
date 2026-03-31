@@ -40,4 +40,4 @@ ci-test-visual:
 
 # Update screenshot baselines
 update-baselines:
-    dotnet test tests/Ghostty.Tests.Visual/Ghostty.Tests.Visual.csproj -- TestConfiguration:UpdateBaselines=true
+    TEST_UPDATE_BASELINES=true dotnet test tests/Ghostty.Tests.Visual/Ghostty.Tests.Visual.csproj

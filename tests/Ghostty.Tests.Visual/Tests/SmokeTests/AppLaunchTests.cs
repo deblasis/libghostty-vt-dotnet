@@ -63,7 +63,7 @@ public class AppLaunchTests
         using var app = await AppLauncher.StartAsync(exampleName);
         await app.WaitForRenderAsync();
 
-        var result = app.CloseGracefully(TimeSpan.FromSeconds(5));
+        var result = app.CloseGracefully();
         Assert.Equal(0, result);
     }
 }

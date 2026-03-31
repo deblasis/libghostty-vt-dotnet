@@ -31,8 +31,8 @@ public class ClipboardTests
         app.SendKeyCombo(VirtualKeyShort.CONTROL, VirtualKeyShort.SHIFT, VirtualKeyShort.KEY_C);
         await Task.Delay(200);
 
-        // Clear screen
-        app.SendKeys("cls");
+        // Clear screen (works in both cmd and PowerShell)
+        app.SendKeys("clear");
         app.SendKey(VirtualKeyShort.ENTER);
         await app.WaitForRenderAsync();
 

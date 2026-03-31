@@ -27,10 +27,15 @@ public sealed class ExampleBuildFixture : IAsyncLifetime
                 CreateNoWindow = true
             })!;
 
+            // Read streams before WaitForExit to avoid deadlock when pipe buffers fill
+            var stderrTask = process.StandardError.ReadToEndAsync();
+            var stdoutTask = process.StandardOutput.ReadToEndAsync();
             await process.WaitForExitAsync();
+            var stderr = await stderrTask;
+            await stdoutTask;
+
             if (process.ExitCode != 0)
             {
-                var stderr = await process.StandardError.ReadToEndAsync();
                 throw new InvalidOperationException(
                     $"Failed to build {name}: exit code {process.ExitCode}\n{stderr}");
             }

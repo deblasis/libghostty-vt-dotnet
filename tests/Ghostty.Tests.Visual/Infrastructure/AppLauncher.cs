@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using FlaUI.Core;
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Capturing;
@@ -27,35 +26,13 @@ public sealed partial class AppLauncher : IDisposable
     }
 
     /// <summary>
-    /// Build (if configured) and launch an example app, waiting for the main window to appear.
+    /// Launch an example app, waiting for the main window to appear.
+    /// Building is handled by ExampleBuildFixture — not repeated here.
     /// </summary>
     public static async Task<AppLauncher> StartAsync(string exampleName, TimeSpan? timeout = null)
     {
         var config = TestConfiguration.Instance;
         var effectiveTimeout = timeout ?? config.DefaultTimeout;
-
-        // Build the example if configured
-        if (config.BuildBeforeTest)
-        {
-            var slnPath = config.GetExampleSolutionPath(exampleName);
-            var buildProcess = Process.Start(new ProcessStartInfo
-            {
-                FileName = "dotnet",
-                Arguments = $"build \"{slnPath}\" --no-restore -v quiet",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            })!;
-
-            await buildProcess.WaitForExitAsync();
-            if (buildProcess.ExitCode != 0)
-            {
-                var stderr = await buildProcess.StandardError.ReadToEndAsync();
-                throw new InvalidOperationException(
-                    $"Failed to build {exampleName}: exit code {buildProcess.ExitCode}\n{stderr}");
-            }
-        }
 
         // Launch the executable
         var exePath = config.GetExampleExecutablePath(exampleName);
@@ -89,6 +66,7 @@ public sealed partial class AppLauncher : IDisposable
     /// </summary>
     public string CaptureScreenshot(string name)
     {
+        MainWindow.Focus();
         var dir = _config.GetTestResultDir(_exampleName, name);
         Directory.CreateDirectory(dir);
         var path = Path.Combine(dir, "actual.png");
@@ -148,18 +126,24 @@ public sealed partial class AppLauncher : IDisposable
 
     /// <summary>
     /// Send a key combination (e.g., Ctrl+Shift+C).
+    /// Holds modifier keys using IDisposable Pressing pattern, presses the final key, then releases.
     /// </summary>
     public void SendKeyCombo(params FlaUI.Core.WindowsAPI.VirtualKeyShort[] keys)
     {
         MainWindow.Focus();
-        // Hold all modifier keys, press the last key, then release modifiers
-        for (int i = 0; i < keys.Length - 1; i++)
-            FlaUI.Core.Input.Keyboard.Pressing(keys[i]);
+        var modifiers = new IDisposable[keys.Length - 1];
+        try
+        {
+            for (int i = 0; i < keys.Length - 1; i++)
+                modifiers[i] = FlaUI.Core.Input.Keyboard.Pressing(keys[i]);
 
-        FlaUI.Core.Input.Keyboard.Press(keys[^1]);
-
-        for (int i = keys.Length - 2; i >= 0; i--)
-            FlaUI.Core.Input.Keyboard.Release(keys[i]);
+            FlaUI.Core.Input.Keyboard.Press(keys[^1]);
+        }
+        finally
+        {
+            for (int i = modifiers.Length - 1; i >= 0; i--)
+                modifiers[i]?.Dispose();
+        }
     }
 
     /// <summary>
@@ -181,11 +165,10 @@ public sealed partial class AppLauncher : IDisposable
     }
 
     /// <summary>
-    /// Close the app gracefully. Returns the exit code.
+    /// Close the app gracefully. Returns 0 on success, -1 on failure.
     /// </summary>
-    public int CloseGracefully(TimeSpan? timeout = null)
+    public int CloseGracefully()
     {
-        var effectiveTimeout = timeout ?? TimeSpan.FromSeconds(5);
         var result = _app.Close(killIfCloseFails: true);
         return result ? 0 : -1;
     }

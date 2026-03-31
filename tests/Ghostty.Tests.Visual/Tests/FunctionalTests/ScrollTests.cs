@@ -20,8 +20,8 @@ public class ScrollTests
         await app.WaitForRenderAsync();
 
         // Generate enough output to fill the terminal and create scrollback
-        // Use a loop that prints numbered lines
-        app.SendKeys("for /L %i in (1,1,100) do @echo Line %i");
+        // Use PowerShell-compatible syntax (works in both PS and cmd via powershell -c)
+        app.SendKeys("1..100 | ForEach-Object { echo \"Line $_\" }");
         app.SendKey(VirtualKeyShort.ENTER);
         await Task.Delay(3000); // Wait for output to complete
         await app.WaitForRenderAsync();
