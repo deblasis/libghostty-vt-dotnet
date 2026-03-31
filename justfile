@@ -1,5 +1,5 @@
 # Build all examples
-build-all: build-win32 build-winforms build-wpf-simple build-wpf-direct
+build-all: build-win32 build-winforms build-wpf-simple build-wpf-direct build-winui3
 
 # Individual example builds
 build-win32:
@@ -14,6 +14,9 @@ build-wpf-simple:
 build-wpf-direct:
     dotnet build examples/WPF-Direct/WPF-Direct.slnx
 
+build-winui3:
+    dotnet build examples/WinUI3/WinUI3.slnx
+
 # Build the interop library only
 build-interop:
     dotnet build src/Ghostty.Interop/Ghostty.Interop.csproj
@@ -24,6 +27,7 @@ clean:
     dotnet clean examples/WinForms/WinForms.slnx
     dotnet clean examples/WPF-Simple/WPF-Simple.slnx
     dotnet clean examples/WPF-Direct/WPF-Direct.slnx
+    dotnet clean examples/WinUI3/WinUI3.slnx
 
 # Run all visual tests
 test-visual:
