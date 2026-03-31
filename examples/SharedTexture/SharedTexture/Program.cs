@@ -22,21 +22,49 @@ class MainForm : Form
     private int _width, _height;
     private System.Windows.Forms.Timer? _timer;
 
-    [DllImport("user32.dll")] static extern short GetKeyState(int k);
+    // Win32 message constants
+    const int WM_KEYDOWN    = 0x0100;
+    const int WM_KEYUP      = 0x0101;
+    const int WM_CHAR       = 0x0102;
+    const int WM_SYSKEYDOWN = 0x0104;
+    const int WM_SYSKEYUP   = 0x0105;
+
+    // Virtual key constants
+    const int VK_SHIFT   = 0x10;
+    const int VK_CONTROL = 0x11;
+    const int VK_MENU    = 0x12; // Alt
+
+    [DllImport("user32.dll")]
+    static extern short GetKeyState(int nVirtKey);
 
     [StructLayout(LayoutKind.Sequential)]
-    struct TexDesc { public uint W, H, Mip, Arr, Fmt, SC, SQ, Use, Bind, CPU, Misc; }
+    struct D3D11Texture2DDesc
+    {
+        public uint Width, Height, MipLevels, ArraySize, Format;
+        public uint SampleCount, SampleQuality, Usage, BindFlags, CPUAccessFlags, MiscFlags;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
-    struct Mapped { public nint pData; public uint Pitch, Depth; }
+    struct D3D11MappedSubresource
+    {
+        public nint pData;
+        public uint RowPitch, DepthPitch;
+    }
 
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
-    unsafe delegate int CreateTex2DFn(nint s, TexDesc* d, nint i, out nint t);
+    unsafe delegate int CreateTexture2DFn(
+        nint self, D3D11Texture2DDesc* desc, nint initialData, out nint texture);
+
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
-    delegate void CopyResFn(nint s, nint dst, nint src);
+    delegate void CopyResourceFn(nint self, nint dst, nint src);
+
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
-    unsafe delegate int MapFn(nint s, nint r, uint sub, uint ty, uint fl, Mapped* m);
+    unsafe delegate int MapFn(
+        nint self, nint resource, uint subresource, uint mapType, uint mapFlags,
+        D3D11MappedSubresource* mappedResource);
+
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
-    delegate void UnmapFn(nint s, nint r, uint sub);
+    delegate void UnmapFn(nint self, nint resource, uint subresource);
 
     public MainForm()
     {
@@ -87,31 +115,38 @@ class MainForm : Form
         // Lazy staging texture creation
         if (_staging == 0)
         {
-            var d = new TexDesc { W = (uint)_width, H = (uint)_height, Mip = 1, Arr = 1,
-                Fmt = 87, SC = 1, Use = 3, CPU = 0x20000 };
+            var desc = new D3D11Texture2DDesc {
+                Width = (uint)_width, Height = (uint)_height, MipLevels = 1, ArraySize = 1,
+                Format = 87,            // DXGI_FORMAT_B8G8R8A8_UNORM
+                SampleCount = 1,
+                Usage = 3,              // D3D11_USAGE_STAGING
+                CPUAccessFlags = 0x20000 // D3D11_CPU_ACCESS_READ
+            };
             var vt = *(nint*)_device;
-            var fn = Marshal.GetDelegateForFunctionPointer<CreateTex2DFn>(*(nint*)(vt + 5 * nint.Size));
-            if (fn(_device, &d, 0, out _staging) < 0) { _busy = false; return; }
+            // ID3D11Device vtable slot 5 = CreateTexture2D
+            var fn = Marshal.GetDelegateForFunctionPointer<CreateTexture2DFn>(*(nint*)(vt + 5 * nint.Size));
+            if (fn(_device, &desc, 0, out _staging) < 0) { _busy = false; return; }
         }
 
         var tex = _ghostty.D3D11Texture;
         if (tex != 0 && _bitmap != null)
         {
             var vt = *(nint*)_context;
-            var copy = Marshal.GetDelegateForFunctionPointer<CopyResFn>(*(nint*)(vt + 47 * nint.Size));
+            // ID3D11DeviceContext vtable: slot 47 = CopyResource, 14 = Map, 15 = Unmap
+            var copy = Marshal.GetDelegateForFunctionPointer<CopyResourceFn>(*(nint*)(vt + 47 * nint.Size));
             var map = Marshal.GetDelegateForFunctionPointer<MapFn>(*(nint*)(vt + 14 * nint.Size));
             var unmap = Marshal.GetDelegateForFunctionPointer<UnmapFn>(*(nint*)(vt + 15 * nint.Size));
 
             copy(_context, _staging, tex);
 
-            Mapped m;
-            if (map(_context, _staging, 0, 1, 0, &m) >= 0)
+            D3D11MappedSubresource mapped;
+            if (map(_context, _staging, 0, 1, 0, &mapped) >= 0)
             {
                 var bd = _bitmap.LockBits(new Rectangle(0, 0, _width, _height),
                     System.Drawing.Imaging.ImageLockMode.WriteOnly,
                     System.Drawing.Imaging.PixelFormat.Format32bppArgb);
                 for (int y = 0; y < _height; y++)
-                    Buffer.MemoryCopy((byte*)m.pData + y * m.Pitch,
+                    Buffer.MemoryCopy((byte*)mapped.pData + y * mapped.RowPitch,
                         (byte*)bd.Scan0 + y * bd.Stride, bd.Stride, _width * 4);
                 _bitmap.UnlockBits(bd);
                 unmap(_context, _staging, 0);
@@ -134,11 +169,11 @@ class MainForm : Form
         {
             switch (m.Msg)
             {
-                case 0x0100: case 0x0104:
+                case WM_KEYDOWN: case WM_SYSKEYDOWN:
                     SendKey(m, ghostty_input_action_e.GHOSTTY_ACTION_PRESS); break;
-                case 0x0101: case 0x0105:
+                case WM_KEYUP: case WM_SYSKEYUP:
                     SendKey(m, ghostty_input_action_e.GHOSTTY_ACTION_RELEASE); break;
-                case 0x0102:
+                case WM_CHAR:
                     var c = (char)(int)m.WParam;
                     if (c >= 0x20 && c != 0x7F) _ghostty.SendText(c.ToString());
                     break;
@@ -153,11 +188,11 @@ class MainForm : Form
 
     static ghostty_input_mods_e GetMods()
     {
-        var m = ghostty_input_mods_e.GHOSTTY_MODS_NONE;
-        if ((GetKeyState(0x10) & 0x8000) != 0) m |= ghostty_input_mods_e.GHOSTTY_MODS_SHIFT;
-        if ((GetKeyState(0x11) & 0x8000) != 0) m |= ghostty_input_mods_e.GHOSTTY_MODS_CTRL;
-        if ((GetKeyState(0x12) & 0x8000) != 0) m |= ghostty_input_mods_e.GHOSTTY_MODS_ALT;
-        return m;
+        var mods = ghostty_input_mods_e.GHOSTTY_MODS_NONE;
+        if ((GetKeyState(VK_SHIFT) & 0x8000) != 0) mods |= ghostty_input_mods_e.GHOSTTY_MODS_SHIFT;
+        if ((GetKeyState(VK_CONTROL) & 0x8000) != 0) mods |= ghostty_input_mods_e.GHOSTTY_MODS_CTRL;
+        if ((GetKeyState(VK_MENU) & 0x8000) != 0) mods |= ghostty_input_mods_e.GHOSTTY_MODS_ALT;
+        return mods;
     }
 
     protected override void OnFormClosed(FormClosedEventArgs e)

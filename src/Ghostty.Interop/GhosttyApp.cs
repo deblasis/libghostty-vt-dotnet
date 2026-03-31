@@ -31,12 +31,13 @@ public sealed class GhosttyApp : IDisposable
 
     /// <summary>
     /// Returns ghostty's ID3D11Device pointer.
+    /// Borrowed pointer, valid for the lifetime of the surface. Do not Release.
     /// </summary>
     public nint D3D11Device => _surface != 0 ? NativeMethods.ghostty_surface_get_d3d11_device(_surface) : 0;
 
     /// <summary>
     /// Returns ghostty's ID3D11DeviceContext pointer.
-    /// Enable multithread protection when using from a non-render thread.
+    /// Borrowed pointer, valid for the lifetime of the surface. Do not Release.
     /// </summary>
     public nint D3D11Context => _surface != 0 ? NativeMethods.ghostty_surface_get_d3d11_context(_surface) : 0;
 
