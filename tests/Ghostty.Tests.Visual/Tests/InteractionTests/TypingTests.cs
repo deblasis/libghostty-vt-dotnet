@@ -65,12 +65,18 @@ public class TypingTests
         using var app = await AppLauncher.StartAsync(exampleName);
         await app.WaitForRenderAsync();
 
-        app.SendKeys("abc");
+        // Type a longer string so backspace produces a clearly visible change
+        app.SendKeys("abcdefghij");
         await app.WaitForRenderAsync();
 
         var withTextPath = app.CaptureScreenshot($"Interaction_Backspace_{exampleName}_before");
 
-        app.SendKey(FlaUI.Core.WindowsAPI.VirtualKeyShort.BACK);
+        // Delete multiple characters to ensure visible change
+        for (int i = 0; i < 5; i++)
+        {
+            app.SendKey(FlaUI.Core.WindowsAPI.VirtualKeyShort.BACK);
+            await Task.Delay(100);
+        }
         await app.WaitForRenderAsync();
 
         var afterBackspacePath = app.CaptureScreenshot($"Interaction_Backspace_{exampleName}_after");

@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using FlaUI.Core;
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Capturing;
@@ -50,7 +51,13 @@ public sealed partial class AppLauncher : IDisposable
                 throw new TimeoutException(
                     $"{exampleName} did not produce a visible window within {effectiveTimeout.TotalSeconds}s");
 
-            return new AppLauncher(app, automation, window, exampleName, config);
+            var launcher = new AppLauncher(app, automation, window, exampleName, config);
+
+            // In workstation mode, aggressively acquire focus after launch
+            if (!config.IsCi)
+                launcher.AcquireFocus();
+
+            return launcher;
         }
         catch
         {
@@ -63,10 +70,12 @@ public sealed partial class AppLauncher : IDisposable
 
     /// <summary>
     /// Capture a screenshot of the main window.
+    /// Ensures focus first — aggressively in workstation mode.
+    /// Uses FlaUI screen capture (PrintWindow can't capture GPU-rendered surfaces like ghostty).
     /// </summary>
     public string CaptureScreenshot(string name)
     {
-        MainWindow.Focus();
+        EnsureFocus();
         var dir = _config.GetTestResultDir(_exampleName, name);
         Directory.CreateDirectory(dir);
         var path = Path.Combine(dir, "actual.png");
@@ -111,7 +120,7 @@ public sealed partial class AppLauncher : IDisposable
     /// </summary>
     public void SendKeys(string text)
     {
-        MainWindow.Focus();
+        EnsureFocus();
         FlaUI.Core.Input.Keyboard.Type(text);
     }
 
@@ -120,7 +129,7 @@ public sealed partial class AppLauncher : IDisposable
     /// </summary>
     public void SendKey(FlaUI.Core.WindowsAPI.VirtualKeyShort key)
     {
-        MainWindow.Focus();
+        EnsureFocus();
         FlaUI.Core.Input.Keyboard.Press(key);
     }
 
@@ -130,7 +139,7 @@ public sealed partial class AppLauncher : IDisposable
     /// </summary>
     public void SendKeyCombo(params FlaUI.Core.WindowsAPI.VirtualKeyShort[] keys)
     {
-        MainWindow.Focus();
+        EnsureFocus();
         var modifiers = new IDisposable[keys.Length - 1];
         try
         {
@@ -183,8 +192,82 @@ public sealed partial class AppLauncher : IDisposable
         try { _app.Dispose(); } catch { /* best effort */ }
     }
 
-    [System.Runtime.InteropServices.LibraryImport("user32.dll")]
-    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    // ── Focus management ──────────────────────────────────────────────
+
+    /// <summary>
+    /// In CI: simple Focus() call.
+    /// On workstation: SetForegroundWindow + verify + small delay to let the OS switch.
+    /// </summary>
+    private void EnsureFocus()
+    {
+        if (_config.IsCi)
+        {
+            MainWindow.Focus();
+        }
+        else
+        {
+            AcquireFocus();
+        }
+    }
+
+    /// <summary>
+    /// Aggressively acquire foreground focus for the main window.
+    /// Uses SetForegroundWindow with AllowSetForegroundWindow workaround.
+    /// </summary>
+    private void AcquireFocus()
+    {
+        var hwnd = MainWindow.Properties.NativeWindowHandle.Value;
+
+        // Attach to the foreground thread to allow SetForegroundWindow to succeed.
+        // Windows restricts which processes can steal foreground — attaching our input
+        // to the target window's thread grants permission.
+        var foregroundWindow = GetForegroundWindow();
+        var foregroundThreadId = GetWindowThreadProcessId(foregroundWindow, out _);
+        var currentThreadId = GetCurrentThreadId();
+
+        bool attached = false;
+        if (foregroundThreadId != currentThreadId)
+        {
+            attached = AttachThreadInput(currentThreadId, foregroundThreadId, true);
+        }
+
+        try
+        {
+            SetForegroundWindow(hwnd);
+            MainWindow.Focus();
+            // Give the OS time to actually switch focus
+            Thread.Sleep(50);
+        }
+        finally
+        {
+            if (attached)
+                AttachThreadInput(currentThreadId, foregroundThreadId, false);
+        }
+    }
+
+    // ── P/Invoke declarations ─────────────────────────────────────────
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool MoveWindow(nint hWnd, int x, int y, int width, int height,
-        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)] bool repaint);
+        [MarshalAs(UnmanagedType.Bool)] bool repaint);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool SetForegroundWindow(nint hWnd);
+
+    [LibraryImport("user32.dll")]
+    private static partial nint GetForegroundWindow();
+
+    [LibraryImport("user32.dll")]
+    private static partial uint GetWindowThreadProcessId(nint hWnd, out uint lpdwProcessId);
+
+    [LibraryImport("kernel32.dll")]
+    private static partial uint GetCurrentThreadId();
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool AttachThreadInput(uint idAttach, uint idAttachTo,
+        [MarshalAs(UnmanagedType.Bool)] bool fAttach);
+
 }

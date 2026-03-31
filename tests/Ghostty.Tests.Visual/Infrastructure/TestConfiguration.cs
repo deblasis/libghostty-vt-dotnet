@@ -11,6 +11,7 @@ public sealed class TestConfiguration
     public double ImageTolerance { get; }
     public bool UpdateBaselines { get; }
     public bool BuildBeforeTest { get; }
+    public bool IsCi { get; }
     public string BaselinesPath { get; }
     public string TestResultsPath { get; }
 
@@ -43,6 +44,9 @@ public sealed class TestConfiguration
 
         BuildBeforeTest = !string.Equals(
             Environment.GetEnvironmentVariable("TEST_BUILD_BEFORE_TEST"), "false", StringComparison.OrdinalIgnoreCase);
+
+        // CI detection: CI=true is set by GitHub Actions, GitLab CI, Travis, etc.
+        IsCi = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("CI"));
 
         BaselinesPath = Path.GetFullPath(
             Path.Combine(projectDir, "tests", "Ghostty.Tests.Visual", "Baselines"));
