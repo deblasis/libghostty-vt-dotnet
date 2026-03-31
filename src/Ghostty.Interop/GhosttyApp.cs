@@ -14,7 +14,7 @@ public sealed class GhosttyApp : IDisposable
     private bool _disposed;
 
     // Pin delegates so GC does not collect them while native code holds pointers.
-    private readonly GCHandle[] _pinnedDelegates;
+    private GCHandle[] _pinnedDelegates = Array.Empty<GCHandle>();
 
     public nint AppHandle => _app;
     public nint SurfaceHandle => _surface;
@@ -24,6 +24,38 @@ public sealed class GhosttyApp : IDisposable
     /// </summary>
     public GhosttyApp(
         IntPtr hwnd,
+        double scaleFactor,
+        ghostty_runtime_wakeup_cb wakeup,
+        ghostty_runtime_action_cb action,
+        ghostty_runtime_read_clipboard_cb readClipboard,
+        ghostty_runtime_confirm_read_clipboard_cb confirmReadClipboard,
+        ghostty_runtime_write_clipboard_cb writeClipboard,
+        ghostty_runtime_close_surface_cb closeSurface)
+    {
+        Init(hwnd, IntPtr.Zero, scaleFactor, wakeup, action, readClipboard, confirmReadClipboard, writeClipboard, closeSurface);
+    }
+
+    /// <summary>
+    /// Initialize libghostty with a SwapChainPanel surface (WinUI 3 / DirectComposition path).
+    /// Both hwnd and swapChainPanel are forwarded to the native surface config.
+    /// </summary>
+    public GhosttyApp(
+        IntPtr hwnd,
+        IntPtr swapChainPanel,
+        double scaleFactor,
+        ghostty_runtime_wakeup_cb wakeup,
+        ghostty_runtime_action_cb action,
+        ghostty_runtime_read_clipboard_cb readClipboard,
+        ghostty_runtime_confirm_read_clipboard_cb confirmReadClipboard,
+        ghostty_runtime_write_clipboard_cb writeClipboard,
+        ghostty_runtime_close_surface_cb closeSurface)
+    {
+        Init(hwnd, swapChainPanel, scaleFactor, wakeup, action, readClipboard, confirmReadClipboard, writeClipboard, closeSurface);
+    }
+
+    private void Init(
+        IntPtr hwnd,
+        IntPtr swapChainPanel,
         double scaleFactor,
         ghostty_runtime_wakeup_cb wakeup,
         ghostty_runtime_action_cb action,
@@ -86,6 +118,7 @@ public sealed class GhosttyApp : IDisposable
             var surfaceCfg = NativeMethods.ghostty_surface_config_new();
             surfaceCfg.platform_tag = ghostty_platform_e.GHOSTTY_PLATFORM_WINDOWS;
             surfaceCfg.platform.windows.hwnd = hwnd;
+            surfaceCfg.platform.windows.swap_chain_panel = swapChainPanel;
             surfaceCfg.scale_factor = scaleFactor;
 
             _surface = NativeMethods.ghostty_surface_new(_app, in surfaceCfg);
