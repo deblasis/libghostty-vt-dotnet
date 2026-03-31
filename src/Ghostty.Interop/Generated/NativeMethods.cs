@@ -460,6 +460,9 @@ public struct ghostty_platform_windows_s
 {
     public nint hwnd;
     public nint swap_chain_panel;
+    public nint shared_texture_out;
+    public uint texture_width;
+    public uint texture_height;
 }
 
 [StructLayout(LayoutKind.Explicit)]
@@ -720,6 +723,15 @@ public static partial class NativeMethods
 
     [LibraryImport(LibName)]
     public static partial void ghostty_surface_set_size(nint surface, uint width, uint height);
+
+    [LibraryImport(LibName)]
+    public static partial nint ghostty_surface_get_d3d11_device(nint surface);
+
+    [LibraryImport(LibName)]
+    public static partial nint ghostty_surface_get_d3d11_context(nint surface);
+
+    [LibraryImport(LibName)]
+    public static partial nint ghostty_surface_get_d3d11_texture(nint surface);
 
     [LibraryImport(LibName)]
     public static partial ghostty_surface_size_s ghostty_surface_size(nint surface);

@@ -17,8 +17,34 @@ public sealed class GhosttyApp : IDisposable
     // Pin delegates so GC does not collect them while native code holds pointers.
     private GCHandle[] _pinnedDelegates = Array.Empty<GCHandle>();
 
+    private nint _sharedTextureHandlePtr;
+
     public nint AppHandle => _app;
     public nint SurfaceHandle => _surface;
+
+    /// <summary>
+    /// The DXGI shared handle written by ghostty after surface creation in shared texture mode.
+    /// Only valid when created via the shared texture constructor.
+    /// </summary>
+    public nint SharedTextureHandle =>
+        _sharedTextureHandlePtr != 0 ? Marshal.ReadIntPtr(_sharedTextureHandlePtr) : 0;
+
+    /// <summary>
+    /// Returns ghostty's ID3D11Device pointer.
+    /// </summary>
+    public nint D3D11Device => _surface != 0 ? NativeMethods.ghostty_surface_get_d3d11_device(_surface) : 0;
+
+    /// <summary>
+    /// Returns ghostty's ID3D11DeviceContext pointer.
+    /// Enable multithread protection when using from a non-render thread.
+    /// </summary>
+    public nint D3D11Context => _surface != 0 ? NativeMethods.ghostty_surface_get_d3d11_context(_surface) : 0;
+
+    /// <summary>
+    /// Returns the ID3D11Texture2D pointer ghostty renders to in shared texture mode.
+    /// Changes on resize. Re-read after calling SetSize.
+    /// </summary>
+    public nint D3D11Texture => _surface != 0 ? NativeMethods.ghostty_surface_get_d3d11_texture(_surface) : 0;
 
     /// <summary>
     /// Initialize libghostty, create config, app, and surface.
@@ -54,6 +80,29 @@ public sealed class GhosttyApp : IDisposable
         Init(hwnd, swapChainPanel, scaleFactor, wakeup, action, readClipboard, confirmReadClipboard, writeClipboard, closeSurface);
     }
 
+    /// <summary>
+    /// Initialize libghostty in shared texture mode (no HWND, no composition).
+    /// Ghostty renders to a D3D11 texture and exposes a DXGI shared handle
+    /// readable via <see cref="SharedTextureHandle"/> after construction.
+    /// </summary>
+    public GhosttyApp(
+        uint textureWidth,
+        uint textureHeight,
+        double scaleFactor,
+        ghostty_runtime_wakeup_cb wakeup,
+        ghostty_runtime_action_cb action,
+        ghostty_runtime_read_clipboard_cb readClipboard,
+        ghostty_runtime_confirm_read_clipboard_cb confirmReadClipboard,
+        ghostty_runtime_write_clipboard_cb writeClipboard,
+        ghostty_runtime_close_surface_cb closeSurface)
+    {
+        _sharedTextureHandlePtr = Marshal.AllocHGlobal(IntPtr.Size);
+        Marshal.WriteIntPtr(_sharedTextureHandlePtr, IntPtr.Zero);
+        Init(IntPtr.Zero, IntPtr.Zero, scaleFactor, wakeup, action, readClipboard,
+            confirmReadClipboard, writeClipboard, closeSurface,
+            _sharedTextureHandlePtr, textureWidth, textureHeight);
+    }
+
     private void Init(
         IntPtr hwnd,
         IntPtr swapChainPanel,
@@ -63,7 +112,10 @@ public sealed class GhosttyApp : IDisposable
         ghostty_runtime_read_clipboard_cb readClipboard,
         ghostty_runtime_confirm_read_clipboard_cb confirmReadClipboard,
         ghostty_runtime_write_clipboard_cb writeClipboard,
-        ghostty_runtime_close_surface_cb closeSurface)
+        ghostty_runtime_close_surface_cb closeSurface,
+        nint sharedTextureOut = 0,
+        uint textureWidth = 0,
+        uint textureHeight = 0)
     {
         // Pin all delegates for the lifetime of this object.
         _pinnedDelegates = new GCHandle[6];
@@ -126,6 +178,9 @@ public sealed class GhosttyApp : IDisposable
             surfaceCfg.platform_tag = ghostty_platform_e.GHOSTTY_PLATFORM_WINDOWS;
             surfaceCfg.platform.windows.hwnd = hwnd;
             surfaceCfg.platform.windows.swap_chain_panel = swapChainPanel;
+            surfaceCfg.platform.windows.shared_texture_out = sharedTextureOut;
+            surfaceCfg.platform.windows.texture_width = textureWidth;
+            surfaceCfg.platform.windows.texture_height = textureHeight;
             surfaceCfg.scale_factor = scaleFactor;
 
             _surface = NativeMethods.ghostty_surface_new(_app, in surfaceCfg);
@@ -202,6 +257,11 @@ public sealed class GhosttyApp : IDisposable
         {
             NativeMethods.ghostty_app_free(_app);
             _app = 0;
+        }
+        if (_sharedTextureHandlePtr != 0)
+        {
+            Marshal.FreeHGlobal(_sharedTextureHandlePtr);
+            _sharedTextureHandlePtr = 0;
         }
         foreach (var handle in _pinnedDelegates)
         {
