@@ -1,0 +1,11 @@
+{
+  "TestConfiguration": {
+    "ExamplesRootPath": "../../examples",
+    "DefaultTimeoutSeconds": 15,
+    "RenderSettleMs": 500,
+    "StabilityCheckMs": 200,
+    "ImageTolerance": 0.02,
+    "UpdateBaselines": false,
+    "BuildBeforeTest": true
+  }
+}
