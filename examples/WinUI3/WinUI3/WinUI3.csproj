@@ -11,9 +11,6 @@
     <RootNamespace>WinUI3Example</RootNamespace>
     <AssemblyName>WinUI3</AssemblyName>
     <WindowsPackageType>None</WindowsPackageType>
-    <!-- PRI task DLLs ship with VS Build Tools; the .NET SDK path resolves to a
-         version-specific folder that may not exist. Point at the installed copy. -->
-    <AppxMSBuildToolsPath Condition="!Exists('$(AppxMSBuildToolsPath)')">$(MSBuildProgramFiles32)\Microsoft Visual Studio\18\BuildTools\MSBuild\Microsoft\VisualStudio\v18.0\AppxPackage\</AppxMSBuildToolsPath>
   </PropertyGroup>
 
   <ItemGroup>
