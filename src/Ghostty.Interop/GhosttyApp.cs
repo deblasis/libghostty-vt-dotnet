@@ -198,6 +198,8 @@ public sealed class GhosttyApp : IDisposable
 
     public void Tick() => NativeMethods.ghostty_app_tick(_app);
 
+    public void Draw() => NativeMethods.ghostty_surface_draw(_surface);
+
     public void SetSize(uint width, uint height) =>
         NativeMethods.ghostty_surface_set_size(_surface, width, height);
 

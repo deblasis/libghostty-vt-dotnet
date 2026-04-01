@@ -22,17 +22,14 @@ class MainForm : Form
     private int _width, _height;
     private System.Windows.Forms.Timer? _timer;
 
-    // Win32 message constants
     const int WM_KEYDOWN    = 0x0100;
     const int WM_KEYUP      = 0x0101;
     const int WM_CHAR       = 0x0102;
     const int WM_SYSKEYDOWN = 0x0104;
     const int WM_SYSKEYUP   = 0x0105;
-
-    // Virtual key constants
     const int VK_SHIFT   = 0x10;
     const int VK_CONTROL = 0x11;
-    const int VK_MENU    = 0x12; // Alt
+    const int VK_MENU    = 0x12;
 
     [DllImport("user32.dll")]
     static extern short GetKeyState(int nVirtKey);
@@ -123,7 +120,6 @@ class MainForm : Form
                 CPUAccessFlags = 0x20000 // D3D11_CPU_ACCESS_READ
             };
             var vt = *(nint*)_device;
-            // ID3D11Device vtable slot 5 = CreateTexture2D
             var fn = Marshal.GetDelegateForFunctionPointer<CreateTexture2DFn>(*(nint*)(vt + 5 * nint.Size));
             if (fn(_device, &desc, 0, out _staging) < 0) { _busy = false; return; }
         }
@@ -132,7 +128,6 @@ class MainForm : Form
         if (tex != 0 && _bitmap != null)
         {
             var vt = *(nint*)_context;
-            // ID3D11DeviceContext vtable: slot 47 = CopyResource, 14 = Map, 15 = Unmap
             var copy = Marshal.GetDelegateForFunctionPointer<CopyResourceFn>(*(nint*)(vt + 47 * nint.Size));
             var map = Marshal.GetDelegateForFunctionPointer<MapFn>(*(nint*)(vt + 14 * nint.Size));
             var unmap = Marshal.GetDelegateForFunctionPointer<UnmapFn>(*(nint*)(vt + 15 * nint.Size));
