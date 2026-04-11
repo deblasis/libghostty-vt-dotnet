@@ -1,7 +1,3 @@
-using System.Runtime.CompilerServices;
-
-[assembly: DisableRuntimeMarshalling]
-
 namespace Ghostty.D3D12;
 
 /// <summary>
