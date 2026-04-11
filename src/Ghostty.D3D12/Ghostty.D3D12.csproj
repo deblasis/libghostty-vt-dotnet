@@ -4,5 +4,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- CA1420: false positive for delegate* unmanaged with ref/out params (no runtime marshalling) -->
+    <NoWarn>CA1420</NoWarn>
   </PropertyGroup>
 </Project>
