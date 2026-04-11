@@ -1,6 +1,6 @@
 // Hand-written P/Invoke bindings for ghostty.h
 // Can be regenerated via ClangSharp: ./generate-bindings.ps1
-// Source: include/ghostty.h at commit 4661ab0af
+// Source: include/ghostty.h at commit a075996ad
 
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -456,13 +456,19 @@ public struct ghostty_platform_ios_s
 }
 
 [StructLayout(LayoutKind.Sequential)]
+public struct ghostty_shared_texture_config_s
+{
+    public byte enabled;  // bool in C -> byte for blittable AOT-safe layout
+    public uint width;
+    public uint height;
+}
+
+[StructLayout(LayoutKind.Sequential)]
 public struct ghostty_platform_windows_s
 {
     public nint hwnd;
     public nint swap_chain_panel;
-    public nint shared_texture_out;
-    public uint texture_width;
-    public uint texture_height;
+    public ghostty_shared_texture_config_s shared_texture;
 }
 
 [StructLayout(LayoutKind.Explicit)]
@@ -506,6 +512,25 @@ public struct ghostty_surface_size_s
     public uint height_px;
     public uint cell_width_px;
     public uint cell_height_px;
+}
+
+// Snapshot of the shared-texture state for a surface.
+// All fields are filled atomically by a single ghostty_surface_shared_texture()
+// call so consumers never observe a torn read.
+//
+// Ownership: ghostty retains both NT HANDLEs for the surface lifetime.
+// The ID3D12Resource and ID3D12Fence returned by OpenSharedHandle on the
+// consumer's device ARE owned by the consumer; Release() them when done.
+// Re-open the resource whenever version changes.
+[StructLayout(LayoutKind.Sequential)]
+public struct ghostty_surface_shared_texture_s
+{
+    public nint resource_handle;   // NT HANDLE to ID3D12Resource
+    public nint fence_handle;      // NT HANDLE to ID3D12Fence (stable for surface lifetime)
+    public ulong fence_value;      // fence value ghostty signals after completing the frame
+    public uint width;             // pixel dimensions of the shared resource
+    public uint height;
+    public ulong version;          // monotonically increasing, bumps on resize/recreate
 }
 
 [StructLayout(LayoutKind.Explicit)]
@@ -724,14 +749,17 @@ public static partial class NativeMethods
     [LibraryImport(LibName)]
     public static partial void ghostty_surface_set_size(nint surface, uint width, uint height);
 
+    // Returns the ID3D12Device* used by this surface's renderer.
+    // Borrowed pointer. Returns zero on non-DX12 builds or if not yet initialized.
     [LibraryImport(LibName)]
-    public static partial nint ghostty_surface_get_d3d11_device(nint surface);
+    public static partial nint ghostty_surface_get_d3d12_device(nint surface);
 
+    // Fill out with current shared-texture state. Returns true on success,
+    // false if surface is not in shared texture mode.
     [LibraryImport(LibName)]
-    public static partial nint ghostty_surface_get_d3d11_context(nint surface);
-
-    [LibraryImport(LibName)]
-    public static partial nint ghostty_surface_get_d3d11_texture(nint surface);
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static partial bool ghostty_surface_shared_texture(
+        nint surface, out ghostty_surface_shared_texture_s snapshot);
 
     [LibraryImport(LibName)]
     public static partial ghostty_surface_size_s ghostty_surface_size(nint surface);
