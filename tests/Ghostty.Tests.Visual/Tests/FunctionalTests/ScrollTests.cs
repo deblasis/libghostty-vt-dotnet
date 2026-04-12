@@ -20,23 +20,20 @@ public class ScrollTests
         await app.WaitForRenderAsync();
 
         // Generate enough output to fill the terminal and create scrollback
-        // Use simple repeated echo commands that work in any shell
-        for (int i = 0; i < 5; i++)
+        for (int i = 0; i < 30; i++)
         {
-            app.SendKeys($"echo Line{i}_aaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            app.SendKeys($"echo Line{i:000}_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
             app.SendKey(VirtualKeyShort.ENTER);
-            await Task.Delay(300);
+            await Task.Delay(150);
         }
-        // One more command to generate bulk output
-        app.SendKeys("dir /s /b C:\\Windows\\System32\\*.dll");
-        app.SendKey(VirtualKeyShort.ENTER);
-        await Task.Delay(3000); // Wait for output to complete
+        await Task.Delay(1500); // Wait for all output to complete
         await app.WaitForRenderAsync();
 
         var bottomPath = app.CaptureScreenshot($"Functional_Scroll_{exampleName}_bottom");
 
-        // Scroll up using Shift+PageUp (common terminal scroll)
-        app.SendKeyCombo(VirtualKeyShort.SHIFT, VirtualKeyShort.PRIOR); // PRIOR = PageUp
+        // Scroll up using mouse wheel (posts WM_MOUSEWHEEL directly)
+        app.SendMouseScroll(5); // 5 clicks upward
+        await Task.Delay(200); // Give the message time to be processed
         await app.WaitForRenderAsync();
 
         var scrolledPath = app.CaptureScreenshot($"Functional_Scroll_{exampleName}_scrolled");

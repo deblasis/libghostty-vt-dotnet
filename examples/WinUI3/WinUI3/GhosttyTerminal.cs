@@ -1,70 +1,52 @@
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.WindowsRuntime;
 using Ghostty.Interop;
+using Ghostty.D3D12;
 using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.System;
 
 namespace WinUI3Example;
 
-internal sealed partial class GhosttyTerminal : SwapChainPanel, IDisposable
+internal sealed partial class GhosttyTerminal : Grid, IDisposable
 {
-    private static readonly Guid IID_ISwapChainPanelNative =
-        new("63aad0b8-7c24-40ff-85a8-640d944cc325");
-
-    private static readonly Guid IID_IWindowNative =
-        new("EECDBF0E-BAE9-4CB6-A68E-9598E1CB57BB");
-
     private GhosttyApp? _ghostty;
+    private SharedTextureHelper? _helper;
+    private WriteableBitmap? _writeableBitmap;
+    private byte[]? _rowBuffer;
+    private DispatcherTimer? _timer;
     private readonly Window _window;
     private bool _disposed;
-    private nint _swapChainPanelNativePtr;
+    private bool _frameHeld;
     private double _scale = 1.0;
+    private double _pendingWidth, _pendingHeight;
+    private bool _loaded;
+    private readonly Image _image;
 
     private const double USER_DEFAULT_SCREEN_DPI = 96.0;
-    private const uint WM_USER = 0x0400;
-    private const uint WM_GHOSTTY_WAKEUP = WM_USER + 1;
-
-    private delegate IntPtr SUBCLASSPROC(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam,
-        nuint uIdSubclass, nuint dwRefData);
-
-    [LibraryImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool PostMessageW(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
-
-    [LibraryImport("user32.dll")]
-    private static partial uint GetDpiForWindow(IntPtr hwnd);
-
-    [LibraryImport("user32.dll")]
-    private static partial uint MapVirtualKeyW(uint uCode, uint uMapType);
 
     [LibraryImport("user32.dll")]
     private static partial short GetAsyncKeyState(int vKey);
 
     [LibraryImport("user32.dll")]
-    private static unsafe partial int ToUnicode(uint wVirtKey, uint wScanCode, byte* lpKeyState,
-        char* pwszBuff, int cchBuff, uint wFlags);
+    private static partial uint MapVirtualKeyW(uint uCode, uint uMapType);
 
     [LibraryImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static unsafe partial bool GetKeyboardState(byte* lpKeyState);
+    private static unsafe partial int ToUnicode(uint wVirtKey, uint wScanCode, byte* lpKeyState, char* pwszBuff, int cchBuff, uint wFlags);
 
-    [LibraryImport("comctl32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool SetWindowSubclass(IntPtr hWnd, SUBCLASSPROC pfnSubclass,
-        nuint uIdSubclass, nuint dwRefData);
+    [LibraryImport("user32.dll")]
+    private static unsafe partial int GetKeyboardState(byte* lpKeyState);
 
-    [LibraryImport("comctl32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool RemoveWindowSubclass(IntPtr hWnd, SUBCLASSPROC pfnSubclass,
-        nuint uIdSubclass);
+    [LibraryImport("user32.dll")]
+    private static partial uint GetDpiForWindow(IntPtr hwnd);
 
-    [LibraryImport("comctl32.dll")]
-    private static partial IntPtr DefSubclassProc(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam);
-
-    private SUBCLASSPROC? _subclassProc;
-    private IntPtr _hwnd;
+    // For getting window handle
+    private static readonly Guid IID_IWindowNative =
+        new("EECDBF0E-BAE9-4CB6-A68E-9598E1CB57BB");
 
     private ghostty_input_mouse_button_e _lastMouseButton;
 
@@ -74,7 +56,6 @@ internal sealed partial class GhosttyTerminal : SwapChainPanel, IDisposable
         try
         {
             Marshal.QueryInterface(unknown, in IID_IWindowNative, out var windowNativePtr);
-            // IWindowNative vtable: IUnknown (3 slots) + get_WindowHandle at slot 3
             var vtable = Marshal.ReadIntPtr(windowNativePtr);
             var getWindowHandle = Marshal.ReadIntPtr(vtable, 3 * IntPtr.Size);
             var hr = ((delegate* unmanaged[Stdcall]<IntPtr, out IntPtr, int>)getWindowHandle)(windowNativePtr, out var hwnd);
@@ -95,129 +76,125 @@ internal sealed partial class GhosttyTerminal : SwapChainPanel, IDisposable
         HorizontalAlignment = HorizontalAlignment.Stretch;
         VerticalAlignment = VerticalAlignment.Stretch;
 
+        // Create Image as child
+        _image = new Image
+        {
+            Stretch = Stretch.Fill,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch
+        };
+        Children.Add(_image);
+
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
         SizeChanged += OnSizeChanged;
 
-        // Mouse and focus events on the panel itself
+        // Input events (same as before)
         PointerMoved += OnPointerMoved;
         PointerPressed += OnPointerPressed;
         PointerReleased += OnPointerReleased;
         PointerWheelChanged += OnPointerWheelChanged;
         GotFocus += OnGotFocus;
         LostFocus += OnLostFocus;
-
-        // Keyboard events are wired to the window root in OnLoaded,
-        // because SwapChainPanel may not reliably receive keyboard focus.
-        IsTabStop = true;
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         var hwnd = GetWindowHandle(_window);
+        var dpi = GetDpiForWindow(hwnd);
+        _scale = dpi / USER_DEFAULT_SCREEN_DPI;
 
-        _swapChainPanelNativePtr = GetSwapChainPanelNativePtr();
-        try
+        // Wire keyboard to window root
+        if (_window.Content is FrameworkElement root)
         {
-            var dpi = GetDpiForWindow(hwnd);
-            _scale = dpi / USER_DEFAULT_SCREEN_DPI;
-
-            InstallWakeupHandler(hwnd);
-
-            // Wire keyboard to the window root so input works regardless of
-            // which XAML element has focus (SwapChainPanel focus is unreliable).
-            if (_window.Content is FrameworkElement root)
-            {
-                root.PreviewKeyDown += OnKeyDown;
-                root.PreviewKeyUp += OnKeyUp;
-            }
-
-            _loaded = true;
-            TryCreateGhostty();
+            root.PreviewKeyDown += OnKeyDown;
+            root.PreviewKeyUp += OnKeyUp;
         }
-        catch
-        {
-            if (_swapChainPanelNativePtr != 0)
-            {
-                Marshal.Release(_swapChainPanelNativePtr);
-                _swapChainPanelNativePtr = 0;
-            }
-            throw;
-        }
+
+        _loaded = true;
+        TryCreateGhostty();
     }
-
-    private bool _loaded;
 
     private void TryCreateGhostty()
     {
         if (_ghostty != null || !_loaded) return;
         if (_pendingWidth <= 0 || _pendingHeight <= 0) return;
 
-        // Pass hwnd=0 so the Zig renderer takes the composition path
-        // (it checks hwnd first, only falls through to swap_chain_panel if hwnd is null).
-        // We keep the hwnd locally for PostMessage wakeup.
+        int w = (int)_pendingWidth;
+        int h = (int)_pendingHeight;
+
         _ghostty = new GhosttyApp(
-            IntPtr.Zero, _swapChainPanelNativePtr, _scale,
-            wakeup: _ => PostMessageW(_hwnd, WM_GHOSTTY_WAKEUP, IntPtr.Zero, IntPtr.Zero),
+            w, h, _scale,
+            wakeup: _ => { },
             action: (_, _, _) => false,
             readClipboard: (_, _, _) => false,
             confirmReadClipboard: (_, _, _, _) => { },
             writeClipboard: (_, _, _, _, _) => { },
-            closeSurface: (_, _) =>
-            {
-                DispatcherQueue.TryEnqueue(() => _window.Close());
-            });
+            closeSurface: (_, _) => DispatcherQueue.TryEnqueue(() => _window.Close()));
 
+        _helper = new SharedTextureHelper(_ghostty.D3D12Device, w, h);
         _ghostty.SetOcclusion(true);
 
         ApplySize();
+
+        _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
+        _timer.Tick += (s, e) => DoFrame();
+        _timer.Start();
     }
 
-    private nint GetSwapChainPanelNativePtr()
+    private unsafe void DoFrame()
     {
-        var unknown = Marshal.GetIUnknownForObject(this);
+        if (_ghostty == null || _helper == null) return;
+
         try
         {
-            var hr = Marshal.QueryInterface(unknown, in IID_ISwapChainPanelNative, out var native);
-            Marshal.ThrowExceptionForHR(hr);
-            return native;
+            _ghostty.Tick();
+
+            var snap = _ghostty.SharedTextureSnapshot;
+            if (snap == null || snap.Value.resource_handle == 0)
+                return;
+            var s = snap.Value;
+
+            var frame = _helper.AcquireFrame(s.resource_handle, s.fence_handle, s.fence_value, s.version, (int)s.width, (int)s.height);
+            if (frame == null)
+                return;
+
+            _frameHeld = true;
+            var f = frame.Value;
+
+            // Create or recreate WriteableBitmap if size changed
+            if (_writeableBitmap == null || _writeableBitmap.PixelWidth != f.Width || _writeableBitmap.PixelHeight != f.Height)
+            {
+                _writeableBitmap = new WriteableBitmap(f.Width, f.Height);
+                _rowBuffer = new byte[f.Width * 4];
+            }
+
+            // Copy pixel data row-by-row into WriteableBitmap via stream
+            using (var stream = _writeableBitmap.PixelBuffer.AsStream())
+            {
+                stream.Position = 0;
+                for (int y = 0; y < f.Height; y++)
+                {
+                    nint src = (nint)(f.Data + (long)y * f.RowPitch);
+                    Marshal.Copy((IntPtr)src, _rowBuffer, 0, f.Width * 4);
+                    stream.Write(_rowBuffer, 0, f.Width * 4);
+                }
+            }
+
+            _helper.ReleaseFrame();
+            _frameHeld = false;
+
+            _writeableBitmap.Invalidate();
+            _image.Source = _writeableBitmap;
         }
-        finally
+        catch (Exception)
         {
-            Marshal.Release(unknown);
+            if (_frameHeld)
+            {
+                try { _helper?.ReleaseFrame(); } catch { }
+                _frameHeld = false;
+            }
         }
-    }
-
-    private void InstallWakeupHandler(IntPtr hwnd)
-    {
-        _hwnd = hwnd;
-        _subclassProc = WndProc;
-        SetWindowSubclass(hwnd, _subclassProc, 1, 0);
-    }
-
-    private IntPtr WndProc(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam,
-        nuint uIdSubclass, nuint dwRefData)
-    {
-        if (uMsg == WM_GHOSTTY_WAKEUP)
-        {
-            _ghostty?.Tick();
-            return IntPtr.Zero;
-        }
-        return DefSubclassProc(hWnd, uMsg, wParam, lParam);
-    }
-
-    private void RemoveWakeupHandler()
-    {
-        if (_subclassProc != null && _hwnd != IntPtr.Zero)
-        {
-            RemoveWindowSubclass(_hwnd, _subclassProc, 1);
-            _subclassProc = null;
-        }
-    }
-
-    private void OnUnloaded(object sender, RoutedEventArgs e)
-    {
-        Dispose();
     }
 
     private void OnSizeChanged(object sender, SizeChangedEventArgs e)
@@ -231,10 +208,18 @@ internal sealed partial class GhosttyTerminal : SwapChainPanel, IDisposable
             return;
         }
         ApplySize();
-    }
 
-    private double _pendingWidth;
-    private double _pendingHeight;
+        // Resize helper (release any held frame first)
+        if (_frameHeld)
+        {
+            try { _helper?.ReleaseFrame(); } catch { }
+            _frameHeld = false;
+        }
+        int w = (int)(_pendingWidth * _scale);
+        int h = (int)(_pendingHeight * _scale);
+        if (w > 0 && h > 0)
+            _helper?.Resize(w, h);
+    }
 
     private void ApplySize()
     {
@@ -245,25 +230,16 @@ internal sealed partial class GhosttyTerminal : SwapChainPanel, IDisposable
     }
 
     // --- Focus ---
+    private void OnGotFocus(object sender, RoutedEventArgs e) => _ghostty?.SetFocus(true);
+    private void OnLostFocus(object sender, RoutedEventArgs e) => _ghostty?.SetFocus(false);
 
-    private void OnGotFocus(object sender, RoutedEventArgs e)
-    {
-        _ghostty?.SetFocus(true);
-    }
-
-    private void OnLostFocus(object sender, RoutedEventArgs e)
-    {
-        _ghostty?.SetFocus(false);
-    }
-
-    // --- Keyboard input ---
-
+    // --- Keyboard ---
     private void OnKeyDown(object sender, KeyRoutedEventArgs e)
     {
         if (_ghostty == null) return;
-
         var vk = (uint)e.Key;
         var scanCode = MapVirtualKeyW(vk, 0);
+        if (scanCode == 0) return;
 
         var key = new ghostty_input_key_s
         {
@@ -271,47 +247,43 @@ internal sealed partial class GhosttyTerminal : SwapChainPanel, IDisposable
             mods = GetMods(),
             keycode = scanCode,
         };
-
         _ghostty.SendKey(key);
 
-        // Generate character text from the key press via ToUnicode.
-        // This replaces WM_CHAR which WinUI 3 does not reliably deliver.
+        // Try to get text character for printable keys
         unsafe
         {
-            var keyboardState = stackalloc byte[256];
-            GetKeyboardState(keyboardState);
-            var buf = stackalloc char[4];
-            var chars = ToUnicode(vk, scanCode, keyboardState, buf, 4, 0);
-            if (chars > 0)
+            byte* keyState = stackalloc byte[256];
+            char* charBuf = stackalloc char[2];
+            GetKeyboardState(keyState);
+            int rc = ToUnicode(vk, scanCode, keyState, charBuf, 2, 0);
+            if (rc > 0)
             {
-                var text = new string(buf, 0, chars);
+                var text = new string(charBuf, 0, rc);
                 // Only send printable characters as text; control characters
                 // (backspace, enter, tab, etc.) are handled by SendKey above.
                 if (text.Length > 0 && text[0] >= 32)
                     _ghostty.SendText(text);
+                e.Handled = true;
             }
         }
-
-        e.Handled = true;
     }
 
     private void OnKeyUp(object sender, KeyRoutedEventArgs e)
     {
         if (_ghostty == null) return;
+        var scanCode = MapVirtualKeyW((uint)e.Key, 0);
+        if (scanCode == 0) return;
 
         var key = new ghostty_input_key_s
         {
             action = ghostty_input_action_e.GHOSTTY_ACTION_RELEASE,
             mods = GetMods(),
-            keycode = MapVirtualKeyW((uint)e.Key, 0),
+            keycode = scanCode,
         };
-
-        if (_ghostty.SendKey(key))
-            e.Handled = true;
+        _ghostty.SendKey(key);
     }
 
-    // --- Mouse input ---
-
+    // --- Mouse ---
     private void OnPointerMoved(object sender, PointerRoutedEventArgs e)
     {
         if (_ghostty == null) return;
@@ -334,7 +306,7 @@ internal sealed partial class GhosttyTerminal : SwapChainPanel, IDisposable
             e.Handled = true;
         }
         CapturePointer(e.Pointer);
-        Focus(FocusState.Pointer);
+        if (_window.Content is Control c) c.Focus(FocusState.Pointer);
     }
 
     private void OnPointerReleased(object sender, PointerRoutedEventArgs e)
@@ -357,51 +329,37 @@ internal sealed partial class GhosttyTerminal : SwapChainPanel, IDisposable
     }
 
     // --- Helpers ---
-
     private static ghostty_input_mods_e GetMods()
     {
         var mods = (ghostty_input_mods_e)0;
-
         if (IsKeyDown(VirtualKey.Shift)) mods |= ghostty_input_mods_e.GHOSTTY_MODS_SHIFT;
         if (IsKeyDown(VirtualKey.Control)) mods |= ghostty_input_mods_e.GHOSTTY_MODS_CTRL;
         if (IsKeyDown(VirtualKey.Menu)) mods |= ghostty_input_mods_e.GHOSTTY_MODS_ALT;
         if (IsKeyDown(VirtualKey.LeftWindows) || IsKeyDown(VirtualKey.RightWindows))
             mods |= ghostty_input_mods_e.GHOSTTY_MODS_SUPER;
-
         return mods;
     }
 
-    private static bool IsKeyDown(VirtualKey key)
-    {
-        return (GetAsyncKeyState((int)key) & 0x8000) != 0;
-    }
+    private static bool IsKeyDown(VirtualKey key) =>
+        (GetAsyncKeyState((int)key) & 0x8000) != 0;
 
     private static ghostty_input_mouse_button_e? MapPointerButton(PointerPointProperties props)
     {
-        if (props.IsLeftButtonPressed)
-            return ghostty_input_mouse_button_e.GHOSTTY_MOUSE_LEFT;
-        if (props.IsRightButtonPressed)
-            return ghostty_input_mouse_button_e.GHOSTTY_MOUSE_RIGHT;
-        if (props.IsMiddleButtonPressed)
-            return ghostty_input_mouse_button_e.GHOSTTY_MOUSE_MIDDLE;
+        if (props.IsLeftButtonPressed) return ghostty_input_mouse_button_e.GHOSTTY_MOUSE_LEFT;
+        if (props.IsRightButtonPressed) return ghostty_input_mouse_button_e.GHOSTTY_MOUSE_RIGHT;
+        if (props.IsMiddleButtonPressed) return ghostty_input_mouse_button_e.GHOSTTY_MOUSE_MIDDLE;
         return null;
     }
 
-    // --- Dispose ---
+    private void OnUnloaded(object sender, RoutedEventArgs e) => Dispose();
 
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
-
-        RemoveWakeupHandler();
+        _timer?.Stop();
+        _helper?.Dispose();
         _ghostty?.Dispose();
         _ghostty = null;
-
-        if (_swapChainPanelNativePtr != 0)
-        {
-            Marshal.Release(_swapChainPanelNativePtr);
-            _swapChainPanelNativePtr = 0;
-        }
     }
 }

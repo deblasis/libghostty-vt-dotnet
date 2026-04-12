@@ -134,6 +134,25 @@ public sealed partial class AppLauncher : IDisposable
     }
 
     /// <summary>
+    /// Send mouse wheel scroll delta (positive = up, negative = down).
+    /// Posts WM_MOUSEWHEEL directly to ensure delivery.
+    /// </summary>
+    public void SendMouseScroll(int delta)
+    {
+        EnsureFocus();
+        var hwnd = MainWindow.Properties.NativeWindowHandle.Value;
+        var rect = MainWindow.BoundingRectangle;
+        int centerX = rect.X + rect.Width / 2;
+        int centerY = rect.Y + rect.Height / 2;
+        // WM_MOUSEWHEEL: wParam HIWORD = wheel delta (120 per click), LOWORD = keys
+        // lParam = screen coordinates (MAKELPARAM)
+        short deltaShort = (short)(delta * 120); // each click = WHEEL_DELTA (120)
+        IntPtr wp = (IntPtr)((int)deltaShort << 16);
+        IntPtr lp = (IntPtr)(((centerY & 0xFFFF) << 16) | (centerX & 0xFFFF));
+        PostMessageW(hwnd, WM_MOUSEWHEEL, wp, lp);
+    }
+
+    /// <summary>
     /// Send a key combination (e.g., Ctrl+Shift+C).
     /// Holds modifier keys using IDisposable Pressing pattern, presses the final key, then releases.
     /// </summary>
@@ -246,6 +265,12 @@ public sealed partial class AppLauncher : IDisposable
     }
 
     // ── P/Invoke declarations ─────────────────────────────────────────
+
+    private const uint WM_MOUSEWHEEL = 0x020A;
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool PostMessageW(nint hWnd, uint msg, nint wParam, nint lParam);
 
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]

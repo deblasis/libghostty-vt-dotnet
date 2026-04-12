@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\src\Ghostty.Interop\Ghostty.Interop.csproj" />
+    <ProjectReference Include="..\..\..\src\Ghostty.D3D12\Ghostty.D3D12.csproj" />
   </ItemGroup>
 
 </Project>
