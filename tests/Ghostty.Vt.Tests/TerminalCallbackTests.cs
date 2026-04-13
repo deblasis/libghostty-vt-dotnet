@@ -183,7 +183,8 @@ public class TerminalCallbackTests
             };
         });
 
-        term.VTWrite("\x1b]11;?\x07"u8);
+        // CSI ? 996 n is the color scheme query (not OSC 11)
+        term.VTWrite("\x1b[?996n"u8);
         Assert.True(schemeQueried);
     }
 
