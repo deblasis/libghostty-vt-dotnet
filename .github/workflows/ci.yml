@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-native:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v1
+        with:
+          version: '0.14.0'
+
+      - name: Clone Ghostty upstream
+        run: |
+          git clone --depth 1 https://github.com/ghostty-org/ghostty.git /tmp/ghostty
+
+      - name: Build native libghostty-vt
+        run: |
+          cd /tmp/ghostty
+          zig build lib-vt -Dtarget=x86_64-linux -Doptimize=ReleaseSafe
+          mkdir -p ${{ github.workspace }}/runtimes/linux-x64/native
+          cp zig-out/lib/libghostty-vt.so ${{ github.workspace }}/runtimes/linux-x64/native/
+
+      - name: Upload native artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libghostty-vt-linux-x64
+          path: runtimes/linux-x64/native/libghostty-vt.so
+
+  build-test:
+    needs: build-native
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Download native artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: libghostty-vt-linux-x64
+          path: runtimes/linux-x64/native
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Test
+        run: dotnet test --no-build --configuration Release --logger "trx"

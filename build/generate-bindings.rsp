@@ -1,0 +1,27 @@
+--file                 libghostty/include/ghostty/vt.h
+--namespace            Ghostty.Vt.Native
+--libraryPath          libghostty-vt
+--methodClassName      NativeMethods
+--output               src/Ghostty.Vt/Native
+--language             c
+--config               generate-macro-bindings
+                      latest-codegen
+                      generate-helper-types
+--with-access-specifier *=public
+--exclude              GHOSTTY_VT_H
+--remap                GhosttyTerminal=nint
+                      GhosttyRenderState=nint
+                      GhosttyFormatter=nint
+                      GhosttyKeyEncoder=nint
+                      GhosttyMouseEncoder=nint
+                      GhosttyOscParser=nint
+                      GhosttySgrParser=nint
+                      GhosttyKittyGraphics=nint
+                      GhosttyKittyGraphicsImage=nint
+                      GhosttyKittyGraphicsPlacementIterator=nint
+                      GhosttyRenderStateRowIterator=nint
+                      GhosttyRenderStateRowCells=nint
+--additional           -DGHOSTTY_EXPORT=
+                      -D_WIN64
+                      -D_MSC_VER=1940
+                      -DSSIZE_T=long long

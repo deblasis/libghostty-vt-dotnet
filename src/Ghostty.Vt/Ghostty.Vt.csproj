@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>Ghostty.Vt</RootNamespace>
+    <AssemblyName>Ghostty.Vt</AssemblyName>
+    <AotCompatible>true</AotCompatible>
+    <IsAotCompatible>true</IsAotCompatible>
+    <Version>0.0.0-dev</Version>
+    <PackageId>Ghostty.Vt</PackageId>
+    <Description>Virtual terminal engine powered by libghostty-vt</Description>
+    <Authors>Alessandro De Blasis</Authors>
+    <RepositoryUrl>https://github.com/deblasis/libghostty-vt-dotnet</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Ghostty.Vt.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\..\runtimes\win-x64\native\libghostty-vt.dll"
+          Pack="true" PackagePath="runtimes\win-x64\native\"
+          Condition="Exists('..\..\runtimes\win-x64\native\libghostty-vt.dll')" />
+    <None Include="..\..\runtimes\linux-x64\native\libghostty-vt.so"
+          Pack="true" PackagePath="runtimes\linux-x64\native\"
+          Condition="Exists('..\..\runtimes\linux-x64\native\libghostty-vt.so')" />
+    <None Include="..\..\runtimes\osx-arm64\native\libghostty-vt.dylib"
+          Pack="true" PackagePath="runtimes\osx-arm64\native\"
+          Condition="Exists('..\..\runtimes\osx-arm64\native\libghostty-vt.dylib')" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="..\..\runtimes\win-x64\native\libghostty-vt.dll"
+          Link="libghostty-vt.dll"
+          CopyToOutputDirectory="PreserveNewest"
+          Condition="Exists('..\..\runtimes\win-x64\native\libghostty-vt.dll')" />
+    <Content Include="..\..\runtimes\linux-x64\native\libghostty-vt.so"
+          Link="libghostty-vt.so"
+          CopyToOutputDirectory="PreserveNewest"
+          Condition="Exists('..\..\runtimes\linux-x64\native\libghostty-vt.so')" />
+    <Content Include="..\..\runtimes\osx-arm64\native\libghostty-vt.dylib"
+          Link="libghostty-vt.dylib"
+          CopyToOutputDirectory="PreserveNewest"
+          Condition="Exists('..\..\runtimes\osx-arm64\native\libghostty-vt.dylib')" />
+  </ItemGroup>
+</Project>

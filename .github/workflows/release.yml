@@ -1,0 +1,135 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      upstream_tag:
+        description: 'Upstream Ghostty tag (e.g., v1.3.1)'
+        required: true
+        type: string
+      package_version:
+        description: 'NuGet package version (defaults to tag without v prefix)'
+        required: false
+        type: string
+
+jobs:
+  build-native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-windows
+            rid: win-x64
+            artifact: libghostty-vt.dll
+          - os: ubuntu-latest
+            target: x86_64-linux
+            rid: linux-x64
+            artifact: libghostty-vt.so
+          - os: macos-latest
+            target: aarch64-macos
+            rid: osx-arm64
+            artifact: libghostty-vt.dylib
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v1
+        with:
+          version: '0.14.0'
+
+      - name: Clone Ghostty at tag
+        run: |
+          git clone --depth 1 --branch ${{ inputs.upstream_tag }} \
+            https://github.com/ghostty-org/ghostty.git /tmp/ghostty
+
+      - name: Build native libghostty-vt
+        run: |
+          cd /tmp/ghostty
+          zig build lib-vt -Dtarget=${{ matrix.target }} -Doptimize=ReleaseSafe
+          mkdir -p ${{ github.workspace }}/runtimes/${{ matrix.rid }}/native
+          cp zig-out/lib/${{ matrix.artifact }} \
+            ${{ github.workspace }}/runtimes/${{ matrix.rid }}/native/
+
+      - name: Upload native artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.rid }}
+          path: runtimes/${{ matrix.rid }}/native/${{ matrix.artifact }}
+
+  publish:
+    needs: build-native
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Download all native artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          path: runtimes
+          merge-multiple: true
+
+      - name: Determine package version
+        id: version
+        run: |
+          if [ -n "${{ inputs.package_version }}" ]; then
+            echo "pkg_version=${{ inputs.package_version }}" >> "$GITHUB_OUTPUT"
+          else
+            TAG="${{ inputs.upstream_tag }}"
+            echo "pkg_version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Test
+        run: dotnet test --no-build --configuration Release
+
+      - name: Pack
+        run: |
+          dotnet pack src/Ghostty.Vt/Ghostty.Vt.csproj \
+            --configuration Release \
+            -p:Version=${{ steps.version.outputs.pkg_version }}
+
+      - name: Publish to NuGet
+        run: |
+          dotnet nuget push artifacts/**/*.nupkg \
+            --api-key ${{ secrets.NUGET_API_KEY }} \
+            --source https://api.nuget.org/v3/index.json
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ inputs.upstream_tag }}" \
+            --title "${{ inputs.upstream_tag }}" \
+            --notes "Stable release built from upstream ghostty-org/ghostty@${{ inputs.upstream_tag }}"
+
+      - name: Update ghostty-upstream.json
+        run: |
+          COMMIT=$(git ls-remote https://github.com/ghostty-org/ghostty.git "refs/tags/${{ inputs.upstream_tag }}" | awk '{print $1}')
+          cat > ghostty-upstream.json << EOF
+          {
+            "repo": "https://github.com/ghostty-org/ghostty.git",
+            "branch": "main",
+            "commit": "$COMMIT",
+            "upstreamVersion": "${{ steps.version.outputs.pkg_version }}",
+            "lastUpdated": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add ghostty-upstream.json
+          git diff --cached --quiet || git commit -m "chore: release ${{ inputs.upstream_tag }}"
+          git push

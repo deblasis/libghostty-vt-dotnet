@@ -1,0 +1,226 @@
+name: Daily Upstream Sync
+
+on:
+  schedule:
+    - cron: '30 3 * * *'
+  workflow_dispatch:
+
+jobs:
+  check-upstream:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.check.outputs.changed }}
+      new_commit: ${{ steps.check.outputs.commit }}
+      new_version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for upstream changes
+        id: check
+        run: |
+          CURRENT=$(jq -r '.commit' ghostty-upstream.json)
+          LATEST=$(git ls-remote https://github.com/ghostty-org/ghostty.git HEAD | awk '{print $1}')
+
+          if [ "$CURRENT" = "$LATEST" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No upstream changes detected"
+            exit 0
+          fi
+
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "commit=$LATEST" >> "$GITHUB_OUTPUT"
+
+          # Clone to read version from build.zig.zon
+          git clone --depth 1 --filter=blob:none --sparse \
+            https://github.com/ghostty-org/ghostty.git /tmp/ghostty-check
+          cd /tmp/ghostty-check
+          git sparse-checkout set build.zig.zon
+          VERSION=$(grep -oP '(?<="version": ")[^"]+' build.zig.zon | head -1)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          echo "New upstream: $LATEST (version $VERSION)"
+
+  build-native:
+    needs: check-upstream
+    if: needs.check-upstream.outputs.changed == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-windows
+            rid: win-x64
+            artifact: libghostty-vt.dll
+          - os: ubuntu-latest
+            target: x86_64-linux
+            rid: linux-x64
+            artifact: libghostty-vt.so
+          - os: macos-latest
+            target: aarch64-macos
+            rid: osx-arm64
+            artifact: libghostty-vt.dylib
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v1
+        with:
+          version: '0.14.0'
+
+      - name: Clone Ghostty at new commit
+        run: |
+          git clone --depth 1 --branch main \
+            https://github.com/ghostty-org/ghostty.git \
+            /tmp/ghostty
+          cd /tmp/ghostty
+          git fetch origin ${{ needs.check-upstream.outputs.new_commit }}
+          git checkout ${{ needs.check-upstream.outputs.new_commit }}
+
+      - name: Build native libghostty-vt
+        run: |
+          cd /tmp/ghostty
+          zig build lib-vt -Dtarget=${{ matrix.target }} -Doptimize=ReleaseSafe
+          mkdir -p ${{ github.workspace }}/runtimes/${{ matrix.rid }}/native
+          cp zig-out/lib/${{ matrix.artifact }} \
+            ${{ github.workspace }}/runtimes/${{ matrix.rid }}/native/
+
+      - name: Upload native artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.rid }}
+          path: runtimes/${{ matrix.rid }}/native/${{ matrix.artifact }}
+
+  regenerate-bindings:
+    needs: build-native
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clone Ghostty headers
+        run: |
+          git clone --depth 1 --filter=blob:none --sparse \
+            https://github.com/ghostty-org/ghostty.git /tmp/ghostty
+          cd /tmp/ghostty
+          git sparse-checkout set include
+
+      - name: Regenerate bindings
+        run: |
+          dotnet tool install --global ClangSharpPInvokeGenerator
+          clangsharp-pinvoke-generator @build/generate-bindings.rsp
+
+      - name: Check for binding changes
+        id: bindings
+        run: |
+          git diff --exit-code src/Ghostty.Vt/Native/NativeMethods.cs
+          if ($LASTEXITCODE -ne 0) {
+            echo "changed=true" >> $env:GITHUB_OUTPUT
+          } else {
+            echo "changed=false" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Upload bindings
+        if: steps.bindings.outputs.changed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: regenerated-bindings
+          path: src/Ghostty.Vt/Native/NativeMethods.cs
+
+  publish:
+    needs: [check-upstream, build-native, regenerate-bindings]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Download all native artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          path: runtimes
+          merge-multiple: true
+
+      - name: Download regenerated bindings (if changed)
+        uses: actions/download-artifact@v4
+        with:
+          name: regenerated-bindings
+          path: src/Ghostty.Vt/Native
+        continue-on-error: true
+
+      - name: Build
+        run: dotnet build --configuration Release
+
+      - name: Test
+        run: dotnet test --no-build --configuration Release
+
+      - name: Compute version
+        id: version
+        run: |
+          VERSION_BASE="${{ needs.check-upstream.outputs.new_version }}"
+          COMMIT="${{ needs.check-upstream.outputs.new_commit }}"
+          SHORT="${COMMIT:0:8}"
+          TIMESTAMP=$(date -u +%Y%m%d%H%M)
+          VERSION_BASE="${VERSION_BASE%-dev}"
+          PACKAGE_VERSION="${VERSION_BASE}-ci.${TIMESTAMP}.${SHORT}"
+          echo "package_version=$PACKAGE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Package version: $PACKAGE_VERSION"
+
+      - name: Pack
+        run: |
+          dotnet pack src/Ghostty.Vt/Ghostty.Vt.csproj \
+            --configuration Release \
+            -p:Version=${{ steps.version.outputs.package_version }}
+
+      - name: Publish to NuGet
+        run: |
+          dotnet nuget push artifacts/**/*.nupkg \
+            --api-key ${{ secrets.NUGET_API_KEY }} \
+            --source https://api.nuget.org/v3/index.json
+
+      - name: Update ghostty-upstream.json
+        run: |
+          cat > ghostty-upstream.json << EOF
+          {
+            "repo": "https://github.com/ghostty-org/ghostty.git",
+            "branch": "main",
+            "commit": "${{ needs.check-upstream.outputs.new_commit }}",
+            "upstreamVersion": "${{ needs.check-upstream.outputs.new_version }}",
+            "lastUpdated": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add ghostty-upstream.json
+          git diff --cached --quiet || git commit -m "chore: update upstream to ${{ needs.check-upstream.outputs.new_commit }}"
+          git push
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "v${{ steps.version.outputs.package_version }}" \
+            --title "v${{ steps.version.outputs.package_version }}" \
+            --notes "Automated daily build from upstream ghostty-org/ghostty@${{ needs.check-upstream.outputs.new_commit }}"
+
+      - name: Create issue on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SHORT="${{ needs.check-upstream.outputs.new_commit }}"
+          gh issue create \
+            --title "Upstream sync failed for ${SHORT:0:8}" \
+            --body "Daily upstream sync failed. Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."
+
+  notify-failure:
+    needs: [check-upstream, publish]
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Failure already handled
+        run: echo "Failure notification handled by publish job issue creation"
