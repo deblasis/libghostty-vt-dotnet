@@ -1,135 +1,100 @@
-# libghostty-dotnet
+# libghostty-vt-dotnet
 
-.NET examples and interop bindings for [libghostty windows soft fork](https://github.com/deblasis/ghostty).
+.NET bindings for [libghostty-vt](https://github.com/ghostty-org/ghostty) — the standalone virtual terminal parser from the [Ghostty](https://ghostty.org) terminal emulator.
 
-This repo also serves as a **visual testing ground**: an automated test suite launches each example, sends input, resizes windows, runs commands, and verifies correct rendering across DPI modes using screenshot comparison.
+Use this library to parse VT output, inspect the terminal grid, build your own renderer, or embed a terminal in any .NET application without pulling in the full Ghostty GUI.
+
+## What's included
+
+| Namespace | Description |
+|-----------|-------------|
+| `Ghostty.Vt.Terminal` | Create terminals, write VT sequences, read state |
+| `Ghostty.Vt.RenderState` | Inspect the screen grid, rows, cells, colors, cursor |
+| `Ghostty.Vt.KeyEncoder` | Encode keyboard events into VT escape sequences |
+| `Ghostty.Vt.MouseEncoder` | Encode mouse events into VT sequences |
+| `Ghostty.Vt.OscParser` | Parse OSC (Operating System Command) sequences |
+| `Ghostty.Vt.SgrParser` | Parse SGR (Select Graphic Rendition) attributes |
+| `Ghostty.Vt.Formatter` | Format grid content as plain text, HTML, or VT |
+| `Ghostty.Vt.KittyGraphics` | Query Kitty image protocol placements |
+| `Ghostty.Vt.GridRef` | Reference and compare grid positions |
+| `Ghostty.Vt.Focus` | Focus reporting |
+| `Ghostty.Vt.Paste` | Bracketed paste encoding |
 
 ## Prerequisites
 
-- [Zig](https://ziglang.org/download/) (0.15+): builds libghostty from source
-- [.NET SDK 9.0](https://dotnet.microsoft.com/download/dotnet/9.0): builds and runs examples
-- [ClangSharp](https://github.com/dotnet/ClangSharp): regenerates bindings when the C API changes
+- [Zig 0.15.2](https://ziglang.org/download/) — builds libghostty-vt from source
+- [.NET SDK 9.0](https://dotnet.microsoft.com/download/dotnet/9.0) — builds and runs the library and tests
 
-### Install on Windows
+## Quick start
 
 ```powershell
-# winget
-winget install zig.zig
-winget install Microsoft.DotNet.SDK.9
+# Build the native library (clones ghostty upstream, compiles libghostty-vt)
+just build-native
 
-# or choco
-choco install zig dotnet-sdk
-
-# ClangSharp (dotnet global tool)
-dotnet tool install --global ClangSharpPInvokeGenerator
+# Restore, build, test
+just ci
 ```
 
-## Setup
+Or step by step:
 
 ```powershell
-./setup.ps1
+just build-native   # clone + compile libghostty-vt
+just restore        # dotnet restore
+just build          # dotnet build
+just test           # dotnet test
 ```
 
-This clones and builds libghostty from source, then restores .NET packages.
-After setup, open any example `.slnx` in Visual Studio or run with `dotnet run`.
+## Usage example
 
-## Examples
+```csharp
+using Ghostty.Vt;
 
-| Example | Description | Status |
-|---------|-------------|--------|
-| [Win32](examples/Win32/) | Raw Win32 P/Invoke, direct port of the C example | Done |
-| [WinForms](examples/WinForms/) | Panel-based embedding with WinForms events | Done |
-| [WPF-Simple](examples/WPF-Simple/) | HwndHost embedding with GhosttyApp wrapper | Done |
-| [WPF-Direct](examples/WPF-Direct/) | HwndHost embedding with raw NativeMethods | Done |
-| [WinUI 3](examples/WinUI3/) | SwapChainPanel composition surface ([#3](https://github.com/deblasis/libghostty-dotnet/issues/3)) | Done |
-| Unity | In-game terminal via render texture | Planned |
-| Avalonia | Cross-platform NativeControlHost | Planned |
+// Create a 80x24 terminal
+using var terminal = new Terminal(80, 24);
 
-## Visual Testing
+// Write VT sequences
+terminal.VTWrite("\x1b[31mHello, \x1b[1mWorld!\x1b[0m");
 
-The test suite uses [FlaUI](https://github.com/FlaUI/FlaUI) for UI automation and [ImageSharp](https://github.com/SixLabors/ImageSharp) for screenshot comparison.
+// Inspect the grid
+using var renderState = new RenderState();
+terminal.UpdateRenderState(renderState);
 
-### Test coverage
+foreach (var row in renderState.Rows)
+{
+    // Read cell content, style, colors
+}
+```
 
-| Feature | Tested | Notes |
-|---------|--------|-------|
-| App launch | ✅ | Window appears within timeout |
-| Window title | ✅ | Not empty |
-| Window size | ✅ | Valid dimensions, reasonable bounds |
-| Terminal renders | ✅ | Screenshot is not blank |
-| Clean shutdown | ✅ | WM_CLOSE, exit code 0, no crash dialog |
-| Keyboard input (typing) | ✅ | Visible output after keystrokes |
-| Enter executes command | ✅ | Screen changes after Enter |
-| Backspace | ✅ | Visible change after deleting characters |
-| Window resize | ✅ | Terminal updates, two sizes compared |
-| Minimum window size | ✅ | Shrink to 320x240, no crash |
-| Focus/cursor | ✅ | Cursor visible when focused |
-| Command execution | ✅ | `echo` output, prompt returns |
-| Scrollback | ✅ | Shift+PageUp after generating output |
-| Clipboard copy/paste | ✅ | Select, copy, type, paste cycle |
-| Long-running commands | ✅ | Output updates over time (`ping`) |
-| DPI: Unaware mode | ✅ | Launches and renders |
-| DPI: SystemAware mode | ✅ | Launches and renders |
-| DPI: PerMonitorV2 mode | ✅ | Launches and renders |
-| DPI: mode affects rendering | ✅ | Screenshots differ across modes (high-DPI displays) |
-| DPI: window reports value | ✅ | `GetDpiForWindow` >= 96 |
-| Unicode/emoji input | ❌🔨 | |
-| Mouse click | ❌🔨 | `SendMouseButton` API exists |
-| Mouse selection (drag) | ❌🔨 | |
-| Mouse scroll (wheel) | ❌🔨 | `SendMouseScroll` API exists |
-| Ctrl+C (interrupt) | ❌🔨 | |
-| Tab completion | ❌🔨 | |
-| ANSI colors/formatting | ❌🔨 | Verify colored output renders differently |
-| Cursor styles | ❌🔨 | Block, beam, underline |
-| Window maximize/restore | ❌🔨 | |
-| Window minimize/restore | ❌🔨 | |
-| Multi-monitor (move between) | ❌🔨 | DPI change on move |
-| Fullscreen toggle | ❌🔨 | |
-| Content scale changes | ❌🔨 | `SetContentScale` API exists |
-| Occlusion handling | ❌🔨 | `SetOcclusion` API exists |
-| Modifier keys (Ctrl, Alt, Shift) | ❌🔨 | Key combos beyond clipboard |
-| Rapid input (stress) | ❌🔨 | Fast typing, no dropped keys |
-| Rapid resize (stress) | ❌🔨 | Continuous resize, no crash |
-| Resource cleanup | ❌🔨 | No handle/memory leaks after close |
-| Selection clipboard | ❌🔨 | `supports_selection_clipboard` in config |
-| Surface close callback | ❌🔨 | Terminal-initiated close |
-| Multiple surfaces | ❌🔨 | More than one terminal per app |
-| Config loading | ❌🔨 | `ghostty_config_load_default_files` |
+## NuGet
+
+The library ships as `Ghostty.Vt` on NuGet with native runtimes for:
+
+| Platform | Runtime ID | Native library |
+|----------|-----------|----------------|
+| Windows x64 | `win-x64` | `ghostty-vt.dll` |
+| Linux x64 | `linux-x64` | `libghostty-vt.so` |
+| macOS ARM64 | `osx-arm64` | `libghostty-vt.dylib` |
+
+## Development
 
 ```powershell
-# Run all visual tests
-just test-visual
-
-# Smoke tests only (fast)
-just ci-test-smoke
-
-# Full CI pipeline (build + all tests)
+# Full CI pipeline
 just ci
 
-# Update screenshot baselines after intentional visual changes
-just update-baselines
+# Build native for a specific target
+just build-native target=x86_64-linux
+
+# Pack a NuGet package
+just pack version=1.0.0
+
+# Check for upstream Ghostty changes
+just check-upstream
 ```
 
-Tests are parameterized across all examples. Adding a new example to `TestConfiguration.AllExamples` automatically includes it in every test.
+## CI
 
-On workstations, tests use aggressive focus management to handle other windows competing for foreground. In CI (`CI` env var set), focus handling is lightweight since no contention exists.
+GitHub Actions builds the native library from upstream `ghostty-org/ghostty` and runs all tests on every push. A daily workflow checks for upstream changes and publishes updated packages automatically.
 
-## Updating libghostty
+## License
 
-```powershell
-# Use custom repo/branch/commit
-./setup.ps1 -Repo https://github.com/deblasis/ghostty.git -Branch windows -Commit abc123
-
-# Save the override to libghostty.json
-./setup.ps1 -Repo https://github.com/deblasis/ghostty.git -Branch windows -Commit abc123 -Save
-```
-
-## Regenerating bindings
-
-When the C API changes:
-
-```powershell
-./generate-bindings.ps1
-```
-
-Requires ClangSharp: `dotnet tool install --global ClangSharpPInvokeGenerator`
+MIT
