@@ -59,3 +59,5 @@ jobs:
 
       - name: Test
         run: dotnet test Ghostty.Vt.sln --no-build --configuration Release --logger "trx"
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/runtimes/linux-x64/native
