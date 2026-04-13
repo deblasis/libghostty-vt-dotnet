@@ -80,7 +80,7 @@ jobs:
       - name: Build native libghostty-vt
         run: |
           cd /tmp/ghostty
-          zig build install -Dtarget=${{ matrix.target }} -Doptimize=ReleaseSafe
+          zig build install -Demit-lib-vt=true -Dtarget=${{ matrix.target }} -Doptimize=ReleaseSafe
           mkdir -p ${{ github.workspace }}/runtimes/${{ matrix.rid }}/native
           cp zig-out/lib/${{ matrix.artifact }} \
             ${{ github.workspace }}/runtimes/${{ matrix.rid }}/native/
