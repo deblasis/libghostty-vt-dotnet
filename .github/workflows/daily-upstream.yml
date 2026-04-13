@@ -152,10 +152,10 @@ jobs:
         continue-on-error: true
 
       - name: Build
-        run: dotnet build --configuration Release
+        run: dotnet build Ghostty.Vt.sln --configuration Release
 
       - name: Test
-        run: dotnet test --no-build --configuration Release
+        run: dotnet test Ghostty.Vt.sln --no-build --configuration Release
 
       - name: Compute version
         id: version
