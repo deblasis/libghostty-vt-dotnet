@@ -52,10 +52,10 @@ jobs:
           path: runtimes/linux-x64/native
 
       - name: Restore
-        run: dotnet restore
+        run: dotnet restore Ghostty.Vt.sln
 
       - name: Build
-        run: dotnet build --no-restore --configuration Release
+        run: dotnet build Ghostty.Vt.sln --no-restore --configuration Release
 
       - name: Test
-        run: dotnet test --no-build --configuration Release --logger "trx"
+        run: dotnet test Ghostty.Vt.sln --no-build --configuration Release --logger "trx"
