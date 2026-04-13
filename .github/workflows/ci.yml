@@ -24,7 +24,7 @@ jobs:
       - name: Build native libghostty-vt
         run: |
           cd /tmp/ghostty
-          zig build install -Dtarget=x86_64-linux -Doptimize=ReleaseSafe
+          zig build install -Demit-lib-vt=true -Dtarget=x86_64-linux -Doptimize=ReleaseSafe
           mkdir -p ${{ github.workspace }}/runtimes/linux-x64/native
           cp zig-out/lib/libghostty-vt.so ${{ github.workspace }}/runtimes/linux-x64/native/
 
