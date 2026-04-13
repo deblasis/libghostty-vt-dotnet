@@ -50,10 +50,10 @@ public ref struct KittyImage
     {
         get
         {
+            if (_handle == nint.Zero) return 0;
             uint id;
-            var result = NativeMethods.ghostty_kitty_graphics_image_get(
+            NativeMethods.ghostty_kitty_graphics_image_get(
                 _handle, (int)KittyImageData.Id, &id);
-            GhosttyException.ThrowIfFailure(result);
             return id;
         }
     }
@@ -62,10 +62,10 @@ public ref struct KittyImage
     {
         get
         {
+            if (_handle == nint.Zero) return 0;
             int format;
-            var result = NativeMethods.ghostty_kitty_graphics_image_get(
+            NativeMethods.ghostty_kitty_graphics_image_get(
                 _handle, (int)KittyImageData.Format, &format);
-            GhosttyException.ThrowIfFailure(result);
             return (Enums.KittyImageFormat)format;
         }
     }
@@ -74,10 +74,10 @@ public ref struct KittyImage
     {
         get
         {
+            if (_handle == nint.Zero) return 0;
             uint width;
-            var result = NativeMethods.ghostty_kitty_graphics_image_get(
+            NativeMethods.ghostty_kitty_graphics_image_get(
                 _handle, (int)KittyImageData.Width, &width);
-            GhosttyException.ThrowIfFailure(result);
             return width;
         }
     }
@@ -86,10 +86,10 @@ public ref struct KittyImage
     {
         get
         {
+            if (_handle == nint.Zero) return 0;
             uint height;
-            var result = NativeMethods.ghostty_kitty_graphics_image_get(
+            NativeMethods.ghostty_kitty_graphics_image_get(
                 _handle, (int)KittyImageData.Height, &height);
-            GhosttyException.ThrowIfFailure(result);
             return height;
         }
     }
