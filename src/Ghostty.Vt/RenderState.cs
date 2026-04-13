@@ -157,7 +157,7 @@ public ref struct RenderStateRowEnumerator
             return new RenderStateRow
             {
                 Dirty = dirty != 0,
-                Cells = new RenderStateCellEnumerable(_iterator, 0),
+                Cells = new RenderStateCellEnumerable(_iterator),
             };
         }
     }
@@ -181,25 +181,23 @@ public ref struct RenderStateRow
 
 public ref struct RenderStateCellEnumerable
 {
-    private readonly nint _state;
-    private readonly int _rowIndex;
+    private readonly nint _rowIterator;
 
-    internal RenderStateCellEnumerable(nint state, int rowIndex)
-    { _state = state; _rowIndex = rowIndex; }
+    internal RenderStateCellEnumerable(nint rowIterator)
+    { _rowIterator = rowIterator; }
 
-    public RenderStateCellEnumerator GetEnumerator() => new(_state, _rowIndex);
+    public RenderStateCellEnumerator GetEnumerator() => new(_rowIterator);
 }
 
 public ref struct RenderStateCellEnumerator
 {
-    private readonly nint _state;
-    private readonly int _rowIndex;
+    private readonly nint _rowIterator;
     private nint _cells;
     private bool _started;
     private bool _hasCurrent;
 
-    internal RenderStateCellEnumerator(nint state, int rowIndex)
-    { _state = state; _rowIndex = rowIndex; _cells = 0; _started = false; _hasCurrent = false; }
+    internal RenderStateCellEnumerator(nint rowIterator)
+    { _rowIterator = rowIterator; _cells = 0; _started = false; _hasCurrent = false; }
 
     public unsafe bool MoveNext()
     {
@@ -210,11 +208,13 @@ public ref struct RenderStateCellEnumerator
             var result = NativeMethods.ghostty_render_state_row_cells_new(nint.Zero, &cells);
             GhosttyException.ThrowIfFailure(result);
 
+            // Assign first so Dispose can clean up if _select fails
+            _cells = cells;
+
             // Bind the cell iterator to the current row (via the row iterator handle)
-            result = NativeMethods.ghostty_render_state_row_cells_select(cells, _state);
+            result = NativeMethods.ghostty_render_state_row_cells_select(cells, _rowIterator);
             GhosttyException.ThrowIfFailure(result);
 
-            _cells = cells;
             _started = true;
         }
 
@@ -226,15 +226,19 @@ public ref struct RenderStateCellEnumerator
     {
         get
         {
-            // Read content_tag (data=0)
+            ObjectDisposedException.ThrowIf(_cells == 0, typeof(RenderStateCellEnumerator));
+            if (!_hasCurrent)
+                throw new InvalidOperationException("Enumeration has either not started or has already finished.");
+
+            // Read content_tag
             int contentTag = 0;
             NativeMethods.ghostty_render_state_row_cells_get(
-                _cells, 0, &contentTag);
+                _cells, (int)CellData.ContentTag, &contentTag);
 
-            // Read grapheme (data=1) -> GhosttyStringNative { Ptr, Len }
+            // Read grapheme -> GhosttyStringNative { Ptr, Len }
             GhosttyStringNative graphemeNative = default;
             NativeMethods.ghostty_render_state_row_cells_get(
-                _cells, 1, &graphemeNative);
+                _cells, (int)CellData.Grapheme, &graphemeNative);
 
             string? grapheme = null;
             if (graphemeNative.Ptr != 0 && graphemeNative.Len > 0)
@@ -243,16 +247,16 @@ public ref struct RenderStateCellEnumerator
                     (byte*)graphemeNative.Ptr, (int)graphemeNative.Len);
             }
 
-            // Read style (data=2) -> sized struct
+            // Read style -> sized struct
             Style style = default;
-            style.Size = (nuint)System.Runtime.InteropServices.Marshal.SizeOf<Style>();
+            style.Size = (nuint)sizeof(Style);
             NativeMethods.ghostty_render_state_row_cells_get(
-                _cells, 2, &style);
+                _cells, (int)CellData.Style, &style);
 
-            // Read kitty_placement_id (data=3)
+            // Read kitty_placement_id
             uint kittyPlacementId = 0;
             NativeMethods.ghostty_render_state_row_cells_get(
-                _cells, 3, &kittyPlacementId);
+                _cells, (int)CellData.KittyPlacementId, &kittyPlacementId);
 
             return new Cell
             {
@@ -272,4 +276,12 @@ public ref struct RenderStateCellEnumerator
             _cells = 0;
         }
     }
+}
+
+internal enum CellData
+{
+    ContentTag = 0,
+    Grapheme = 1,
+    Style = 2,
+    KittyPlacementId = 3,
 }
