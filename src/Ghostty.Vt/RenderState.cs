@@ -208,11 +208,13 @@ public ref struct RenderStateCellEnumerator
             var result = NativeMethods.ghostty_render_state_row_cells_new(nint.Zero, &cells);
             GhosttyException.ThrowIfFailure(result);
 
-            // Assign first so Dispose can clean up if _select fails
+            // Assign first so Dispose can clean up if row_get fails
             _cells = cells;
 
-            // Bind the cell iterator to the current row (via the row iterator handle)
-            result = NativeMethods.ghostty_render_state_row_cells_select(cells, _rowIterator);
+            // Bind the cell iterator to the current row via row_get with ROW_DATA_CELLS (3).
+            // This populates the cells handle with cell data from the current row.
+            result = NativeMethods.ghostty_render_state_row_get(
+                _rowIterator, 3 /* ROW_DATA_CELLS */, &cells);
             GhosttyException.ThrowIfFailure(result);
 
             _started = true;
@@ -230,40 +232,75 @@ public ref struct RenderStateCellEnumerator
             if (!_hasCurrent)
                 throw new InvalidOperationException("Enumeration has either not started or has already finished.");
 
-            // Read content_tag
+            // Read RAW cell (data=1) — GhosttyCell is uint64_t
+            ulong rawCell = 0;
+            NativeMethods.ghostty_render_state_row_cells_get(
+                _cells, 1 /* ROW_CELLS_DATA_RAW */, &rawCell);
+
+            // Get content tag from the raw cell (data=2)
             int contentTag = 0;
-            NativeMethods.ghostty_render_state_row_cells_get(
-                _cells, (int)CellData.ContentTag, &contentTag);
+            NativeMethods.ghostty_cell_get(rawCell, 2 /* CELL_DATA_CONTENT_TAG */, &contentTag);
 
-            // Read grapheme -> GhosttyStringNative { Ptr, Len }
-            GhosttyStringNative graphemeNative = default;
-            NativeMethods.ghostty_render_state_row_cells_get(
-                _cells, (int)CellData.Grapheme, &graphemeNative);
+            // Get has_text flag from the raw cell (data=4)
+            byte hasText = 0;
+            NativeMethods.ghostty_cell_get(rawCell, 4 /* CELL_DATA_HAS_TEXT */, &hasText);
 
+            // Read grapheme text from codepoints if there's text
             string? grapheme = null;
-            if (graphemeNative.Ptr != 0 && graphemeNative.Len > 0)
+            if (hasText != 0)
             {
-                grapheme = System.Text.Encoding.UTF8.GetString(
-                    (byte*)graphemeNative.Ptr, (int)graphemeNative.Len);
+                // Get grapheme length (data=3) → uint32_t
+                uint graphemesLen = 0;
+                NativeMethods.ghostty_render_state_row_cells_get(
+                    _cells, 3 /* ROW_CELLS_DATA_GRAPHEMES_LEN */, &graphemesLen);
+
+                if (graphemesLen > 0)
+                {
+                    // Get grapheme codepoints (data=4) → writes uint32_t[] into caller buffer
+                    var codepoints = new uint[graphemesLen];
+                    fixed (uint* buf = codepoints)
+                    {
+                        NativeMethods.ghostty_render_state_row_cells_get(
+                            _cells, 4 /* ROW_CELLS_DATA_GRAPHEMES_BUF */, buf);
+                    }
+
+                    // Convert codepoints to string (handling surrogate pairs)
+                    var sb = new System.Text.StringBuilder();
+                    foreach (uint cp in codepoints)
+                    {
+                        if (cp <= 0xFFFF)
+                            sb.Append((char)cp);
+                        else
+                            sb.Append(char.ConvertFromUtf32((int)cp));
+                    }
+                    grapheme = sb.ToString();
+                }
+                else
+                {
+                    // Single codepoint cell — get codepoint from the raw cell (data=1)
+                    uint codepoint = 0;
+                    NativeMethods.ghostty_cell_get(rawCell, 1 /* CELL_DATA_CODEPOINT */, &codepoint);
+                    if (codepoint > 0)
+                    {
+                        grapheme = codepoint <= 0xFFFF
+                            ? ((char)codepoint).ToString()
+                            : char.ConvertFromUtf32((int)codepoint);
+                    }
+                }
             }
 
-            // Read style -> sized struct
+            // Read style (data=2) — sized struct
             Style style = default;
             style.Size = (nuint)sizeof(Style);
             NativeMethods.ghostty_render_state_row_cells_get(
-                _cells, (int)CellData.Style, &style);
-
-            // Read kitty_placement_id
-            uint kittyPlacementId = 0;
-            NativeMethods.ghostty_render_state_row_cells_get(
-                _cells, (int)CellData.KittyPlacementId, &kittyPlacementId);
+                _cells, 2 /* ROW_CELLS_DATA_STYLE */, &style);
 
             return new Cell
             {
                 ContentTag = (CellContentTag)contentTag,
                 Grapheme = grapheme,
                 Style = style,
-                KittyPlacementId = kittyPlacementId,
+                KittyPlacementId = 0, // Not available via render API; would need separate kitty image API
             };
         }
     }
@@ -276,12 +313,4 @@ public ref struct RenderStateCellEnumerator
             _cells = 0;
         }
     }
-}
-
-internal enum CellData
-{
-    ContentTag = 0,
-    Grapheme = 1,
-    Style = 2,
-    KittyPlacementId = 3,
 }
