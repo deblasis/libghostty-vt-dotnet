@@ -165,8 +165,8 @@ public class TerminalCallbackTests
             };
         });
 
-        // Request current color scheme: OSC 11 ? ST
-        term.VTWrite("\x1b]11;?\x07"u8);
+        // Color scheme query: CSI ? 996 n (per native header)
+        term.VTWrite("\x1b[?996n"u8);
         Assert.Equal(ColorScheme.Dark, reportedScheme);
     }
 
