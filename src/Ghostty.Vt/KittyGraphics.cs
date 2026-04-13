@@ -55,7 +55,36 @@ public ref struct KittyImage
         }
     }
 
-    public Enums.KittyImageFormat Format => throw new NotImplementedException();
-    public int Width => throw new NotImplementedException();
-    public int Height => throw new NotImplementedException();
+    public unsafe Enums.KittyImageFormat Format
+    {
+        get
+        {
+            int format;
+            NativeMethods.ghostty_kitty_graphics_image_get(
+                _handle, 2 /* GHOSTTY_KITTY_IMAGE_DATA_FORMAT */, &format);
+            return (Enums.KittyImageFormat)format;
+        }
+    }
+
+    public unsafe int Width
+    {
+        get
+        {
+            int width;
+            NativeMethods.ghostty_kitty_graphics_image_get(
+                _handle, 3 /* GHOSTTY_KITTY_IMAGE_DATA_WIDTH */, &width);
+            return width;
+        }
+    }
+
+    public unsafe int Height
+    {
+        get
+        {
+            int height;
+            NativeMethods.ghostty_kitty_graphics_image_get(
+                _handle, 4 /* GHOSTTY_KITTY_IMAGE_DATA_HEIGHT */, &height);
+            return height;
+        }
+    }
 }
