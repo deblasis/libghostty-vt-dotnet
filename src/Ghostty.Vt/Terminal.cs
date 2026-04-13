@@ -37,80 +37,154 @@ public sealed unsafe class Terminal : IDisposable
 
     private unsafe void RegisterCallbacks(TerminalOptions options, nint handle)
     {
+        // Ord 1: WritePty — void (terminal, userdata, const uint8_t* data, size_t len)
         if (options.OnWritePty is not null)
         {
-            var del = new GhosttyTerminalDataFn((_, _, data, len) =>
+            var del = new GhosttyTerminalWritePtyFn((_, _, data, len) =>
             {
                 var span = new ReadOnlySpan<byte>(data, (int)len);
                 options.OnWritePty(span);
             });
             options.Pinner.Pin(del);
-            NativeMethods.ghostty_terminal_set(handle, 1 /* GHOSTTY_TERMINAL_OPT_WRITE_PTY */, (void*)Marshal.GetFunctionPointerForDelegate(del));
+            NativeMethods.ghostty_terminal_set(handle, 1, (void*)Marshal.GetFunctionPointerForDelegate(del));
         }
 
+        // Ord 2: Bell — void (terminal, userdata)
         if (options.OnBell is not null)
         {
             var del = new GhosttyTerminalNotifyFn((_, _) => options.OnBell());
             options.Pinner.Pin(del);
-            NativeMethods.ghostty_terminal_set(handle, 2 /* GHOSTTY_TERMINAL_OPT_BELL */, (void*)Marshal.GetFunctionPointerForDelegate(del));
+            NativeMethods.ghostty_terminal_set(handle, 2, (void*)Marshal.GetFunctionPointerForDelegate(del));
         }
 
+        // Ord 3: Enquiry — GhosttyString (terminal, userdata)
+        // Managed code must RETURN the ENQ response bytes.
         if (options.OnEnquiry is not null)
         {
-            var del = new GhosttyTerminalNotifyFn((_, _) => options.OnEnquiry());
-            options.Pinner.Pin(del);
-            NativeMethods.ghostty_terminal_set(handle, 3 /* GHOSTTY_TERMINAL_OPT_ENQUIRY */, (void*)Marshal.GetFunctionPointerForDelegate(del));
-        }
-
-        if (options.OnXtversion is not null)
-        {
-            var del = new GhosttyTerminalDataFn((_, _, data, len) =>
+            var del = new GhosttyTerminalStringFn((_, _) =>
             {
-                var span = new ReadOnlySpan<byte>(data, (int)len);
-                options.OnXtversion(span);
+                var bytes = options.OnEnquiry();
+                if (bytes == null || bytes.Length == 0)
+                    return new GhosttyStringNative { Ptr = nint.Zero, Len = 0 };
+                // Pin for the duration of the synchronous callback — native side copies before returning.
+                var gc = GCHandle.Alloc(bytes, GCHandleType.Pinned);
+                var result = new GhosttyStringNative
+                {
+                    Ptr = gc.AddrOfPinnedObject(),
+                    Len = (nuint)bytes.Length,
+                };
+                gc.Free();
+                return result;
             });
             options.Pinner.Pin(del);
-            NativeMethods.ghostty_terminal_set(handle, 4 /* GHOSTTY_TERMINAL_OPT_XTVERSION */, (void*)Marshal.GetFunctionPointerForDelegate(del));
+            NativeMethods.ghostty_terminal_set(handle, 3, (void*)Marshal.GetFunctionPointerForDelegate(del));
         }
 
+        // Ord 4: Xtversion — GhosttyString (terminal, userdata)
+        // Managed code must RETURN the version string bytes.
+        if (options.OnXtversion is not null)
+        {
+            var del = new GhosttyTerminalStringFn((_, _) =>
+            {
+                var bytes = options.OnXtversion();
+                if (bytes == null || bytes.Length == 0)
+                    return new GhosttyStringNative { Ptr = nint.Zero, Len = 0 };
+                var gc = GCHandle.Alloc(bytes, GCHandleType.Pinned);
+                var result = new GhosttyStringNative
+                {
+                    Ptr = gc.AddrOfPinnedObject(),
+                    Len = (nuint)bytes.Length,
+                };
+                gc.Free();
+                return result;
+            });
+            options.Pinner.Pin(del);
+            NativeMethods.ghostty_terminal_set(handle, 4, (void*)Marshal.GetFunctionPointerForDelegate(del));
+        }
+
+        // Ord 5: TitleChanged — void (terminal, userdata)
         if (options.OnTitleChanged is not null)
         {
             var del = new GhosttyTerminalNotifyFn((_, _) => options.OnTitleChanged());
             options.Pinner.Pin(del);
-            NativeMethods.ghostty_terminal_set(handle, 5 /* GHOSTTY_TERMINAL_OPT_TITLE_CHANGED */, (void*)Marshal.GetFunctionPointerForDelegate(del));
+            NativeMethods.ghostty_terminal_set(handle, 5, (void*)Marshal.GetFunctionPointerForDelegate(del));
         }
 
+        // Ord 6: Size — bool (terminal, userdata, GhosttySizeReportSize* out_size)
+        // Managed code fills the out pointer and returns true/false.
         if (options.OnSize is not null)
         {
-            var del = new GhosttyTerminalDataFn((_, _, data, len) =>
+            var del = new GhosttyTerminalSizeFn((_, _, outSize) =>
             {
-                var span = new ReadOnlySpan<byte>(data, (int)len);
-                options.OnSize(span);
+                var size = options.OnSize();
+                if (size == null)
+                    return (byte)0; // false — ignore query
+                *outSize = new GhosttySizeReportSizeNative
+                {
+                    Rows = size.Value.Rows,
+                    Columns = size.Value.Cols,
+                    CellWidth = size.Value.CellWidth,
+                    CellHeight = size.Value.CellHeight,
+                };
+                return (byte)1; // true — handled
             });
             options.Pinner.Pin(del);
-            NativeMethods.ghostty_terminal_set(handle, 6 /* GHOSTTY_TERMINAL_OPT_SIZE */, (void*)Marshal.GetFunctionPointerForDelegate(del));
+            NativeMethods.ghostty_terminal_set(handle, 6, (void*)Marshal.GetFunctionPointerForDelegate(del));
         }
 
+        // Ord 7: ColorScheme — bool (terminal, userdata, GhosttyColorScheme* out_scheme)
+        // GhosttyColorScheme is an int enum: Light=0, Dark=1
         if (options.OnColorScheme is not null)
         {
-            var del = new GhosttyTerminalDataFn((_, _, data, len) =>
+            var del = new GhosttyTerminalColorSchemeFn((_, _, outScheme) =>
             {
-                var span = new ReadOnlySpan<byte>(data, (int)len);
-                options.OnColorScheme(span);
+                var scheme = options.OnColorScheme();
+                if (scheme == null)
+                    return (byte)0; // false — ignore query
+                *outScheme = (int)scheme.Value;
+                return (byte)1; // true — handled
             });
             options.Pinner.Pin(del);
-            NativeMethods.ghostty_terminal_set(handle, 7 /* GHOSTTY_TERMINAL_OPT_COLOR_SCHEME */, (void*)Marshal.GetFunctionPointerForDelegate(del));
+            NativeMethods.ghostty_terminal_set(handle, 7, (void*)Marshal.GetFunctionPointerForDelegate(del));
         }
 
+        // Ord 8: DeviceAttributes — bool (terminal, userdata, GhosttyDeviceAttributes* out_attrs)
+        // Managed code fills the complex struct and returns true/false.
         if (options.OnDeviceAttributes is not null)
         {
-            var del = new GhosttyTerminalDataFn((_, _, data, len) =>
+            var del = new GhosttyTerminalDeviceAttributesFn((_, _, outAttrs) =>
             {
-                var span = new ReadOnlySpan<byte>(data, (int)len);
-                options.OnDeviceAttributes(span);
+                var attrs = options.OnDeviceAttributes();
+                if (attrs == null)
+                    return (byte)0; // false — ignore query
+
+                var primary = new GhosttyDeviceAttributesPrimaryNative
+                {
+                    ConformanceLevel = attrs.ConformanceLevel,
+                    NumFeatures = (nuint)Math.Min(attrs.Features.Length, 64),
+                };
+                // Copy features into the fixed-size native array
+                for (int i = 0; i < Math.Min(attrs.Features.Length, 64); i++)
+                    primary.Features[i] = attrs.Features[i];
+
+                *outAttrs = new GhosttyDeviceAttributesNative
+                {
+                    Primary = primary,
+                    Secondary = new GhosttyDeviceAttributesSecondaryNative
+                    {
+                        DeviceType = attrs.DeviceType,
+                        FirmwareVersion = attrs.FirmwareVersion,
+                        RomCartridge = attrs.RomCartridge,
+                    },
+                    Tertiary = new GhosttyDeviceAttributesTertiaryNative
+                    {
+                        UnitId = attrs.UnitId,
+                    },
+                };
+                return (byte)1; // true — handled
             });
             options.Pinner.Pin(del);
-            NativeMethods.ghostty_terminal_set(handle, 8 /* GHOSTTY_TERMINAL_OPT_DEVICE_ATTRIBUTES */, (void*)Marshal.GetFunctionPointerForDelegate(del));
+            NativeMethods.ghostty_terminal_set(handle, 8, (void*)Marshal.GetFunctionPointerForDelegate(del));
         }
 
         // PwdChanged is not a native callback — it's observed via OnTitleChanged + reading Pwd.
@@ -333,11 +407,30 @@ public sealed unsafe class Terminal : IDisposable
     }
 
     // Callback delegate types matching native signatures
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    private unsafe delegate void GhosttyTerminalDataFn(nint terminal, void* userdata, byte* data, nuint len);
 
+    // void (terminal, userdata, const uint8_t* data, size_t len) — WritePty
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private unsafe delegate void GhosttyTerminalWritePtyFn(nint terminal, void* userdata, byte* data, nuint len);
+
+    // void (terminal, userdata) — Bell, TitleChanged
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private unsafe delegate void GhosttyTerminalNotifyFn(nint terminal, void* userdata);
+
+    // GhosttyStringNative (terminal, userdata) — Enquiry, Xtversion (return-value callbacks)
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private unsafe delegate GhosttyStringNative GhosttyTerminalStringFn(nint terminal, void* userdata);
+
+    // bool (terminal, userdata, GhosttySizeReportSizeNative*) — Size
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private unsafe delegate byte GhosttyTerminalSizeFn(nint terminal, void* userdata, GhosttySizeReportSizeNative* outSize);
+
+    // bool (terminal, userdata, int*) — ColorScheme (it's just an int enum)
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private unsafe delegate byte GhosttyTerminalColorSchemeFn(nint terminal, void* userdata, int* outScheme);
+
+    // bool (terminal, userdata, GhosttyDeviceAttributesNative*) — DeviceAttributes
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private unsafe delegate byte GhosttyTerminalDeviceAttributesFn(nint terminal, void* userdata, GhosttyDeviceAttributesNative* outAttrs);
 }
 
 // GhosttyScrollbar: { uint64_t total, uint64_t offset, uint64_t len }

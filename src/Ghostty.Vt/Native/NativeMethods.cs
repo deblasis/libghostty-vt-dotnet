@@ -421,3 +421,37 @@ internal struct GhosttyMousePositionNative
     public float X;
     public float Y;
 }
+
+// Native struct matching GhosttyDeviceAttributesPrimary: { uint16_t conformance_level, uint16_t features[64], size_t num_features }
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct GhosttyDeviceAttributesPrimaryNative
+{
+    public ushort ConformanceLevel;
+    public fixed ushort Features[64];
+    public nuint NumFeatures;
+}
+
+// Native struct matching GhosttyDeviceAttributesSecondary: { uint16_t device_type, uint16_t firmware_version, uint16_t rom_cartridge }
+[StructLayout(LayoutKind.Sequential)]
+internal struct GhosttyDeviceAttributesSecondaryNative
+{
+    public ushort DeviceType;
+    public ushort FirmwareVersion;
+    public ushort RomCartridge;
+}
+
+// Native struct matching GhosttyDeviceAttributesTertiary: { uint32_t unit_id }
+[StructLayout(LayoutKind.Sequential)]
+internal struct GhosttyDeviceAttributesTertiaryNative
+{
+    public uint UnitId;
+}
+
+// Native struct matching GhosttyDeviceAttributes: { primary, secondary, tertiary }
+[StructLayout(LayoutKind.Sequential)]
+internal struct GhosttyDeviceAttributesNative
+{
+    public GhosttyDeviceAttributesPrimaryNative Primary;
+    public GhosttyDeviceAttributesSecondaryNative Secondary;
+    public GhosttyDeviceAttributesTertiaryNative Tertiary;
+}
