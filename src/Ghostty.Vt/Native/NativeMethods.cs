@@ -103,6 +103,34 @@ internal static unsafe partial class NativeMethods
     internal static partial int ghostty_render_state_row_get(
         nint iterator, int data, void* @out);
 
+    // --- RenderState row cell iterator ---
+
+    [LibraryImport(LibraryName)]
+    internal static partial int ghostty_render_state_row_cells_new(
+        nint allocator, nint* out_cells);
+
+    [LibraryImport(LibraryName)]
+    internal static partial void ghostty_render_state_row_cells_free(nint cells);
+
+    [LibraryImport(LibraryName)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool ghostty_render_state_row_cells_next(nint cells);
+
+    // ghostty_render_state_row_cells_select positions at a specific COLUMN (uint16_t x),
+    // NOT at a row. It is for random-access by column index.
+    [LibraryImport(LibraryName)]
+    internal static partial int ghostty_render_state_row_cells_select(
+        nint cells, ushort x);
+
+    [LibraryImport(LibraryName)]
+    internal static partial int ghostty_render_state_row_cells_get(
+        nint cells, int data, void* @out);
+
+    // --- Cell introspection (GhosttyCell is uint64_t, query via ghostty_cell_get) ---
+
+    [LibraryImport(LibraryName)]
+    internal static partial int ghostty_cell_get(ulong cell, int data, void* @out);
+
     [LibraryImport(LibraryName)]
     internal static partial int ghostty_render_state_get_multi(
         nint state, nuint count, int* keys, void** values, nuint* out_written);
