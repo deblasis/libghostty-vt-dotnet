@@ -1,4 +1,0 @@
-<Solution>
-  <Project Path="../../src/Ghostty.Interop/Ghostty.Interop.csproj" />
-  <Project Path="WPF-Direct/WPF-Direct.csproj" />
-</Solution>
