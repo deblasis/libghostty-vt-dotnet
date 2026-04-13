@@ -48,18 +48,20 @@ public class RenderStateRowCellTests
             if (!firstRow) break;
             firstRow = false;
 
-            var graphemeCount = 0;
+            var textCellCount = 0;
             foreach (var cell in row.Cells)
             {
-                if (cell.ContentTag == CellContentTag.Grapheme)
-                    graphemeCount++;
+                // Cells with text have either Codepoint or CodepointGrapheme content tag
+                if (cell.ContentTag == CellContentTag.Codepoint ||
+                    cell.ContentTag == CellContentTag.CodepointGrapheme)
+                    textCellCount++;
             }
-            Assert.True(graphemeCount >= 2, "Expected at least 2 grapheme cells for 'Hi'");
+            Assert.True(textCellCount >= 2, "Expected at least 2 text cells for 'Hi'");
         }
     }
 
     [Fact]
-    public void Cells_EmptyCells_HaveEmptyContentTag()
+    public void Cells_EmptyCells_HaveCodepointContentTag()
     {
         using var term = new Terminal(80, 24);
         using var state = new RenderState();
@@ -73,10 +75,12 @@ public class RenderStateRowCellTests
             var cellIndex = 0;
             foreach (var cell in row.Cells)
             {
-                // After the first cell (which has 'A'), remaining cells should be empty
+                // After the first cell (which has 'A'), remaining cells should have
+                // Codepoint tag with no text (empty codepoint)
                 if (cellIndex > 0)
                 {
-                    Assert.Equal(CellContentTag.Empty, cell.ContentTag);
+                    Assert.Equal(CellContentTag.Codepoint, cell.ContentTag);
+                    Assert.Null(cell.Grapheme);
                 }
                 cellIndex++;
             }
@@ -101,7 +105,7 @@ public class RenderStateRowCellTests
             {
                 if (cellIndex < expectedChars.Length)
                 {
-                    Assert.Equal(CellContentTag.Grapheme, cell.ContentTag);
+                    Assert.Equal(CellContentTag.Codepoint, cell.ContentTag);
                     Assert.NotNull(cell.Grapheme);
                     Assert.Equal(expectedChars[cellIndex].ToString(), cell.Grapheme);
                 }
