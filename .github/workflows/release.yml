@@ -20,14 +20,17 @@ jobs:
         include:
           - os: windows-latest
             target: x86_64-windows
+            zig_target: x86_64-windows
             rid: win-x64
             artifact: ghostty-vt.dll
           - os: ubuntu-latest
             target: x86_64-linux
+            zig_target: x86_64-linux-gnu.2.31
             rid: linux-x64
             artifact: libghostty-vt.so
           - os: macos-latest
             target: aarch64-macos
+            zig_target: aarch64-macos
             rid: osx-arm64
             artifact: libghostty-vt.dylib
     runs-on: ${{ matrix.os }}
@@ -47,7 +50,7 @@ jobs:
       - name: Build native libghostty-vt
         run: |
           cd /tmp/ghostty
-          zig build install -Demit-lib-vt=true -Dtarget=${{ matrix.target }} -Doptimize=ReleaseSafe
+          zig build install -Demit-lib-vt=true -Dtarget=${{ matrix.zig_target }} -Doptimize=ReleaseSafe
           mkdir -p ${{ github.workspace }}/runtimes/${{ matrix.rid }}/native
           cp zig-out/lib/${{ matrix.artifact }} \
             ${{ github.workspace }}/runtimes/${{ matrix.rid }}/native/
