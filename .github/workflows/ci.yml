@@ -15,7 +15,7 @@ jobs:
       - name: Setup Zig
         uses: mlugg/setup-zig@v1
         with:
-          version: '0.14.0'
+          version: '0.15.2'
 
       - name: Clone Ghostty upstream
         run: |
@@ -24,7 +24,7 @@ jobs:
       - name: Build native libghostty-vt
         run: |
           cd /tmp/ghostty
-          zig build lib-vt -Dtarget=x86_64-linux -Doptimize=ReleaseSafe
+          zig build install -Dtarget=x86_64-linux -Doptimize=ReleaseSafe
           mkdir -p ${{ github.workspace }}/runtimes/linux-x64/native
           cp zig-out/lib/libghostty-vt.so ${{ github.workspace }}/runtimes/linux-x64/native/
 
