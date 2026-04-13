@@ -44,13 +44,16 @@ public ref struct KittyImage
 
     internal KittyImage(nint handle) => _handle = handle;
 
+    public bool IsEmpty => _handle == nint.Zero;
+
     public unsafe uint ImageId
     {
         get
         {
             uint id;
-            NativeMethods.ghostty_kitty_graphics_image_get(
-                _handle, 1 /* GHOSTTY_KITTY_IMAGE_DATA_ID */, &id);
+            var result = NativeMethods.ghostty_kitty_graphics_image_get(
+                _handle, (int)KittyImageData.Id, &id);
+            GhosttyException.ThrowIfFailure(result);
             return id;
         }
     }
@@ -60,31 +63,43 @@ public ref struct KittyImage
         get
         {
             int format;
-            NativeMethods.ghostty_kitty_graphics_image_get(
-                _handle, 2 /* GHOSTTY_KITTY_IMAGE_DATA_FORMAT */, &format);
+            var result = NativeMethods.ghostty_kitty_graphics_image_get(
+                _handle, (int)KittyImageData.Format, &format);
+            GhosttyException.ThrowIfFailure(result);
             return (Enums.KittyImageFormat)format;
         }
     }
 
-    public unsafe int Width
+    public unsafe uint Width
     {
         get
         {
-            int width;
-            NativeMethods.ghostty_kitty_graphics_image_get(
-                _handle, 3 /* GHOSTTY_KITTY_IMAGE_DATA_WIDTH */, &width);
+            uint width;
+            var result = NativeMethods.ghostty_kitty_graphics_image_get(
+                _handle, (int)KittyImageData.Width, &width);
+            GhosttyException.ThrowIfFailure(result);
             return width;
         }
     }
 
-    public unsafe int Height
+    public unsafe uint Height
     {
         get
         {
-            int height;
-            NativeMethods.ghostty_kitty_graphics_image_get(
-                _handle, 4 /* GHOSTTY_KITTY_IMAGE_DATA_HEIGHT */, &height);
+            uint height;
+            var result = NativeMethods.ghostty_kitty_graphics_image_get(
+                _handle, (int)KittyImageData.Height, &height);
+            GhosttyException.ThrowIfFailure(result);
             return height;
         }
     }
+}
+
+internal enum KittyImageData
+{
+    Id = 1,
+    Number = 2,
+    Width = 3,
+    Height = 4,
+    Format = 5,
 }
