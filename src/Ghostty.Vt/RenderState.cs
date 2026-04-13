@@ -194,9 +194,82 @@ public ref struct RenderStateCellEnumerator
 {
     private readonly nint _state;
     private readonly int _rowIndex;
-    internal RenderStateCellEnumerator(nint state, int rowIndex)
-    { _state = state; _rowIndex = rowIndex; }
+    private nint _cells;
+    private bool _started;
+    private bool _hasCurrent;
 
-    public bool MoveNext() => throw new NotImplementedException();
-    public Cell Current => throw new NotImplementedException();
+    internal RenderStateCellEnumerator(nint state, int rowIndex)
+    { _state = state; _rowIndex = rowIndex; _cells = 0; _started = false; _hasCurrent = false; }
+
+    public unsafe bool MoveNext()
+    {
+        if (!_started)
+        {
+            // Create the cell iterator handle
+            nint cells;
+            var result = NativeMethods.ghostty_render_state_row_cells_new(nint.Zero, &cells);
+            GhosttyException.ThrowIfFailure(result);
+
+            // Bind the cell iterator to the current row (via the row iterator handle)
+            result = NativeMethods.ghostty_render_state_row_cells_select(cells, _state);
+            GhosttyException.ThrowIfFailure(result);
+
+            _cells = cells;
+            _started = true;
+        }
+
+        _hasCurrent = NativeMethods.ghostty_render_state_row_cells_next(_cells);
+        return _hasCurrent;
+    }
+
+    public unsafe Cell Current
+    {
+        get
+        {
+            // Read content_tag (data=0)
+            int contentTag = 0;
+            NativeMethods.ghostty_render_state_row_cells_get(
+                _cells, 0, &contentTag);
+
+            // Read grapheme (data=1) -> GhosttyStringNative { Ptr, Len }
+            GhosttyStringNative graphemeNative = default;
+            NativeMethods.ghostty_render_state_row_cells_get(
+                _cells, 1, &graphemeNative);
+
+            string? grapheme = null;
+            if (graphemeNative.Ptr != 0 && graphemeNative.Len > 0)
+            {
+                grapheme = System.Text.Encoding.UTF8.GetString(
+                    (byte*)graphemeNative.Ptr, (int)graphemeNative.Len);
+            }
+
+            // Read style (data=2) -> sized struct
+            Style style = default;
+            style.Size = (nuint)System.Runtime.InteropServices.Marshal.SizeOf<Style>();
+            NativeMethods.ghostty_render_state_row_cells_get(
+                _cells, 2, &style);
+
+            // Read kitty_placement_id (data=3)
+            uint kittyPlacementId = 0;
+            NativeMethods.ghostty_render_state_row_cells_get(
+                _cells, 3, &kittyPlacementId);
+
+            return new Cell
+            {
+                ContentTag = (CellContentTag)contentTag,
+                Grapheme = grapheme,
+                Style = style,
+                KittyPlacementId = kittyPlacementId,
+            };
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_cells != 0)
+        {
+            NativeMethods.ghostty_render_state_row_cells_free(_cells);
+            _cells = 0;
+        }
+    }
 }
