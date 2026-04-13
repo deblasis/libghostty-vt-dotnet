@@ -44,18 +44,62 @@ public ref struct KittyImage
 
     internal KittyImage(nint handle) => _handle = handle;
 
+    public bool IsEmpty => _handle == nint.Zero;
+
     public unsafe uint ImageId
     {
         get
         {
+            if (_handle == nint.Zero) return 0;
             uint id;
             NativeMethods.ghostty_kitty_graphics_image_get(
-                _handle, 1 /* GHOSTTY_KITTY_IMAGE_DATA_ID */, &id);
+                _handle, (int)KittyImageData.Id, &id);
             return id;
         }
     }
 
-    public Enums.KittyImageFormat Format => throw new NotImplementedException();
-    public int Width => throw new NotImplementedException();
-    public int Height => throw new NotImplementedException();
+    public unsafe Enums.KittyImageFormat Format
+    {
+        get
+        {
+            if (_handle == nint.Zero) return 0;
+            int format;
+            NativeMethods.ghostty_kitty_graphics_image_get(
+                _handle, (int)KittyImageData.Format, &format);
+            return (Enums.KittyImageFormat)format;
+        }
+    }
+
+    public unsafe uint Width
+    {
+        get
+        {
+            if (_handle == nint.Zero) return 0;
+            uint width;
+            NativeMethods.ghostty_kitty_graphics_image_get(
+                _handle, (int)KittyImageData.Width, &width);
+            return width;
+        }
+    }
+
+    public unsafe uint Height
+    {
+        get
+        {
+            if (_handle == nint.Zero) return 0;
+            uint height;
+            NativeMethods.ghostty_kitty_graphics_image_get(
+                _handle, (int)KittyImageData.Height, &height);
+            return height;
+        }
+    }
+}
+
+internal enum KittyImageData
+{
+    Id = 1,
+    Number = 2,
+    Width = 3,
+    Height = 4,
+    Format = 5,
 }
