@@ -11,7 +11,12 @@ public sealed class TerminalOptions
     // Callbacks — invoked synchronously during VTWrite
     public Action<ReadOnlySpan<byte>>? OnWritePty { get; set; }
     public Action? OnBell { get; set; }
+    public Action? OnEnquiry { get; set; }
+    public Action<ReadOnlySpan<byte>>? OnXtversion { get; set; }
     public Action? OnTitleChanged { get; set; }
+    public Action<ReadOnlySpan<byte>>? OnSize { get; set; }
+    public Action<ReadOnlySpan<byte>>? OnColorScheme { get; set; }
+    public Action<ReadOnlySpan<byte>>? OnDeviceAttributes { get; set; }
     public Action? OnPwdChanged { get; set; }
 
     // Build the native options struct (cols, rows, max_scrollback).

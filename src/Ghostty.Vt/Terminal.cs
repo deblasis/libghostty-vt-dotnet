@@ -39,7 +39,7 @@ public sealed unsafe class Terminal : IDisposable
     {
         if (options.OnWritePty is not null)
         {
-            var del = new GhosttyTerminalWritePtyFn((_, _, data, len) =>
+            var del = new GhosttyTerminalDataFn((_, _, data, len) =>
             {
                 var span = new ReadOnlySpan<byte>(data, (int)len);
                 options.OnWritePty(span);
@@ -50,16 +50,67 @@ public sealed unsafe class Terminal : IDisposable
 
         if (options.OnBell is not null)
         {
-            var del = new GhosttyTerminalBellFn((_, _) => options.OnBell());
+            var del = new GhosttyTerminalNotifyFn((_, _) => options.OnBell());
             options.Pinner.Pin(del);
             NativeMethods.ghostty_terminal_set(handle, 2 /* GHOSTTY_TERMINAL_OPT_BELL */, (void*)Marshal.GetFunctionPointerForDelegate(del));
         }
 
+        if (options.OnEnquiry is not null)
+        {
+            var del = new GhosttyTerminalNotifyFn((_, _) => options.OnEnquiry());
+            options.Pinner.Pin(del);
+            NativeMethods.ghostty_terminal_set(handle, 3 /* GHOSTTY_TERMINAL_OPT_ENQUIRY */, (void*)Marshal.GetFunctionPointerForDelegate(del));
+        }
+
+        if (options.OnXtversion is not null)
+        {
+            var del = new GhosttyTerminalDataFn((_, _, data, len) =>
+            {
+                var span = new ReadOnlySpan<byte>(data, (int)len);
+                options.OnXtversion(span);
+            });
+            options.Pinner.Pin(del);
+            NativeMethods.ghostty_terminal_set(handle, 4 /* GHOSTTY_TERMINAL_OPT_XTVERSION */, (void*)Marshal.GetFunctionPointerForDelegate(del));
+        }
+
         if (options.OnTitleChanged is not null)
         {
-            var del = new GhosttyTerminalTitleChangedFn((_, _) => options.OnTitleChanged());
+            var del = new GhosttyTerminalNotifyFn((_, _) => options.OnTitleChanged());
             options.Pinner.Pin(del);
             NativeMethods.ghostty_terminal_set(handle, 5 /* GHOSTTY_TERMINAL_OPT_TITLE_CHANGED */, (void*)Marshal.GetFunctionPointerForDelegate(del));
+        }
+
+        if (options.OnSize is not null)
+        {
+            var del = new GhosttyTerminalDataFn((_, _, data, len) =>
+            {
+                var span = new ReadOnlySpan<byte>(data, (int)len);
+                options.OnSize(span);
+            });
+            options.Pinner.Pin(del);
+            NativeMethods.ghostty_terminal_set(handle, 6 /* GHOSTTY_TERMINAL_OPT_SIZE */, (void*)Marshal.GetFunctionPointerForDelegate(del));
+        }
+
+        if (options.OnColorScheme is not null)
+        {
+            var del = new GhosttyTerminalDataFn((_, _, data, len) =>
+            {
+                var span = new ReadOnlySpan<byte>(data, (int)len);
+                options.OnColorScheme(span);
+            });
+            options.Pinner.Pin(del);
+            NativeMethods.ghostty_terminal_set(handle, 7 /* GHOSTTY_TERMINAL_OPT_COLOR_SCHEME */, (void*)Marshal.GetFunctionPointerForDelegate(del));
+        }
+
+        if (options.OnDeviceAttributes is not null)
+        {
+            var del = new GhosttyTerminalDataFn((_, _, data, len) =>
+            {
+                var span = new ReadOnlySpan<byte>(data, (int)len);
+                options.OnDeviceAttributes(span);
+            });
+            options.Pinner.Pin(del);
+            NativeMethods.ghostty_terminal_set(handle, 8 /* GHOSTTY_TERMINAL_OPT_DEVICE_ATTRIBUTES */, (void*)Marshal.GetFunctionPointerForDelegate(del));
         }
 
         // PwdChanged is not a native callback — it's observed via OnTitleChanged + reading Pwd.
@@ -283,13 +334,10 @@ public sealed unsafe class Terminal : IDisposable
 
     // Callback delegate types matching native signatures
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    private unsafe delegate void GhosttyTerminalWritePtyFn(nint terminal, void* userdata, byte* data, nuint len);
+    private unsafe delegate void GhosttyTerminalDataFn(nint terminal, void* userdata, byte* data, nuint len);
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    private unsafe delegate void GhosttyTerminalBellFn(nint terminal, void* userdata);
-
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    private unsafe delegate void GhosttyTerminalTitleChangedFn(nint terminal, void* userdata);
+    private unsafe delegate void GhosttyTerminalNotifyFn(nint terminal, void* userdata);
 }
 
 // GhosttyScrollbar: { uint64_t total, uint64_t offset, uint64_t len }
