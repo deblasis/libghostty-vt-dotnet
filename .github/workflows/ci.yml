@@ -60,12 +60,5 @@ jobs:
       - name: Copy native library for tests
         run: cp runtimes/linux-x64/native/libghostty-vt.so tests/Ghostty.Vt.Tests/bin/Release/net9.0/ghostty-vt.so
 
-      - name: Check native library dependencies
-        run: |
-          echo "=== NEEDED libraries ==="
-          readelf -d runtimes/linux-x64/native/libghostty-vt.so | grep NEEDED
-          echo "=== file type ==="
-          file runtimes/linux-x64/native/libghostty-vt.so
-
       - name: Test
         run: dotnet test Ghostty.Vt.sln --no-build --configuration Release --logger "trx"
