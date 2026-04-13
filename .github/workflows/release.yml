@@ -21,7 +21,7 @@ jobs:
           - os: windows-latest
             target: x86_64-windows
             rid: win-x64
-            artifact: libghostty-vt.dll
+            artifact: ghostty-vt.dll
           - os: ubuntu-latest
             target: x86_64-linux
             rid: linux-x64

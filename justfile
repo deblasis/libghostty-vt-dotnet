@@ -20,10 +20,10 @@ artifact := if target == "x86_64-windows" { "ghostty-vt.dll" } \
 artifact_dir := if target == "x86_64-windows" { "bin" } else { "lib" }
 
 # .NET expects libghostty-vt.* naming; zig produces ghostty-vt.dll on Windows
-dotnet_artifact := if target == "x86_64-windows" { "libghostty-vt.dll" } \
+dotnet_artifact := if target == "x86_64-windows" { "ghostty-vt.dll" } \
                 else if target == "x86_64-linux"   { "libghostty-vt.so" } \
                 else if target == "aarch64-macos"  { "libghostty-vt.dylib" } \
-                else { "libghostty-vt.unknown" }
+                else { "ghostty-vt.unknown" }
 
 ghostty_dir := env_var_or_default("GHOSTTY_SOURCE", "")
 

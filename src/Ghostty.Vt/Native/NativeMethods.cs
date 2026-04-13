@@ -4,7 +4,7 @@ namespace Ghostty.Vt.Native;
 
 internal static unsafe partial class NativeMethods
 {
-    private const string LibraryName = "libghostty-vt";
+    private const string LibraryName = "ghostty-vt";
 
     // --- Terminal lifecycle ---
 
