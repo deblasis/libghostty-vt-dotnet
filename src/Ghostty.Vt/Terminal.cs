@@ -291,6 +291,82 @@ public sealed unsafe class Terminal : IDisposable
         }
     }
 
+    public unsafe void SetTitle(string title)
+    {
+        ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
+        var bytes = System.Text.Encoding.UTF8.GetBytes(title ?? string.Empty);
+        fixed (byte* ptr = bytes)
+        {
+            GhosttyStringNative gs;
+            gs.Ptr = (nint)ptr;
+            gs.Len = (nuint)bytes.Length;
+            NativeMethods.ghostty_terminal_set(
+                _handle.DangerousGetHandle(), 9 /* OPT_TITLE */, &gs);
+        }
+    }
+
+    public unsafe void SetForegroundColor(ColorRgb? c)
+    {
+        ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
+        if (c == null)
+        {
+            NativeMethods.ghostty_terminal_set(
+                _handle.DangerousGetHandle(), 11 /* OPT_COLOR_FOREGROUND */, null);
+            return;
+        }
+        var native = new GhosttyColorRgbNative { R = c.Value.R, G = c.Value.G, B = c.Value.B };
+        NativeMethods.ghostty_terminal_set(
+            _handle.DangerousGetHandle(), 11 /* OPT_COLOR_FOREGROUND */, &native);
+    }
+
+    public unsafe void SetBackgroundColor(ColorRgb? c)
+    {
+        ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
+        if (c == null)
+        {
+            NativeMethods.ghostty_terminal_set(
+                _handle.DangerousGetHandle(), 12 /* OPT_COLOR_BACKGROUND */, null);
+            return;
+        }
+        var native = new GhosttyColorRgbNative { R = c.Value.R, G = c.Value.G, B = c.Value.B };
+        NativeMethods.ghostty_terminal_set(
+            _handle.DangerousGetHandle(), 12 /* OPT_COLOR_BACKGROUND */, &native);
+    }
+
+    public unsafe void SetCursorColor(ColorRgb? c)
+    {
+        ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
+        if (c == null)
+        {
+            NativeMethods.ghostty_terminal_set(
+                _handle.DangerousGetHandle(), 13 /* OPT_COLOR_CURSOR */, null);
+            return;
+        }
+        var native = new GhosttyColorRgbNative { R = c.Value.R, G = c.Value.G, B = c.Value.B };
+        NativeMethods.ghostty_terminal_set(
+            _handle.DangerousGetHandle(), 13 /* OPT_COLOR_CURSOR */, &native);
+    }
+
+    public unsafe void SetColorPalette(ColorRgb[]? palette)
+    {
+        ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
+        if (palette == null)
+        {
+            NativeMethods.ghostty_terminal_set(
+                _handle.DangerousGetHandle(), 14 /* OPT_COLOR_PALETTE */, null);
+            return;
+        }
+        // Convert to array of GhosttyColorRgbNative (up to 256 entries)
+        var native = new GhosttyColorRgbNative[256];
+        for (int i = 0; i < Math.Min(palette.Length, 256); i++)
+            native[i] = new GhosttyColorRgbNative { R = palette[i].R, G = palette[i].G, B = palette[i].B };
+        fixed (GhosttyColorRgbNative* ptr = native)
+        {
+            NativeMethods.ghostty_terminal_set(
+                _handle.DangerousGetHandle(), 14 /* OPT_COLOR_PALETTE */, ptr);
+        }
+    }
+
     // --- Operations ---
     public void Resize(int cols, int rows, int cellWidthPx = 0, int cellHeightPx = 0)
     {

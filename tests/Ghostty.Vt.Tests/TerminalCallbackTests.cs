@@ -233,4 +233,64 @@ public class TerminalCallbackTests
         term.VTWrite("\x1b[0c"u8);
         Assert.True(daQueried);
     }
+
+    [Fact]
+    public void SetTitle_UpdatesTitleProperty()
+    {
+        using var term = new Terminal(80, 24);
+        term.SetTitle("test-title");
+        Assert.Equal("test-title", term.Title);
+    }
+
+    [Fact]
+    public void SetForegroundColor_UpdatesDefault()
+    {
+        using var term = new Terminal(80, 24);
+        var red = new ColorRgb { R = 255, G = 0, B = 0 };
+        term.SetForegroundColor(red);
+
+        using var state = new RenderState();
+        state.Update(term);
+        var defaultFg = state.Colors.Foreground;
+        Assert.Equal(255, defaultFg.R);
+    }
+
+    [Fact]
+    public void SetForegroundColor_Null_ResetsToDefault()
+    {
+        using var term = new Terminal(80, 24);
+        var red = new ColorRgb { R = 255, G = 0, B = 0 };
+        term.SetForegroundColor(red);
+        term.SetForegroundColor(null);
+        // Should not throw — null clears the override
+    }
+
+    [Fact]
+    public void SetBackgroundColor_DoesNotThrow()
+    {
+        using var term = new Terminal(80, 24);
+        var blue = new ColorRgb { R = 0, G = 0, B = 255 };
+        term.SetBackgroundColor(blue);
+        term.SetBackgroundColor(null);
+    }
+
+    [Fact]
+    public void SetCursorColor_DoesNotThrow()
+    {
+        using var term = new Terminal(80, 24);
+        var green = new ColorRgb { R = 0, G = 255, B = 0 };
+        term.SetCursorColor(green);
+        term.SetCursorColor(null);
+    }
+
+    [Fact]
+    public void SetColorPalette_DoesNotThrow()
+    {
+        using var term = new Terminal(80, 24);
+        var palette = new ColorRgb[256];
+        for (int i = 0; i < 256; i++)
+            palette[i] = new ColorRgb { R = (byte)i, G = (byte)i, B = (byte)i };
+        term.SetColorPalette(palette);
+        term.SetColorPalette(null);
+    }
 }
