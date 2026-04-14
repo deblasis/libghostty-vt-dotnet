@@ -331,6 +331,21 @@ internal static unsafe partial class NativeMethods
     internal static partial int ghostty_kitty_graphics_placement_get(
         nint placement, int data, void* @out);
 
+    // --- Grid ref introspection ---
+
+    [LibraryImport(LibraryName)]
+    internal static partial int ghostty_grid_ref_cell(void* gridRef, void* @out);
+
+    [LibraryImport(LibraryName)]
+    internal static partial int ghostty_grid_ref_row(void* gridRef, void* @out);
+
+    [LibraryImport(LibraryName)]
+    internal static partial int ghostty_grid_ref_graphemes(
+        void* gridRef, uint* buf, nuint buf_len, nuint* out_len);
+
+    [LibraryImport(LibraryName)]
+    internal static partial int ghostty_grid_ref_style(void* gridRef, void* @out);
+
     // --- Build info ---
 
     [LibraryImport(LibraryName)]
