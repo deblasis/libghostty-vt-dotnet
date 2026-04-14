@@ -218,7 +218,40 @@ public sealed unsafe class Terminal : IDisposable
     public bool CursorPendingWrap => QueryInt(TerminalData.CursorPendingWrap) != 0;
     public bool CursorVisible => QueryInt(TerminalData.CursorVisible) != 0;
     public TerminalScreen ActiveScreen => (TerminalScreen)QueryInt(TerminalData.ActiveScreen);
-    public int ScrollOffset => (int)QueryScrollbar().Offset;
+    public int TotalRows => QueryInt(TerminalData.TotalRows);
+    public int ScrollbackRows => QueryInt(TerminalData.ScrollbackRows);
+    public int WidthPx => QueryInt(TerminalData.WidthPx);
+    public int HeightPx => QueryInt(TerminalData.HeightPx);
+    public bool MouseTracking => QueryInt(TerminalData.MouseTracking) != 0;
+
+    public unsafe KittyKeyFlags KittyKeyboardFlags
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
+            byte value = 0;
+            NativeMethods.ghostty_terminal_get(
+                _handle.DangerousGetHandle(), (int)TerminalData.KittyKeyboardFlags, &value);
+            return (KittyKeyFlags)value;
+        }
+    }
+
+    public unsafe Types.Scrollbar Scrollbar
+    {
+        get
+        {
+            var native = QueryScrollbarNative();
+            return new Types.Scrollbar
+            {
+                Offset = (int)native.Offset,
+                ViewportHeight = (int)native.Len,
+                ScrollbackHeight = (int)(native.Total - native.Len),
+                Progress = native.Total > 0 ? (float)native.Offset / native.Total : 0f,
+            };
+        }
+    }
+
+    public int ScrollOffset => (int)QueryScrollbarNative().Offset;
 
     public string? Title
     {
@@ -383,13 +416,13 @@ public sealed unsafe class Terminal : IDisposable
         return System.Runtime.InteropServices.Marshal.PtrToStringUTF8(gs.Ptr, (int)gs.Len);
     }
 
-    private unsafe (ulong Total, ulong Offset, ulong Len) QueryScrollbar()
+    private unsafe GhosttyScrollbarNative QueryScrollbarNative()
     {
         ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
         GhosttyScrollbarNative sb;
         NativeMethods.ghostty_terminal_get(
-            _handle.DangerousGetHandle(), 9 /* GHOSTTY_TERMINAL_DATA_SCROLLBAR */, &sb);
-        return (sb.Total, sb.Offset, sb.Len);
+            _handle.DangerousGetHandle(), (int)TerminalData.Scrollbar, &sb);
+        return sb;
     }
 
     public void Dispose()

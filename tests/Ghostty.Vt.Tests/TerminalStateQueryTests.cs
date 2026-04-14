@@ -1,3 +1,4 @@
+using Ghostty.Vt.Enums;
 using Xunit;
 
 namespace Ghostty.Vt.Tests;
@@ -47,5 +48,28 @@ public class TerminalStateQueryTests
         if (term.Pwd == null)
             term.SetPwd("file:///home/user");
         Assert.Equal("file:///home/user", term.Pwd);
+    }
+
+    [Fact]
+    public void TotalRows_IncludesScrollback()
+    {
+        using var term = new Terminal(80, 24);
+        int totalRows = term.TotalRows;
+        Assert.True(totalRows >= 24, $"TotalRows should be >= 24, got {totalRows}");
+    }
+
+    [Fact]
+    public void WidthPx_HeightPx_AreNonNegative()
+    {
+        using var term = new Terminal(80, 24);
+        Assert.True(term.WidthPx >= 0);
+        Assert.True(term.HeightPx >= 0);
+    }
+
+    [Fact]
+    public void KittyKeyboardFlags_DefaultIsNone()
+    {
+        using var term = new Terminal(80, 24);
+        Assert.Equal(KittyKeyFlags.None, term.KittyKeyboardFlags);
     }
 }
