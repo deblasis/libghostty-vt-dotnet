@@ -83,12 +83,17 @@ public sealed class Renderer : IDisposable
                 int x = colIdx * scaledCellW;
                 int y = rowIdx * scaledCellH;
 
-                var bgColor = ToRaylibColor(cell.Style.BgColor.Resolve(colors.Palette, colors.Background));
+                // Use pre-resolved color from native library, or fall back to terminal default
+                var bgColor = cell.BgColor.HasValue
+                    ? ToRaylibColor(cell.BgColor.Value)
+                    : defaultBg;
                 Raylib.DrawRectangle(x, y, scaledCellW, scaledCellH, bgColor);
 
                 if ((cell.ContentTag == CellContentTag.Codepoint || cell.ContentTag == CellContentTag.CodepointGrapheme) && cell.Grapheme != null)
                 {
-                    var fgColor = ToRaylibColor(cell.Style.FgColor.Resolve(colors.Palette, colors.Foreground));
+                    var fgColor = cell.FgColor.HasValue
+                        ? ToRaylibColor(cell.FgColor.Value)
+                        : defaultFg;
                     if (cell.Style.Inverse) (fgColor, bgColor) = (bgColor, fgColor);
                     if (cell.Style.Bold)
                         Raylib.DrawTextEx(_font, cell.Grapheme, new Vector2(x + 1, y), scaledFontSize, 1.0f, fgColor);
@@ -99,9 +104,9 @@ public sealed class Renderer : IDisposable
             rowIdx++;
         }
 
-        // Cursor
-        if (terminal.CursorVisible)
-            Raylib.DrawRectangle(terminal.CursorX * scaledCellW, terminal.CursorY * scaledCellH, scaledCellW, scaledCellH, defaultFg);
+        // Cursor (use viewport-relative position from render state)
+        if (state.CursorViewportHasValue)
+            Raylib.DrawRectangle(state.CursorViewportX * scaledCellW, state.CursorViewportY * scaledCellH, scaledCellW, scaledCellH, defaultFg);
 
         // Scrollbar
         int scrollOffset = terminal.ScrollOffset;
