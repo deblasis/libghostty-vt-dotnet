@@ -52,6 +52,8 @@ public ref struct KittyImage
 
     public bool IsEmpty => _handle == nint.Zero;
 
+    internal nint NativeHandle => _handle;
+
     public unsafe uint ImageId
     {
         get
@@ -274,6 +276,92 @@ public ref struct KittyGraphicsPlacementIterator
                 Z = z,
             };
         }
+    }
+
+    public unsafe KittyGraphicsPlacementRenderInfo RenderInfo(KittyImage image, Terminal terminal)
+    {
+        ThrowIfDisposed();
+        var native = new GhosttyKittyPlacementRenderInfoNative
+        {
+            Size = (nuint)sizeof(GhosttyKittyPlacementRenderInfoNative),
+        };
+        var result = NativeMethods.ghostty_kitty_graphics_placement_render_info(
+            _iterator, image.NativeHandle, terminal.NativeHandle, &native);
+        GhosttyException.ThrowIfFailure(result);
+        return new KittyGraphicsPlacementRenderInfo
+        {
+            PixelWidth = native.PixelWidth,
+            PixelHeight = native.PixelHeight,
+            GridCols = native.GridCols,
+            GridRows = native.GridRows,
+            ViewportCol = native.ViewportCol,
+            ViewportRow = native.ViewportRow,
+            ViewportVisible = native.ViewportVisible != 0,
+            SourceX = native.SourceX,
+            SourceY = native.SourceY,
+            SourceWidth = native.SourceWidth,
+            SourceHeight = native.SourceHeight,
+        };
+    }
+
+    public unsafe KittyPlacementRect Rect(KittyImage image, Terminal terminal)
+    {
+        ThrowIfDisposed();
+        var native = new GhosttySelectionNative
+        {
+            Size = (nuint)sizeof(GhosttySelectionNative),
+        };
+        var result = NativeMethods.ghostty_kitty_graphics_placement_rect(
+            _iterator, image.NativeHandle, terminal.NativeHandle, &native);
+        GhosttyException.ThrowIfFailure(result);
+        return new KittyPlacementRect
+        {
+            StartX = native.Start.X,
+            StartY = native.Start.Y,
+            EndX = native.End.X,
+            EndY = native.End.Y,
+            Rectangle = native.Rectangle != 0,
+        };
+    }
+
+    public unsafe (uint width, uint height) PixelSize(KittyImage image, Terminal terminal)
+    {
+        ThrowIfDisposed();
+        uint width = 0, height = 0;
+        var result = NativeMethods.ghostty_kitty_graphics_placement_pixel_size(
+            _iterator, image.NativeHandle, terminal.NativeHandle, &width, &height);
+        GhosttyException.ThrowIfFailure(result);
+        return (width, height);
+    }
+
+    public unsafe (uint cols, uint rows) GridSize(KittyImage image, Terminal terminal)
+    {
+        ThrowIfDisposed();
+        uint cols = 0, rows = 0;
+        var result = NativeMethods.ghostty_kitty_graphics_placement_grid_size(
+            _iterator, image.NativeHandle, terminal.NativeHandle, &cols, &rows);
+        GhosttyException.ThrowIfFailure(result);
+        return (cols, rows);
+    }
+
+    public unsafe (int col, int row) ViewportPos(KittyImage image, Terminal terminal)
+    {
+        ThrowIfDisposed();
+        int col = 0, row = 0;
+        var result = NativeMethods.ghostty_kitty_graphics_placement_viewport_pos(
+            _iterator, image.NativeHandle, terminal.NativeHandle, &col, &row);
+        GhosttyException.ThrowIfFailure(result);
+        return (col, row);
+    }
+
+    public unsafe (uint x, uint y, uint width, uint height) SourceRect(KittyImage image)
+    {
+        ThrowIfDisposed();
+        uint x = 0, y = 0, width = 0, height = 0;
+        var result = NativeMethods.ghostty_kitty_graphics_placement_source_rect(
+            _iterator, image.NativeHandle, &x, &y, &width, &height);
+        GhosttyException.ThrowIfFailure(result);
+        return (x, y, width, height);
     }
 
     public void Dispose()
