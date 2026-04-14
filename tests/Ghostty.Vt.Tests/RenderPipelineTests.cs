@@ -86,7 +86,7 @@ public class RenderPipelineTests
 
     // --- Style attributes ---
 
-    [Fact(Skip = "Style bool fields not populated correctly via blittable struct — needs investigation")]
+    [Fact]
     public void Render_BoldText_HasBoldStyleAttribute()
     {
         using var term = new Terminal(80, 24);
@@ -106,7 +106,7 @@ public class RenderPipelineTests
         }
     }
 
-    [Fact(Skip = "Style bool fields not populated correctly via blittable struct — needs investigation")]
+    [Fact]
     public void Render_ItalicText_HasItalicStyleAttribute()
     {
         using var term = new Terminal(80, 24);
@@ -126,7 +126,7 @@ public class RenderPipelineTests
         }
     }
 
-    [Fact(Skip = "Style bool fields not populated correctly via blittable struct — needs investigation")]
+    [Fact]
     public void Render_DimText_HasFaintStyleAttribute()
     {
         using var term = new Terminal(80, 24);

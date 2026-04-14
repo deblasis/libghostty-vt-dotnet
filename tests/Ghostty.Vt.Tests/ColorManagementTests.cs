@@ -374,4 +374,58 @@ public class ColorManagementTests
         }
         Assert.Fail("No grapheme cell found");
     }
+
+    // --- StyleColor.Resolve helper ---
+
+    [Fact]
+    public void StyleColor_Resolve_None_ReturnsNull()
+    {
+        var sc = StyleColor.None;
+        var palette = new ColorRgb[256];
+        Assert.Null(sc.Resolve(palette));
+    }
+
+    [Fact]
+    public void StyleColor_Resolve_Rgb_ReturnsDirectColor()
+    {
+        var sc = StyleColor.FromRgb(100, 200, 50);
+        var palette = new ColorRgb[256];
+        var result = sc.Resolve(palette);
+        Assert.NotNull(result);
+        Assert.Equal(100, result.Value.R);
+        Assert.Equal(200, result.Value.G);
+        Assert.Equal(50, result.Value.B);
+    }
+
+    [Fact]
+    public void StyleColor_Resolve_Palette_LookupSucceeds()
+    {
+        var palette = new ColorRgb[256];
+        palette[4] = new ColorRgb { R = 0, G = 0, B = 170 }; // ANSI blue
+
+        var sc = StyleColor.FromPalette(4);
+        var result = sc.Resolve(palette);
+        Assert.NotNull(result);
+        Assert.Equal(0, result.Value.R);
+        Assert.Equal(0, result.Value.G);
+        Assert.Equal(170, result.Value.B);
+    }
+
+    [Fact]
+    public void StyleColor_Resolve_Palette_OutOfRange_ReturnsNull()
+    {
+        var palette = new ColorRgb[4]; // Only 4 entries
+        var sc = StyleColor.FromPalette(10);
+        Assert.Null(sc.Resolve(palette));
+    }
+
+    [Fact]
+    public void StyleColor_Resolve_WithDefault_None_ReturnsDefault()
+    {
+        var sc = StyleColor.None;
+        var palette = new ColorRgb[256];
+        var fallback = new ColorRgb { R = 42, G = 42, B = 42 };
+        var result = sc.Resolve(palette, fallback);
+        Assert.Equal(42, result.R);
+    }
 }

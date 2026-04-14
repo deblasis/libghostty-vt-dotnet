@@ -37,4 +37,35 @@ public struct StyleColor
         Tag = StyleColorTag.Rgb,
         _value = r | ((ulong)g << 8) | ((ulong)b << 16),
     };
+
+    /// <summary>
+    /// Resolves this StyleColor to a concrete RGB value using the given palette.
+    /// Returns null when Tag is None (no color set).
+    /// </summary>
+    public readonly ColorRgb? Resolve(ColorRgb[] palette)
+    {
+        return Tag switch
+        {
+            StyleColorTag.Rgb => Rgb,
+            StyleColorTag.Palette when PaletteIndex < palette.Length
+                => palette[PaletteIndex],
+            _ => null,
+        };
+    }
+
+    /// <summary>
+    /// Resolves this StyleColor to a concrete RGB value, falling back to
+    /// <paramref name="defaultColor"/> when Tag is None or the palette index
+    /// is out of range.
+    /// </summary>
+    public readonly ColorRgb Resolve(ColorRgb[] palette, ColorRgb defaultColor)
+    {
+        return Tag switch
+        {
+            StyleColorTag.Rgb => Rgb,
+            StyleColorTag.Palette when PaletteIndex < palette.Length
+                => palette[PaletteIndex],
+            _ => defaultColor,
+        };
+    }
 }
