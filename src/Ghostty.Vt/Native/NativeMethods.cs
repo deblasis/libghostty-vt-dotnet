@@ -126,6 +126,11 @@ internal static unsafe partial class NativeMethods
     internal static partial int ghostty_render_state_row_cells_get(
         nint cells, int data, void* @out);
 
+    // --- Row introspection (GhosttyRow is opaque handle, query via ghostty_row_get) ---
+
+    [LibraryImport(LibraryName)]
+    internal static partial int ghostty_row_get(ulong row, int data, void* @out);
+
     // --- Cell introspection (GhosttyCell is uint64_t, query via ghostty_cell_get) ---
 
     [LibraryImport(LibraryName)]

@@ -305,4 +305,26 @@ public class RenderStateRowCellTests
         }
         Assert.Fail("Did not find cell with 'A'");
     }
+
+    [Fact]
+    public void Row_Wrap_LongLineHasWrapSet()
+    {
+        using var term = new Terminal(10, 24);
+        using var state = new RenderState();
+
+        // Write 15 chars into a 10-col terminal — causes wrap
+        term.VTWrite("1234567890ABCDE"u8);
+        state.Update(term);
+
+        bool foundWrap = false;
+        foreach (var row in state.Rows)
+        {
+            if (row.Wrap)
+            {
+                foundWrap = true;
+                break;
+            }
+        }
+        Assert.True(foundWrap, "Expected at least one row with Wrap=true");
+    }
 }

@@ -162,10 +162,34 @@ public ref struct RenderStateRowEnumerator
             byte dirty = 0;
             NativeMethods.ghostty_render_state_row_get(
                 _iterator, 1 /* ROW_DATA_DIRTY */, &dirty);
+
+            // Read raw row handle (data=2 = ROW_DATA_RAW) for querying row-level data
+            ulong rawRow = 0;
+            NativeMethods.ghostty_render_state_row_get(
+                _iterator, 2 /* ROW_DATA_RAW */, &rawRow);
+
+            // Query row handle for wrap, semantic, etc.
+            byte wrap = 0;
+            byte wrapContinuation = 0;
+            int semanticPrompt = 0;
+            byte kittyVirtual = 0;
+
+            if (rawRow != 0)
+            {
+                NativeMethods.ghostty_row_get(rawRow, 1 /* ROW_DATA_WRAP */, &wrap);
+                NativeMethods.ghostty_row_get(rawRow, 2 /* ROW_DATA_WRAP_CONTINUATION */, &wrapContinuation);
+                NativeMethods.ghostty_row_get(rawRow, 6 /* ROW_DATA_SEMANTIC_PROMPT */, &semanticPrompt);
+                NativeMethods.ghostty_row_get(rawRow, 7 /* ROW_DATA_KITTY_VIRTUAL_PLACEHOLDER */, &kittyVirtual);
+            }
+
             return new RenderStateRow
             {
                 Dirty = dirty != 0,
                 Cells = new RenderStateCellEnumerable(_iterator),
+                Wrap = wrap != 0,
+                WrapContinuation = wrapContinuation != 0,
+                Semantic = (RowSemanticPrompt)semanticPrompt,
+                KittyVirtualPlaceholder = kittyVirtual != 0,
             };
         }
     }
@@ -185,6 +209,10 @@ public ref struct RenderStateRow
     public bool Dirty { get; init; }
     public int Index { get; init; }
     public RenderStateCellEnumerable Cells { get; init; }
+    public bool Wrap { get; init; }
+    public bool WrapContinuation { get; init; }
+    public RowSemanticPrompt Semantic { get; init; }
+    public bool KittyVirtualPlaceholder { get; init; }
 }
 
 public ref struct RenderStateCellEnumerable
