@@ -1,3 +1,4 @@
+using Ghostty.Vt.Enums;
 using Xunit;
 
 namespace Ghostty.Vt.Tests;
@@ -27,5 +28,32 @@ public class RenderStateConstructionTests
 
         using var term = new Terminal(80, 24);
         Assert.Throws<ObjectDisposedException>(() => state.Update(term));
+    }
+
+    [Fact]
+    public void CursorStyle_AfterCreation_IsBlockOrBar()
+    {
+        using var term = new Terminal(80, 24);
+        using var state = new RenderState();
+        state.Update(term);
+
+        var style = state.CursorStyle;
+        Assert.True(style == CursorVisualStyle.Block || style == CursorVisualStyle.Bar,
+            $"Expected Block or Bar, got {style}");
+    }
+
+    [Fact]
+    public void CursorViewportPosition_AfterWrite_IsCorrect()
+    {
+        using var term = new Terminal(80, 24);
+        using var state = new RenderState();
+
+        term.VTWrite("Hello"u8);
+        state.Update(term);
+
+        Assert.True(state.CursorViewportHasValue);
+        Assert.Equal(5, state.CursorViewportX);
+        Assert.Equal(0, state.CursorViewportY);
+        Assert.False(state.CursorViewportWideTail);
     }
 }

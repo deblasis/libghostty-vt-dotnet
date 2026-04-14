@@ -72,6 +72,102 @@ public sealed class RenderState : IDisposable
         }
     }
 
+    public unsafe CursorVisualStyle CursorStyle
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
+            int value;
+            NativeMethods.ghostty_render_state_get(
+                _handle.DangerousGetHandle(), (int)RenderStateData.CursorVisualStyle, &value);
+            return (CursorVisualStyle)value;
+        }
+    }
+
+    public unsafe bool CursorVisible
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
+            byte value;
+            NativeMethods.ghostty_render_state_get(
+                _handle.DangerousGetHandle(), (int)RenderStateData.CursorVisible, &value);
+            return value != 0;
+        }
+    }
+
+    public unsafe bool CursorBlinking
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
+            byte value;
+            NativeMethods.ghostty_render_state_get(
+                _handle.DangerousGetHandle(), (int)RenderStateData.CursorBlinking, &value);
+            return value != 0;
+        }
+    }
+
+    public unsafe bool CursorPasswordInput
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
+            byte value;
+            NativeMethods.ghostty_render_state_get(
+                _handle.DangerousGetHandle(), (int)RenderStateData.CursorPasswordInput, &value);
+            return value != 0;
+        }
+    }
+
+    public unsafe bool CursorViewportHasValue
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
+            byte value;
+            NativeMethods.ghostty_render_state_get(
+                _handle.DangerousGetHandle(), (int)RenderStateData.CursorViewportHasValue, &value);
+            return value != 0;
+        }
+    }
+
+    public unsafe int CursorViewportX
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
+            int value;
+            NativeMethods.ghostty_render_state_get(
+                _handle.DangerousGetHandle(), (int)RenderStateData.CursorViewportX, &value);
+            return value;
+        }
+    }
+
+    public unsafe int CursorViewportY
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
+            int value;
+            NativeMethods.ghostty_render_state_get(
+                _handle.DangerousGetHandle(), (int)RenderStateData.CursorViewportY, &value);
+            return value;
+        }
+    }
+
+    public unsafe bool CursorViewportWideTail
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
+            byte value;
+            NativeMethods.ghostty_render_state_get(
+                _handle.DangerousGetHandle(), (int)RenderStateData.CursorViewportWideTail, &value);
+            return value != 0;
+        }
+    }
+
     public RenderStateRowEnumerable Rows
     {
         get
