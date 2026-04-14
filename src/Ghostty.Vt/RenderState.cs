@@ -54,12 +54,20 @@ public sealed class RenderState : IDisposable
 
             // Read fields at exact offsets per type JSON:
             //   background@8(3), foreground@11(3), cursor@14(3), cursor_has_value@17(1), palette@18(768)
+            var palette = new ColorRgb[256];
+            for (int i = 0; i < 256; i++)
+            {
+                int off = 18 + i * 3;
+                palette[i] = new ColorRgb { R = buf[off], G = buf[off + 1], B = buf[off + 2] };
+            }
+
             return new RenderStateColors
             {
                 Background = new ColorRgb { R = buf[8], G = buf[9], B = buf[10] },
                 Foreground = new ColorRgb { R = buf[11], G = buf[12], B = buf[13] },
                 Cursor = new ColorRgb { R = buf[14], G = buf[15], B = buf[16] },
                 CursorHasValue = buf[17] != 0,
+                Palette = palette,
             };
         }
     }

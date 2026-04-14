@@ -8,4 +8,5 @@ public readonly struct RenderStateColors
     public ColorRgb Background { get; init; }
     public ColorRgb Cursor { get; init; }
     public bool CursorHasValue { get; init; }
+    public ColorRgb[] Palette { get; init; }
 }
