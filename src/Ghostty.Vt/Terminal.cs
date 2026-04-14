@@ -501,6 +501,43 @@ public sealed unsafe class Terminal : IDisposable
         return sb;
     }
 
+    private unsafe ColorRgb? QueryColor(TerminalData data)
+    {
+        ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
+        var native = default(GhosttyColorRgbNative);
+        var result = NativeMethods.ghostty_terminal_get(
+            _handle.DangerousGetHandle(), (int)data, &native);
+        // Non-zero result means no value / not set
+        if (result != 0)
+            return null;
+        return new ColorRgb { R = native.R, G = native.G, B = native.B };
+    }
+
+    public ColorRgb? ColorForegroundDefault => QueryColor(TerminalData.ColorForegroundDefault);
+
+    public ColorRgb? ColorBackgroundDefault => QueryColor(TerminalData.ColorBackgroundDefault);
+
+    public ColorRgb? ColorCursorDefault => QueryColor(TerminalData.ColorCursorDefault);
+
+    public unsafe ColorRgb[] ColorPaletteDefault
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
+            var palette = new GhosttyColorRgbNative[256];
+            fixed (GhosttyColorRgbNative* ptr = palette)
+            {
+                var result = NativeMethods.ghostty_terminal_get(
+                    _handle.DangerousGetHandle(), (int)TerminalData.ColorPaletteDefault, ptr);
+                GhosttyException.ThrowIfFailure(result);
+            }
+            var colors = new ColorRgb[256];
+            for (int i = 0; i < 256; i++)
+                colors[i] = new ColorRgb { R = palette[i].R, G = palette[i].G, B = palette[i].B };
+            return colors;
+        }
+    }
+
     public void Dispose()
     {
         _handle.Dispose();

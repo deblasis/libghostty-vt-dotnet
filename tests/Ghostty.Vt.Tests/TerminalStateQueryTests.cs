@@ -72,4 +72,42 @@ public class TerminalStateQueryTests
         using var term = new Terminal(80, 24);
         Assert.Equal(KittyKeyFlags.None, term.KittyKeyboardFlags);
     }
+
+    [Fact]
+    public void ColorForegroundDefault_NoOverride_DoesNotThrow()
+    {
+        using var term = new Terminal(80, 24);
+        var fg = term.ColorForegroundDefault;
+        Assert.True(fg == null || (fg.Value.R <= 255 && fg.Value.G <= 255 && fg.Value.B <= 255));
+    }
+
+    [Fact]
+    public void ColorBackgroundDefault_NoOverride_DoesNotThrow()
+    {
+        using var term = new Terminal(80, 24);
+        var bg = term.ColorBackgroundDefault;
+        Assert.True(bg == null || (bg.Value.R <= 255 && bg.Value.G <= 255 && bg.Value.B <= 255));
+    }
+
+    [Fact]
+    public void ColorCursorDefault_NoOverride_DoesNotThrow()
+    {
+        using var term = new Terminal(80, 24);
+        var cursor = term.ColorCursorDefault;
+        Assert.True(cursor == null || (cursor.Value.R <= 255 && cursor.Value.G <= 255 && cursor.Value.B <= 255));
+    }
+
+    [Fact]
+    public void ColorPaletteDefault_Returns256Entries()
+    {
+        using var term = new Terminal(80, 24);
+        var palette = term.ColorPaletteDefault;
+        Assert.Equal(256, palette.Length);
+        foreach (var color in palette)
+        {
+            Assert.True(color.R <= 255);
+            Assert.True(color.G <= 255);
+            Assert.True(color.B <= 255);
+        }
+    }
 }
