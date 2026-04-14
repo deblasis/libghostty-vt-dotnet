@@ -14,4 +14,6 @@ public readonly struct Cell
     public bool HasStyling { get; init; }
     public bool HasHyperlink { get; init; }
     public bool Protected { get; init; }
+    public ColorRgb? BgColor { get; init; }
+    public ColorRgb? FgColor { get; init; }
 }

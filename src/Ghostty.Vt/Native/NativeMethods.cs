@@ -442,6 +442,15 @@ internal struct PointNative
     private ulong _pad2;
 }
 
+// Native struct matching GhosttyColorRgb: { uint8_t r, uint8_t g, uint8_t b }
+[StructLayout(LayoutKind.Sequential)]
+internal struct GhosttyColorRgbNative
+{
+    public byte R;
+    public byte G;
+    public byte B;
+}
+
 // Native struct matching GhosttyMousePosition: { float x, float y }
 [StructLayout(LayoutKind.Sequential)]
 internal struct GhosttyMousePositionNative

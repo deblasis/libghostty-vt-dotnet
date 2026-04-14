@@ -323,6 +323,18 @@ public ref struct RenderStateCellEnumerator
             NativeMethods.ghostty_render_state_row_cells_get(
                 _cells, 2 /* ROW_CELLS_DATA_STYLE */, &style);
 
+            // Read pre-resolved BG color (data ID 5 on cells handle)
+            var bgColorNative = default(GhosttyColorRgbNative);
+            int bgResult = NativeMethods.ghostty_render_state_row_cells_get(
+                _cells, 5 /* ROW_CELLS_DATA_BG_COLOR */, &bgColorNative);
+            ColorRgb? bgColor = bgResult == 0 ? new ColorRgb { R = bgColorNative.R, G = bgColorNative.G, B = bgColorNative.B } : null;
+
+            // Read pre-resolved FG color (data ID 6 on cells handle)
+            var fgColorNative = default(GhosttyColorRgbNative);
+            int fgResult = NativeMethods.ghostty_render_state_row_cells_get(
+                _cells, 6 /* ROW_CELLS_DATA_FG_COLOR */, &fgColorNative);
+            ColorRgb? fgColor = fgResult == 0 ? new ColorRgb { R = fgColorNative.R, G = fgColorNative.G, B = fgColorNative.B } : null;
+
             return new Cell
             {
                 ContentTag = (CellContentTag)contentTag,
@@ -335,6 +347,8 @@ public ref struct RenderStateCellEnumerator
                 HasStyling = hasStyling != 0,
                 HasHyperlink = hasHyperlink != 0,
                 Protected = protected_ != 0,
+                BgColor = bgColor,
+                FgColor = fgColor,
             };
         }
     }

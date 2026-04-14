@@ -428,4 +428,57 @@ public class ColorManagementTests
         var result = sc.Resolve(palette, fallback);
         Assert.Equal(42, result.R);
     }
+
+    // --- Pre-resolved BG/FG colors ---
+
+    [Fact]
+    public void Cell_PreResolvedBgColor_TrueColor()
+    {
+        using var term = new Terminal(80, 24);
+        using var state = new RenderState();
+
+        term.VTWrite("\x1b[48;2;255;128;64mX\x1b[0m"u8);
+        state.Update(term);
+
+        foreach (var row in state.Rows)
+        {
+            foreach (var cell in row.Cells)
+            {
+                if (cell.Grapheme == "X")
+                {
+                    Assert.NotNull(cell.BgColor);
+                    Assert.Equal(255, cell.BgColor.Value.R);
+                    Assert.Equal(128, cell.BgColor.Value.G);
+                    Assert.Equal(64, cell.BgColor.Value.B);
+                    return;
+                }
+            }
+            break;
+        }
+        Assert.Fail("Did not find cell with 'X'");
+    }
+
+    [Fact]
+    public void Cell_PreResolvedFgColor_PlainCellIsNull()
+    {
+        using var term = new Terminal(80, 24);
+        using var state = new RenderState();
+
+        term.VTWrite("A"u8);
+        state.Update(term);
+
+        foreach (var row in state.Rows)
+        {
+            foreach (var cell in row.Cells)
+            {
+                if (cell.Grapheme == "A")
+                {
+                    Assert.Null(cell.FgColor);
+                    return;
+                }
+            }
+            break;
+        }
+        Assert.Fail("Did not find cell with 'A'");
+    }
 }
