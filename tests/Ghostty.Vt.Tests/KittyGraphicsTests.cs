@@ -163,4 +163,43 @@ public class KittyGraphicsTests
         Assert.Equal(0u, info.Width);
         Assert.Equal(0u, info.Height);
     }
+
+    [Fact]
+    public void KittyGraphicsPlacementRenderInfo_HoldsAllFields()
+    {
+        var info = new KittyGraphicsPlacementRenderInfo
+        {
+            PixelWidth = 100, PixelHeight = 200,
+            GridCols = 10, GridRows = 5,
+            ViewportCol = 3, ViewportRow = 7,
+            ViewportVisible = true,
+            SourceX = 0, SourceY = 0,
+            SourceWidth = 100, SourceHeight = 200,
+        };
+        Assert.Equal(100u, info.PixelWidth);
+        Assert.Equal(200u, info.PixelHeight);
+        Assert.Equal(10u, info.GridCols);
+        Assert.Equal(5u, info.GridRows);
+        Assert.Equal(3, info.ViewportCol);
+        Assert.Equal(7, info.ViewportRow);
+        Assert.True(info.ViewportVisible);
+        Assert.Equal(100u, info.SourceWidth);
+        Assert.Equal(200u, info.SourceHeight);
+    }
+
+    [Fact]
+    public void KittyPlacementRect_HoldsCoordinates()
+    {
+        var rect = new KittyPlacementRect
+        {
+            StartX = 1, StartY = 2,
+            EndX = 10, EndY = 20,
+            Rectangle = true,
+        };
+        Assert.Equal(1, rect.StartX);
+        Assert.Equal(2, rect.StartY);
+        Assert.Equal(10, rect.EndX);
+        Assert.Equal(20, rect.EndY);
+        Assert.True(rect.Rectangle);
+    }
 }
