@@ -331,6 +331,37 @@ internal static unsafe partial class NativeMethods
     internal static partial int ghostty_kitty_graphics_placement_get(
         nint placement, int data, void* @out);
 
+    // --- Kitty graphics placement computed methods ---
+
+    [LibraryImport(LibraryName)]
+    internal static partial int ghostty_kitty_graphics_placement_render_info(
+        nint placement, nint image, nint terminal, void* @out);
+
+    [LibraryImport(LibraryName)]
+    internal static partial int ghostty_kitty_graphics_placement_rect(
+        nint placement, nint image, nint terminal, void* @out);
+
+    [LibraryImport(LibraryName)]
+    internal static partial int ghostty_kitty_graphics_placement_pixel_size(
+        nint placement, nint image, nint terminal, uint* width, uint* height);
+
+    [LibraryImport(LibraryName)]
+    internal static partial int ghostty_kitty_graphics_placement_grid_size(
+        nint placement, nint image, nint terminal, uint* cols, uint* rows);
+
+    [LibraryImport(LibraryName)]
+    internal static partial int ghostty_kitty_graphics_placement_viewport_pos(
+        nint placement, nint image, nint terminal, int* col, int* row);
+
+    [LibraryImport(LibraryName)]
+    internal static partial int ghostty_kitty_graphics_placement_source_rect(
+        nint placement, nint image, uint* x, uint* y, uint* width, uint* height);
+
+    // --- Sys callbacks ---
+
+    [LibraryImport(LibraryName)]
+    internal static partial int ghostty_sys_set(int option, void* value);
+
     // --- Grid ref introspection ---
 
     [LibraryImport(LibraryName)]
@@ -490,6 +521,46 @@ internal struct GhosttyColorRgbNative
     public byte R;
     public byte G;
     public byte B;
+}
+
+// Native struct matching GhosttyKittyGraphicsPlacementRenderInfo (sized struct).
+[StructLayout(LayoutKind.Sequential)]
+internal struct GhosttyKittyPlacementRenderInfoNative
+{
+    public nuint Size;
+    public uint PixelWidth;
+    public uint PixelHeight;
+    public uint GridCols;
+    public uint GridRows;
+    public int ViewportCol;
+    public int ViewportRow;
+    public byte ViewportVisible;
+    private byte _pad0, _pad1, _pad2;
+    public uint SourceX;
+    public uint SourceY;
+    public uint SourceWidth;
+    public uint SourceHeight;
+}
+
+// Native struct matching GhosttySelection (sized struct, 64 bytes, align 8).
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct GhosttySelectionNative
+{
+    public nuint Size;
+    public GhosttyGridRefNative Start;
+    public GhosttyGridRefNative End;
+    public byte Rectangle;
+    private fixed byte _padding[7];
+}
+
+// Native struct matching GhosttySysImage.
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct GhosttySysImageNative
+{
+    public uint Width;
+    public uint Height;
+    public byte* Data;
+    public nuint DataLen;
 }
 
 // Native struct matching GhosttyMousePosition: { float x, float y }
