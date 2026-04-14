@@ -310,6 +310,27 @@ internal static unsafe partial class NativeMethods
     internal static partial int ghostty_kitty_graphics_image_get(
         nint image, int data, void* @out);
 
+    // --- Kitty graphics placement iterator ---
+
+    [LibraryImport(LibraryName)]
+    internal static partial int ghostty_kitty_graphics_placement_iterator_new(
+        nint allocator, nint* iter);
+
+    [LibraryImport(LibraryName)]
+    internal static partial void ghostty_kitty_graphics_placement_iterator_free(nint iter);
+
+    [LibraryImport(LibraryName)]
+    internal static partial int ghostty_kitty_graphics_placement_iterator_set(
+        nint iter, int option, void* value);
+
+    [LibraryImport(LibraryName)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool ghostty_kitty_graphics_placement_next(nint iter);
+
+    [LibraryImport(LibraryName)]
+    internal static partial int ghostty_kitty_graphics_placement_get(
+        nint placement, int data, void* @out);
+
     // --- Build info ---
 
     [LibraryImport(LibraryName)]
