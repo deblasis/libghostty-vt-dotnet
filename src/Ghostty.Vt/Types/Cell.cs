@@ -8,4 +8,10 @@ public readonly struct Cell
     public string? Grapheme { get; init; }
     public Style Style { get; init; }
     public uint KittyPlacementId { get; init; }
+    public CellWide Wide { get; init; }
+    public CellSemanticContent Semantic { get; init; }
+    public bool HasText { get; init; }
+    public bool HasStyling { get; init; }
+    public bool HasHyperlink { get; init; }
+    public bool Protected { get; init; }
 }

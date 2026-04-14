@@ -252,4 +252,57 @@ public class RenderStateRowCellTests
         }
         Assert.Fail("Did not find cell with 'X'");
     }
+
+    [Fact]
+    public void Cells_CJKCharacter_HasWideCellWide()
+    {
+        using var term = new Terminal(80, 24);
+        using var state = new RenderState();
+
+        // U+4E16 is a CJK character — occupies 2 cells
+        term.VTWrite("\u4E16"u8);
+        state.Update(term);
+
+        foreach (var row in state.Rows)
+        {
+            int col = 0;
+            foreach (var cell in row.Cells)
+            {
+                if (col == 0)
+                {
+                    Assert.Equal(CellWide.Wide, cell.Wide);
+                }
+                else if (col == 1)
+                {
+                    Assert.Equal(CellWide.SpacerTail, cell.Wide);
+                }
+                col++;
+            }
+            break;
+        }
+    }
+
+    [Fact]
+    public void Cells_PlainASCII_HasNarrowWide()
+    {
+        using var term = new Terminal(80, 24);
+        using var state = new RenderState();
+
+        term.VTWrite("A"u8);
+        state.Update(term);
+
+        foreach (var row in state.Rows)
+        {
+            foreach (var cell in row.Cells)
+            {
+                if (cell.Grapheme == "A")
+                {
+                    Assert.Equal(CellWide.Narrow, cell.Wide);
+                    return;
+                }
+            }
+            break;
+        }
+        Assert.Fail("Did not find cell with 'A'");
+    }
 }

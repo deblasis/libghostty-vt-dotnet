@@ -253,6 +253,26 @@ public ref struct RenderStateCellEnumerator
             byte hasText = 0;
             NativeMethods.ghostty_cell_get(rawCell, 4 /* CELL_DATA_HAS_TEXT */, &hasText);
 
+            // Read wide (data ID 3)
+            int wide = 0;
+            NativeMethods.ghostty_cell_get(rawCell, 3 /* CELL_DATA_WIDE */, &wide);
+
+            // Read has_styling (data ID 5)
+            byte hasStyling = 0;
+            NativeMethods.ghostty_cell_get(rawCell, 5 /* CELL_DATA_HAS_STYLING */, &hasStyling);
+
+            // Read has_hyperlink (data ID 7)
+            byte hasHyperlink = 0;
+            NativeMethods.ghostty_cell_get(rawCell, 7 /* CELL_DATA_HAS_HYPERLINK */, &hasHyperlink);
+
+            // Read protected (data ID 8)
+            byte protected_ = 0;
+            NativeMethods.ghostty_cell_get(rawCell, 8 /* CELL_DATA_PROTECTED */, &protected_);
+
+            // Read semantic_content (data ID 9)
+            int semantic = 0;
+            NativeMethods.ghostty_cell_get(rawCell, 9 /* CELL_DATA_SEMANTIC_CONTENT */, &semantic);
+
             // Read grapheme text from codepoints if there's text
             string? grapheme = null;
             if (hasText != 0)
@@ -309,6 +329,12 @@ public ref struct RenderStateCellEnumerator
                 Grapheme = grapheme,
                 Style = style,
                 KittyPlacementId = 0, // Not available via render API; would need separate kitty image API
+                Wide = (CellWide)wide,
+                Semantic = (CellSemanticContent)semantic,
+                HasText = hasText != 0,
+                HasStyling = hasStyling != 0,
+                HasHyperlink = hasHyperlink != 0,
+                Protected = protected_ != 0,
             };
         }
     }
