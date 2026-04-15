@@ -59,7 +59,7 @@ public static unsafe class Sys
     public static void SetLogStderr()
     {
         _logFn = null;
-        var handle = NativeLibrary.Load("ghostty-vt");
+        var handle = NativeLibrary.Load("ghostty-vt", typeof(Sys).Assembly, null);
         try
         {
             if (NativeLibrary.TryGetExport(handle, "ghostty_sys_log_stderr", out nint fp))
