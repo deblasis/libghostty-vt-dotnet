@@ -143,6 +143,15 @@ public sealed class Renderer : IDisposable
         var defaultBg = ToRaylibColor(colors.Background);
         var defaultFg = ToRaylibColor(colors.Foreground);
 
+        // Ensure fg has a valid white color even if the native library hasn't initialized yet.
+        // The native color reads as (255,255,255,255) but exhibits a JIT/struct-copy quirk
+        // where it doesn't render correctly in the cell loop — re-creating the struct fixes it.
+        defaultFg = new Color(
+            Math.Max((byte)1, defaultFg.R),
+            Math.Max((byte)1, defaultFg.G),
+            Math.Max((byte)1, defaultFg.B),
+            (byte)255);
+
         var dpi = Raylib.GetWindowScaleDPI();
         float scaleX = dpi.X > 0 ? dpi.X : 1.0f;
         float scaleY = dpi.Y > 0 ? dpi.Y : 1.0f;
@@ -159,18 +168,19 @@ public sealed class Renderer : IDisposable
                 int x = colIdx * scaledCellW;
                 int y = rowIdx * scaledCellH;
 
-                // Use pre-resolved color from native library, or fall back to terminal default
+                // Resolve final fg/bg colors BEFORE drawing, so inverse swap applies to both
                 var bgColor = cell.BgColor.HasValue
                     ? ToRaylibColor(cell.BgColor.Value)
                     : defaultBg;
+                var fgColor = cell.FgColor.HasValue
+                    ? ToRaylibColor(cell.FgColor.Value)
+                    : defaultFg;
+                if (cell.Style.Inverse) (fgColor, bgColor) = (bgColor, fgColor);
+
                 Raylib.DrawRectangle(x, y, scaledCellW, scaledCellH, bgColor);
 
                 if ((cell.ContentTag == CellContentTag.Codepoint || cell.ContentTag == CellContentTag.CodepointGrapheme) && cell.Grapheme != null)
                 {
-                    var fgColor = cell.FgColor.HasValue
-                        ? ToRaylibColor(cell.FgColor.Value)
-                        : defaultFg;
-                    if (cell.Style.Inverse) (fgColor, bgColor) = (bgColor, fgColor);
                     Raylib.DrawTextEx(_font, cell.Grapheme, new Vector2(x, y), scaledFontSize, 1.0f, fgColor);
                 }
                 colIdx++;

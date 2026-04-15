@@ -58,8 +58,15 @@ try
 
         // Dump codepoint diagnostics every 120 frames (~2 seconds)
         frameCount++;
-        if (frameCount % 120 == 0)
+        if (frameCount == 30)
+        {
             h.DumpCodepointDiagnostics();
+            h.DumpRenderState();
+        }
+        else if (frameCount % 120 == 0)
+        {
+            h.DumpCodepointDiagnostics();
+        }
 
         Raylib.BeginDrawing();
         rend.Draw(h.RenderState, h.Terminal);

@@ -205,6 +205,18 @@ public sealed class WindowsPty : IPty
         // Larger buffer reduces ReadFile calls — ConPTY can burst data
         var buffer = new byte[65536];
         var bufferPtr = Marshal.AllocHGlobal(buffer.Length);
+
+        // Diagnostic: raw hex dump of every read from ConPTY
+        var diagWriter = new StreamWriter("ghostling_reader.log", false) { AutoFlush = true };
+        var startupTime = DateTime.UtcNow;
+        int readCount = 0;
+        ulong totalBytes = 0;
+
+        diagWriter.WriteLine($"=== ConPTY ReaderThread started at {startupTime:O} ===");
+        diagWriter.WriteLine($"Shell: {_shell}");
+        diagWriter.WriteLine($"Size: {Cols}x{Rows}");
+        diagWriter.WriteLine();
+
         try
         {
             while (!_disposed)
@@ -212,19 +224,76 @@ public sealed class WindowsPty : IPty
                 if (!WindowsNative.ReadFile(_outputPipe, bufferPtr, (uint)buffer.Length, out uint bytesRead, IntPtr.Zero))
                 {
                     int err = Marshal.GetLastWin32Error();
+                    diagWriter.WriteLine($"[ReadFile ERROR] err={err}, totalBytes={totalBytes}, readCount={readCount}");
                     if (err == 109) // ERROR_BROKEN_PIPE
                         IsChildExited = true;
                     break;
                 }
-                if (bytesRead == 0) break;
+                if (bytesRead == 0)
+                {
+                    diagWriter.WriteLine($"[ReadFile ZERO] totalBytes={totalBytes}, readCount={readCount}");
+                    break;
+                }
+
+                readCount++;
+                totalBytes += bytesRead;
                 Marshal.Copy(bufferPtr, buffer, 0, (int)bytesRead);
+
+                var elapsed = (DateTime.UtcNow - startupTime).TotalMilliseconds;
+                diagWriter.WriteLine($"[READ #{readCount}] +{elapsed:F1}ms  bytes={bytesRead}  total={totalBytes}");
+
+                // Hex dump: first 256 bytes of each read (enough for banner analysis)
+                var dumpLen = Math.Min((int)bytesRead, 256);
+                var hexLine = new StringBuilder(dumpLen * 3);
+                var asciiLine = new StringBuilder(dumpLen);
+                for (int i = 0; i < dumpLen; i++)
+                {
+                    hexLine.Append($"{buffer[i]:X2} ");
+                    asciiLine.Append(buffer[i] >= 0x20 && buffer[i] < 0x7F ? (char)buffer[i] : '.');
+                    if ((i + 1) % 16 == 0 || i == dumpLen - 1)
+                    {
+                        // Pad hex line to 48 chars for alignment
+                        diagWriter.WriteLine($"  {hexLine.ToString().PadRight(48)} {asciiLine}");
+                        hexLine.Clear();
+                        asciiLine.Clear();
+                    }
+                }
+
+                // Also dump the UTF-8 decoded text for quick scanning
+                if (bytesRead > 0)
+                {
+                    try
+                    {
+                        var text = Encoding.UTF8.GetString(buffer, 0, (int)bytesRead);
+                        // Escape control chars for readability
+                        var escaped = new StringBuilder(text.Length * 2);
+                        foreach (var c in text)
+                        {
+                            if (c == '\x1B') escaped.Append("\\e");
+                            else if (c == '\r') escaped.Append("\\r");
+                            else if (c == '\n') escaped.Append("\\n");
+                            else if (c == '\0') escaped.Append("\\0");
+                            else if (c < 0x20 && c != '\t') escaped.Append($"\\x{(int)c:X2}");
+                            else escaped.Append(c);
+                        }
+                        diagWriter.WriteLine($"  TEXT: {escaped}");
+                    }
+                    catch { }
+                }
+                diagWriter.WriteLine();
+
                 _ringBuffer.Write(buffer.AsSpan(0, (int)bytesRead));
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            diagWriter.WriteLine($"[EXCEPTION] {ex}");
+        }
         finally
         {
+            diagWriter.WriteLine($"=== ReaderThread exiting. totalBytes={totalBytes}, readCount={readCount} ===");
             Marshal.FreeHGlobal(bufferPtr);
+            diagWriter.Close();
         }
     }
 

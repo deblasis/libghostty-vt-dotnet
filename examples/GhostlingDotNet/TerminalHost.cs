@@ -115,6 +115,48 @@ public sealed class TerminalHost : IDisposable
         return false;
     }
 
+    /// <summary>
+    /// Dumps render state details: default colors, cursor position, and first non-empty rows.
+    /// Helps diagnose why rendered output might not match what's in the grid.
+    /// </summary>
+    public void DumpRenderState()
+    {
+        var colors = RenderState.Colors;
+        Console.WriteLine($"[RenderState] Default BG=({colors.Background.R},{colors.Background.G},{colors.Background.B}) FG=({colors.Foreground.R},{colors.Foreground.G},{colors.Foreground.B})");
+        Console.WriteLine($"[RenderState] Cursor: visible={RenderState.CursorVisible}, viewport=({RenderState.CursorViewportX},{RenderState.CursorViewportY}), hasValue={RenderState.CursorViewportHasValue}");
+        Console.WriteLine($"[RenderState] Total bytes received from PTY: {_totalBytes}");
+
+        int rowIdx = 0;
+        int rowsDumped = 0;
+        foreach (var row in RenderState.Rows)
+        {
+            int colIdx = 0;
+            bool rowHasContent = false;
+            var rowCells = new StringBuilder();
+
+            foreach (var cell in row.Cells)
+            {
+                if (cell.Grapheme != null)
+                {
+                    rowHasContent = true;
+                    rowCells.Append($"[{colIdx}]tag={cell.ContentTag} '{cell.Grapheme}' fg={cell.FgColor} bg={cell.BgColor} inv={cell.Style.Inverse} ");
+                }
+                colIdx++;
+            }
+
+            if (rowHasContent)
+            {
+                Console.WriteLine($"[RenderState] Row {rowIdx}: {rowCells}");
+                rowsDumped++;
+                if (rowsDumped >= 8) break;
+            }
+            rowIdx++;
+        }
+
+        if (rowsDumped == 0)
+            Console.WriteLine("[RenderState] NO rows with content found in render state!");
+    }
+
     public int TotalBytesReceived => _totalBytes;
 
     public void WritePty(ReadOnlySpan<byte> data)
