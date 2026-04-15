@@ -26,6 +26,6 @@ public class IntegrationTests
         Assert.Contains("Bold RedNormal", output);
 
         var buildInfo = BuildInfo.Query();
-        Assert.NotEmpty(buildInfo.Version);
+        Assert.NotEmpty(buildInfo.VersionString);
     }
 }

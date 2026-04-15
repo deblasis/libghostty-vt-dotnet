@@ -8,13 +8,13 @@ public class BuildInfoTests
     public void Query_ReturnsNonEmptyVersion()
     {
         var info = BuildInfo.Query();
-        Assert.False(string.IsNullOrEmpty(info.Version));
+        Assert.False(string.IsNullOrEmpty(info.VersionString));
     }
 
     [Fact]
-    public void Query_ReturnsNonEmptyZigVersion()
+    public void Query_ReturnsNonEmptyVersionBuild()
     {
         var info = BuildInfo.Query();
-        Assert.False(string.IsNullOrEmpty(info.ZigVersion));
+        Assert.NotNull(info.VersionBuild);
     }
 }

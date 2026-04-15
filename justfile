@@ -404,7 +404,7 @@ benchmark: go-setup
 
         echo ""
         echo "─────────────────────────────────────────"
-        echo "Running C# benchmark (individual P/Invoke only)..."
+        echo "Running C# benchmark (individual P/Invoke + batch GetMulti)..."
         echo ""
         cd "{{ justfile_directory() }}"
         dotnet run -c Release --no-build --project examples/Benchmark/Benchmark.csproj 2>&1 || echo "[CS BENCHMARK FAILED]"
@@ -412,7 +412,8 @@ benchmark: go-setup
         echo ""
         echo "─────────────────────────────────────────"
         echo "VERDICT:"
-        echo "  If cs-individual per_field ≈ go-batch per_field  → GetMulti NOT needed in C#"
+        echo "  If cs-batch per_field ≈ go-batch per_field   → GetMulti in C# is on par with Go"
+        echo "  If cs-individual per_field ≈ go-batch per_field → GetMulti NOT needed in C#"
         echo "  If cs-individual per_field >> go-batch per_field → GetMulti IS needed in C#"
 
     } | tee "$report"

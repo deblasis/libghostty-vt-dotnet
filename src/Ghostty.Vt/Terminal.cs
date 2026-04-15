@@ -367,6 +367,30 @@ public sealed unsafe class Terminal : IDisposable
         }
     }
 
+    // --- Batch state queries ---
+    /// <summary>
+    /// Queries multiple terminal data fields in a single native call.
+    /// Each element in <paramref name="keys"/> specifies a data kind, and the
+    /// corresponding element in <paramref name="values"/> must be a pointer to
+    /// a variable whose type matches the output type for that key (see
+    /// GhosttyTerminalData in the upstream C header).
+    /// </summary>
+    public unsafe void GetMulti(ReadOnlySpan<TerminalData> keys, void** values)
+    {
+        ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
+        if (keys.Length == 0) return;
+
+        fixed (TerminalData* keyPtr = keys)
+        {
+            NativeMethods.ghostty_terminal_get_multi(
+                _handle.DangerousGetHandle(),
+                (nuint)keys.Length,
+                (int*)keyPtr,
+                values,
+                null); // out_written — not needed
+        }
+    }
+
     // --- Operations ---
     public void Resize(int cols, int rows, int cellWidthPx = 0, int cellHeightPx = 0)
     {
