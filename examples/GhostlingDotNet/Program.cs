@@ -30,6 +30,8 @@ rend.SetHost(h);
 
 var input = new InputHandler(h);
 
+int frameCount = 0;
+
 try
 {
     while (!Raylib.WindowShouldClose())
@@ -52,6 +54,12 @@ try
         input.HandleScrollbar(Raylib.GetScreenWidth(), Raylib.GetScreenHeight(), rend.CellHeight);
 
         h.RenderState.Update(h.Terminal);
+        h.CaptureCodepointsFromGrid();
+
+        // Dump codepoint diagnostics every 120 frames (~2 seconds)
+        frameCount++;
+        if (frameCount % 120 == 0)
+            h.DumpCodepointDiagnostics();
 
         Raylib.BeginDrawing();
         rend.Draw(h.RenderState, h.Terminal);
@@ -60,6 +68,9 @@ try
     }
 }
 catch (Exception ex) { Console.Error.WriteLine($"Runtime error: {ex}"); }
+
+// Final diagnostic dump on exit
+h.DumpCodepointDiagnostics();
 
 Raylib.CloseWindow();
 logWriter.Close();

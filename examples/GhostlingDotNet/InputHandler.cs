@@ -146,10 +146,12 @@ public sealed class InputHandler
         // Drain printable text input — send UTF-8 bytes directly to PTY.
         // The key encoder is only needed for special keys that produce
         // escape sequences; printable text goes as raw bytes.
+        // Skip control characters (below 0x20) — those go through KeyEncoder.
         while (true)
         {
             int key = Raylib.GetCharPressed();
             if (key == 0) break;
+            if (key < 0x20) continue; // Skip CR, LF, TAB, etc. — handled by KeyEncoder
 
             // Check if Ctrl is held — if so, produce control character instead
             bool ctrl = (Raylib.IsKeyDown(KeyboardKey.LeftControl) || Raylib.IsKeyDown(KeyboardKey.RightControl));
@@ -176,6 +178,20 @@ public sealed class InputHandler
                 continue;
             if ((int)ghosttyKey >= (int)GhosttyKey.Digit0 && (int)ghosttyKey <= (int)GhosttyKey.Digit9)
                 continue;
+
+            // Enter: send CR directly — ConPTY expects \r, not a complex escape sequence
+            if (ghosttyKey == GhosttyKey.Enter)
+            {
+                _host.WritePty("\r"u8);
+                continue;
+            }
+
+            // Backspace: send DEL (0x7F) — standard for modern terminals
+            if (ghosttyKey == GhosttyKey.Backspace)
+            {
+                _host.WritePty("\x7f"u8);
+                continue;
+            }
 
             _keyEvent.Key = (int)ghosttyKey;
             _keyEvent.Action = 1; // press

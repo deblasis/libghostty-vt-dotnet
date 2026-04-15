@@ -121,11 +121,11 @@ public sealed class WindowsPty : IPty
         WindowsNative.SetStdHandle(-12, IntPtr.Zero); // STD_ERROR_HANDLE
         WindowsNative.SetStdHandle(-10, IntPtr.Zero); // STD_INPUT_HANDLE
 
-        // Create pipes for ConPTY
+        // Create pipes for ConPTY with larger buffer size hint for better throughput
         var sa = new WindowsNative.SECURITY_ATTRIBUTES { nLength = (uint)Marshal.SizeOf<WindowsNative.SECURITY_ATTRIBUTES>(), bInheritHandle = true };
-        if (!WindowsNative.CreatePipe(out _outputPipe, out SafeFileHandle writePipe, ref sa, 0))
+        if (!WindowsNative.CreatePipe(out _outputPipe, out SafeFileHandle writePipe, ref sa, 65536))
             throw new InvalidOperationException("Failed to create output pipe");
-        if (!WindowsNative.CreatePipe(out SafeFileHandle readPipe, out _inputPipe, ref sa, 0))
+        if (!WindowsNative.CreatePipe(out SafeFileHandle readPipe, out _inputPipe, ref sa, 65536))
             throw new InvalidOperationException("Failed to create input pipe");
 
         // Ensure parent-side handles are NOT inheritable (ConPTY duplicates internally)
@@ -202,7 +202,8 @@ public sealed class WindowsPty : IPty
 
     private void ReaderThread()
     {
-        var buffer = new byte[4096];
+        // Larger buffer reduces ReadFile calls — ConPTY can burst data
+        var buffer = new byte[65536];
         var bufferPtr = Marshal.AllocHGlobal(buffer.Length);
         try
         {
@@ -293,28 +294,51 @@ public sealed class WindowsPty : IPty
 
         public CircularBuffer(int capacity) => _buffer = new byte[capacity];
         public int Length => Volatile.Read(ref _count);
+
         public void Write(ReadOnlySpan<byte> data)
         {
             lock (_buffer)
             {
-                for (int i = 0; i < data.Length; i++)
+                int available = _buffer.Length - _count;
+                int toWrite = Math.Min(data.Length, available);
+                if (toWrite == 0)
                 {
-                    _buffer[_writePos] = data[i];
-                    _writePos = (_writePos + 1) % _buffer.Length;
-                    if (_count < _buffer.Length) _count++; else _readPos = (_readPos + 1) % _buffer.Length;
+                    // Buffer full — overwrite oldest data
+                    toWrite = Math.Min(data.Length, _buffer.Length);
+                    _readPos = (_readPos + (data.Length - _buffer.Length + _count)) % _buffer.Length;
                 }
+
+                // Bulk copy in up to two segments (wrap-around)
+                int firstSegment = Math.Min(toWrite, _buffer.Length - _writePos);
+                data.Slice(0, firstSegment).CopyTo(_buffer.AsSpan(_writePos, firstSegment));
+                if (firstSegment < toWrite)
+                {
+                    data.Slice(firstSegment, toWrite - firstSegment)
+                        .CopyTo(_buffer.AsSpan(0, toWrite - firstSegment));
+                }
+
+                _writePos = (_writePos + toWrite) % _buffer.Length;
+                _count = Math.Min(_count + toWrite, _buffer.Length);
             }
         }
+
         public int Read(Span<byte> data)
         {
             lock (_buffer)
             {
                 int toRead = Math.Min(data.Length, _count);
-                for (int i = 0; i < toRead; i++)
+                if (toRead == 0) return 0;
+
+                // Bulk copy in up to two segments (wrap-around)
+                int firstSegment = Math.Min(toRead, _buffer.Length - _readPos);
+                _buffer.AsSpan(_readPos, firstSegment).CopyTo(data.Slice(0, firstSegment));
+                if (firstSegment < toRead)
                 {
-                    data[i] = _buffer[_readPos];
-                    _readPos = (_readPos + 1) % _buffer.Length;
+                    _buffer.AsSpan(0, toRead - firstSegment)
+                        .CopyTo(data.Slice(firstSegment, toRead - firstSegment));
                 }
+
+                _readPos = (_readPos + toRead) % _buffer.Length;
                 _count -= toRead;
                 return toRead;
             }

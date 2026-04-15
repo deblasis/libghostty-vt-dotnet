@@ -19,6 +19,37 @@ public sealed class Renderer : IDisposable
     public int CellWidth => _cellWidth;
     public int CellHeight => _cellHeight;
 
+    /// <summary>
+    /// Glyph ranges loaded into the font atlas. Exposed for diagnostic cross-referencing.
+    /// </summary>
+    public static readonly (int start, int end)[] GlyphRanges =
+    [
+        (0x20, 0xFF),       // Basic Latin (printable ASCII) + Latin-1 Supplement
+        (0x100, 0x17F),     // Latin Extended-A
+        (0x2500, 0x257F),   // Box Drawing
+        (0x2580, 0x259F),   // Block Elements
+        (0x25A0, 0x25FF),   // Geometric Shapes
+        (0x2190, 0x21FF),   // Arrows
+        (0x2600, 0x26FF),   // Miscellaneous Symbols
+        (0x2800, 0x28FF),   // Braille Patterns
+        (0xE0A0, 0xE0A3),   // Powerline
+        (0xE0B0, 0xE0B8),   // Powerline
+        (0xE0C0, 0xE0C8),   // Powerline
+        (0xE0D0, 0xE0D4),   // Powerline
+        (0xE000, 0xE00A),   // Pomicons
+        (0xE200, 0xE2A9),   // Font Logos
+        (0xE300, 0xE3EB),   // Pomicons extended
+        (0xE5FA, 0xE62B),   // Seti-UI + Custom
+        (0xE700, 0xE7C5),   // Devicons
+        (0xEA60, 0xEBEB),   // Codicons
+        (0xED00, 0xEDFF),   // Codicons additional
+        (0xF000, 0xF2E0),   // Font Awesome
+        (0xF300, 0xF372),   // FA Extensions
+        (0xF400, 0xF532),   // Octicons
+        (0xF500, 0xFD46),   // Material Design Icons
+        (0xFE00, 0xFE52),   // Nerd Fonts v3 additional
+    ];
+
     private TerminalHost _host;
 
     public void SetHost(TerminalHost host) => _host = host;
@@ -55,20 +86,26 @@ public sealed class Renderer : IDisposable
             for (int i = 0x2190; i <= 0x21FF; i++) glyphs.Add(i);
             // Miscellaneous Symbols
             for (int i = 0x2600; i <= 0x26FF; i++) glyphs.Add(i);
+            // Braille Patterns (used by oh-my-posh progress bars)
+            for (int i = 0x2800; i <= 0x28FF; i++) glyphs.Add(i);
             // Powerline / Private Use Area
             for (int i = 0xE0A0; i <= 0xE0A3; i++) glyphs.Add(i);
             for (int i = 0xE0B0; i <= 0xE0B8; i++) glyphs.Add(i);
             for (int i = 0xE0C0; i <= 0xE0C8; i++) glyphs.Add(i);
             for (int i = 0xE0D0; i <= 0xE0D4; i++) glyphs.Add(i);
-            // Nerd Font icons (targeted ranges for oh-my-posh)
-            for (int i = 0xE5FA; i <= 0xE62B; i++) glyphs.Add(i);  // Set 1
+            // Nerd Font icons (complete PUA coverage for oh-my-posh)
+            for (int i = 0xE000; i <= 0xE00A; i++) glyphs.Add(i);  // Pomicons
+            for (int i = 0xE200; i <= 0xE2A9; i++) glyphs.Add(i);  // Font Logos
+            for (int i = 0xE300; i <= 0xE3EB; i++) glyphs.Add(i);  // Pomicons extended
+            for (int i = 0xE5FA; i <= 0xE62B; i++) glyphs.Add(i);  // Seti-UI + Custom
             for (int i = 0xE700; i <= 0xE7C5; i++) glyphs.Add(i);  // Devicons
+            for (int i = 0xEA60; i <= 0xEBEB; i++) glyphs.Add(i);  // Codicons
+            for (int i = 0xED00; i <= 0xEDFF; i++) glyphs.Add(i);  // Codicons additional
             for (int i = 0xF000; i <= 0xF2E0; i++) glyphs.Add(i);  // Font Awesome
             for (int i = 0xF300; i <= 0xF372; i++) glyphs.Add(i);  // FA ext
             for (int i = 0xF400; i <= 0xF532; i++) glyphs.Add(i);  // Octicons
             for (int i = 0xF500; i <= 0xFD46; i++) glyphs.Add(i);  // Material
-            for (int i = 0xE200; i <= 0xE2A9; i++) glyphs.Add(i);  // Font Logos
-            for (int i = 0xEA60; i <= 0xEBEB; i++) glyphs.Add(i);  // Codicons
+            for (int i = 0xFE00; i <= 0xFE52; i++) glyphs.Add(i);  // Nerd Fonts v3 additional
 
             var glyphArray = glyphs.ToArray();
             _font = Raylib.LoadFontEx(tempFontPath, _fontSize, glyphArray, glyphArray.Length);
@@ -81,7 +118,9 @@ public sealed class Renderer : IDisposable
         // Cell sizing: advance width is 7px at fontSize=16 (verified by FontMetrics test).
         // Using the exact advance width ensures box-drawing characters connect edge-to-edge.
         _cellWidth = 7;
-        _cellHeight = (int)(_font.BaseSize * 1.2);
+        // Cell height = fontSize exactly, so powerline/box-drawing glyphs fill the full cell.
+        // Using baseSize*1.2 left 3px gaps between powerline segments.
+        _cellHeight = _fontSize;
 
         Raylib.SetTextureFilter(_font.Texture, TextureFilter.Bilinear);
     }
