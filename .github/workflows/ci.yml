@@ -58,7 +58,7 @@ jobs:
         run: dotnet build Ghostty.Vt.sln --no-restore --configuration Release
 
       - name: Copy native library for tests
-        run: cp runtimes/linux-x64/native/libghostty-vt.so tests/Ghostty.Vt.Tests/bin/Release/net9.0/libghostty-vt.so
+        run: cp runtimes/linux-x64/native/libghostty-vt.so tests/Ghostty.Vt.Tests/bin/Release/net9.0/ghostty-vt.so
 
       - name: Test
         run: dotnet test Ghostty.Vt.sln --no-build --configuration Release --logger "trx"
