@@ -1,6 +1,11 @@
 using Raylib_cs;
 using GhostlingDotNet;
 
+// Redirect debug output to log file (WinExe has no console)
+var logWriter = new StreamWriter("ghostling_debug.log", false) { AutoFlush = true };
+Console.SetOut(logWriter);
+Console.SetError(logWriter);
+
 const int InitialWidth = 1200;
 const int InitialHeight = 800;
 
@@ -21,6 +26,7 @@ catch (Exception ex) { Console.Error.WriteLine($"TerminalHost init failed: {ex}"
 
 using var h = host;
 h.OnTitleChanged = title => Raylib.SetWindowTitle(title ?? "GhostlingDotNet");
+rend.SetHost(h);
 
 var input = new InputHandler(h);
 
@@ -56,3 +62,4 @@ try
 catch (Exception ex) { Console.Error.WriteLine($"Runtime error: {ex}"); }
 
 Raylib.CloseWindow();
+logWriter.Close();

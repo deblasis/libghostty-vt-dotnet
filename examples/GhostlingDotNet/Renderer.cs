@@ -19,14 +19,18 @@ public sealed class Renderer : IDisposable
     public int CellWidth => _cellWidth;
     public int CellHeight => _cellHeight;
 
+    private TerminalHost _host;
+
+    public void SetHost(TerminalHost host) => _host = host;
+
     public Renderer()
     {
         var assembly = Assembly.GetExecutingAssembly();
-        using var stream = assembly.GetManifestResourceStream("GhostlingDotNet.fonts.JetBrainsMono-Regular.ttf")
-            ?? throw new InvalidOperationException("Embedded font not found. Ensure JetBrainsMono-Regular.ttf is in fonts/ directory and marked as EmbeddedResource.");
+        using var stream = assembly.GetManifestResourceStream("GhostlingDotNet.fonts.JetBrainsMonoNerdFont-Regular.ttf")
+            ?? throw new InvalidOperationException("Embedded font not found. Ensure JetBrainsMonoNerdFont-Regular.ttf is in fonts/ directory and marked as EmbeddedResource.");
 
         // Extract to temp file for Raylib
-        string tempFontPath = Path.Combine(Path.GetTempPath(), "JetBrainsMono-Regular.ttf");
+        string tempFontPath = Path.Combine(Path.GetTempPath(), "JetBrainsMonoNerdFont-Regular.ttf");
         using (var fs = File.Create(tempFontPath))
         {
             stream.CopyTo(fs);
@@ -35,16 +39,49 @@ public sealed class Renderer : IDisposable
         try
         {
             _fontSize = 16;
-            _font = Raylib.LoadFont(tempFontPath);
+
+            var glyphs = new List<int>();
+            // Basic Latin (printable ASCII + Latin-1 Supplement)
+            for (int i = 0x20; i <= 0xFF; i++) glyphs.Add(i);
+            // Latin Extended-A
+            for (int i = 0x100; i <= 0x17F; i++) glyphs.Add(i);
+            // Box Drawing
+            for (int i = 0x2500; i <= 0x257F; i++) glyphs.Add(i);
+            // Block Elements
+            for (int i = 0x2580; i <= 0x259F; i++) glyphs.Add(i);
+            // Geometric Shapes
+            for (int i = 0x25A0; i <= 0x25FF; i++) glyphs.Add(i);
+            // Arrows
+            for (int i = 0x2190; i <= 0x21FF; i++) glyphs.Add(i);
+            // Miscellaneous Symbols
+            for (int i = 0x2600; i <= 0x26FF; i++) glyphs.Add(i);
+            // Powerline / Private Use Area
+            for (int i = 0xE0A0; i <= 0xE0A3; i++) glyphs.Add(i);
+            for (int i = 0xE0B0; i <= 0xE0B8; i++) glyphs.Add(i);
+            for (int i = 0xE0C0; i <= 0xE0C8; i++) glyphs.Add(i);
+            for (int i = 0xE0D0; i <= 0xE0D4; i++) glyphs.Add(i);
+            // Nerd Font icons (targeted ranges for oh-my-posh)
+            for (int i = 0xE5FA; i <= 0xE62B; i++) glyphs.Add(i);  // Set 1
+            for (int i = 0xE700; i <= 0xE7C5; i++) glyphs.Add(i);  // Devicons
+            for (int i = 0xF000; i <= 0xF2E0; i++) glyphs.Add(i);  // Font Awesome
+            for (int i = 0xF300; i <= 0xF372; i++) glyphs.Add(i);  // FA ext
+            for (int i = 0xF400; i <= 0xF532; i++) glyphs.Add(i);  // Octicons
+            for (int i = 0xF500; i <= 0xFD46; i++) glyphs.Add(i);  // Material
+            for (int i = 0xE200; i <= 0xE2A9; i++) glyphs.Add(i);  // Font Logos
+            for (int i = 0xEA60; i <= 0xEBEB; i++) glyphs.Add(i);  // Codicons
+
+            var glyphArray = glyphs.ToArray();
+            _font = Raylib.LoadFontEx(tempFontPath, _fontSize, glyphArray, glyphArray.Length);
         }
         finally
         {
             File.Delete(tempFontPath);
         }
 
-        // Use a reasonable default cell size
-        _cellWidth = (int)(_fontSize * 0.6);
-        _cellHeight = (int)(_font.BaseSize * 1.2f);
+        // Cell sizing: advance width is 7px at fontSize=16 (verified by FontMetrics test).
+        // Using the exact advance width ensures box-drawing characters connect edge-to-edge.
+        _cellWidth = 7;
+        _cellHeight = (int)(_font.BaseSize * 1.2);
 
         Raylib.SetTextureFilter(_font.Texture, TextureFilter.Bilinear);
     }
@@ -95,8 +132,6 @@ public sealed class Renderer : IDisposable
                         ? ToRaylibColor(cell.FgColor.Value)
                         : defaultFg;
                     if (cell.Style.Inverse) (fgColor, bgColor) = (bgColor, fgColor);
-                    if (cell.Style.Bold)
-                        Raylib.DrawTextEx(_font, cell.Grapheme, new Vector2(x + 1, y), scaledFontSize, 1.0f, fgColor);
                     Raylib.DrawTextEx(_font, cell.Grapheme, new Vector2(x, y), scaledFontSize, 1.0f, fgColor);
                 }
                 colIdx++;

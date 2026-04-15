@@ -44,6 +44,7 @@ public sealed class TerminalHost : IDisposable
         _pty.Resize(cols, rows);
     }
 
+    private int _totalBytes = 0;
     public void DrainPty()
     {
         while (!ChildExited)
@@ -55,9 +56,12 @@ public sealed class TerminalHost : IDisposable
                 return;
             }
             if (bytesRead == 0) return;
+            _totalBytes += bytesRead;
             Terminal.VTWrite(_readBuffer.AsSpan(0, bytesRead));
         }
     }
+
+    public int TotalBytesReceived => _totalBytes;
 
     public void WritePty(ReadOnlySpan<byte> data)
     {

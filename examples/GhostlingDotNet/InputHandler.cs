@@ -143,25 +143,40 @@ public sealed class InputHandler
 
     public void HandleKeyboard()
     {
-        // Drain printable text input first
+        // Drain printable text input — send UTF-8 bytes directly to PTY.
+        // The key encoder is only needed for special keys that produce
+        // escape sequences; printable text goes as raw bytes.
         while (true)
         {
             int key = Raylib.GetCharPressed();
             if (key == 0) break;
 
-            _keyEvent.Key = (int)GhosttyKey.Unidentified;
-            _keyEvent.Action = 1; // press
-            _keyEvent.Modifiers = GetModifiers();
-            _keyEvent.Text = char.ConvertFromUtf32(key);
+            // Check if Ctrl is held — if so, produce control character instead
+            bool ctrl = (Raylib.IsKeyDown(KeyboardKey.LeftControl) || Raylib.IsKeyDown(KeyboardKey.RightControl));
+            if (ctrl && key >= 1 && key <= 26)
+            {
+                _host.WritePty(new ReadOnlySpan<byte>(new byte[] { (byte)key }));
+                continue;
+            }
 
-            var encoded = _host.KeyEncoder.Encode(_keyEvent);
-            _host.WritePty(encoded);
+            var text = char.ConvertFromUtf32(key);
+            var bytes = System.Text.Encoding.UTF8.GetBytes(text);
+            _host.WritePty(bytes);
         }
 
-        // Then handle special keys
-        int pressedKey = Raylib.GetKeyPressed();
-        if (pressedKey != 0 && KeyMap.TryGetValue((KeyboardKey)pressedKey, out var ghosttyKey))
+        // Handle special keys (arrows, function keys, etc.) through KeyEncoder
+        while (true)
         {
+            int pressedKey = Raylib.GetKeyPressed();
+            if (pressedKey == 0) break;
+            if (!KeyMap.TryGetValue((KeyboardKey)pressedKey, out var ghosttyKey)) continue;
+
+            // Skip keys that were already handled as text input above
+            if ((int)ghosttyKey >= (int)GhosttyKey.A && (int)ghosttyKey <= (int)GhosttyKey.Z)
+                continue;
+            if ((int)ghosttyKey >= (int)GhosttyKey.Digit0 && (int)ghosttyKey <= (int)GhosttyKey.Digit9)
+                continue;
+
             _keyEvent.Key = (int)ghosttyKey;
             _keyEvent.Action = 1; // press
             _keyEvent.Modifiers = GetModifiers();

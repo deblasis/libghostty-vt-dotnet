@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
+    <OutputType>WinExe</OutputType>
     <TargetFramework>net9.0</TargetFramework>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>GhostlingDotNet</RootNamespace>
@@ -14,7 +14,7 @@
     <PackageReference Include="Raylib-cs" />
   </ItemGroup>
   <ItemGroup>
-    <EmbeddedResource Include="fonts\JetBrainsMono-Regular.ttf" />
+    <EmbeddedResource Include="fonts\JetBrainsMonoNerdFont-Regular.ttf" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="..\..\runtimes\win-x64\native\libghostty-vt.dll"

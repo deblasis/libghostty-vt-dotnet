@@ -7,6 +7,18 @@ namespace GhostlingDotNet.Pty;
 file static class WindowsNative
 {
     [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool FreeConsole();
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool AllocConsole();
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern IntPtr GetStdHandle(int nStdHandle);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool SetStdHandle(int nStdHandle, IntPtr hHandle);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
     public static extern bool CreatePipe(out SafeFileHandle hReadPipe, out SafeFileHandle hWritePipe, ref SECURITY_ATTRIBUTES lpPipeAttributes, uint nSize);
 
     [DllImport("kernel32.dll", SetLastError = true)]
@@ -100,6 +112,15 @@ public sealed class WindowsPty : IPty
         Cols = cols; Rows = rows;
         _shell = shell ?? "cmd.exe";
 
+        // Detach from parent console to prevent ConPTY VT passthrough mode.
+        // On Windows 11, ConPTY detects a parent console and echoes output
+        // there instead of sending it through the pipe.
+        // Must also close inherited std handles to fully break the console connection.
+        WindowsNative.FreeConsole();
+        WindowsNative.SetStdHandle(-11, IntPtr.Zero); // STD_OUTPUT_HANDLE
+        WindowsNative.SetStdHandle(-12, IntPtr.Zero); // STD_ERROR_HANDLE
+        WindowsNative.SetStdHandle(-10, IntPtr.Zero); // STD_INPUT_HANDLE
+
         // Create pipes for ConPTY
         var sa = new WindowsNative.SECURITY_ATTRIBUTES { nLength = (uint)Marshal.SizeOf<WindowsNative.SECURITY_ATTRIBUTES>(), bInheritHandle = true };
         if (!WindowsNative.CreatePipe(out _outputPipe, out SafeFileHandle writePipe, ref sa, 0))
@@ -157,16 +178,14 @@ public sealed class WindowsPty : IPty
         finally
         {
             Marshal.FreeHGlobal(attrList);
-            readPipe.Dispose();
-            writePipe.Dispose();
+            // NOTE: Do NOT close readPipe/writePipe here.
+            // ConPTY should duplicate them, but on some Windows 11 builds
+            // it may not. Keeping them open ensures the pipe stays alive.
         }
 
         // Start reader thread
         _readerThread = new Thread(ReaderThread) { IsBackground = true };
         _readerThread.Start();
-
-        // Kick ConPTY into flushing
-        Write(new ReadOnlySpan<byte>(new byte[] { (byte)'\r' }));
     }
 
     private string ResolveShell()
@@ -191,7 +210,8 @@ public sealed class WindowsPty : IPty
             {
                 if (!WindowsNative.ReadFile(_outputPipe, bufferPtr, (uint)buffer.Length, out uint bytesRead, IntPtr.Zero))
                 {
-                    if (Marshal.GetLastWin32Error() == 109) // ERROR_BROKEN_PIPE
+                    int err = Marshal.GetLastWin32Error();
+                    if (err == 109) // ERROR_BROKEN_PIPE
                         IsChildExited = true;
                     break;
                 }
@@ -200,6 +220,7 @@ public sealed class WindowsPty : IPty
                 _ringBuffer.Write(buffer.AsSpan(0, (int)bytesRead));
             }
         }
+        catch { }
         finally
         {
             Marshal.FreeHGlobal(bufferPtr);
