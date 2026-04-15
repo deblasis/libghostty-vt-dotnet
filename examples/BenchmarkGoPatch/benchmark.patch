@@ -1,0 +1,112 @@
+diff --git a/examples/benchmark/main.go b/examples/benchmark/main.go
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/examples/benchmark/main.go
+@@ -0,0 +1,112 @@
++// Example benchmark measures the overhead of individual cgo calls
++// vs batched GetMulti calls for querying terminal data fields.
++//
++// This is used to compare Go cgo overhead against C# P/Invoke overhead.
++// If C# P/Invoke is fast enough per-call, then batch methods (GetMulti)
++// are unnecessary in the .NET binding.
++package main
++
++import (
++	"fmt"
++	"time"
++	"unsafe"
++
++	ghostty "github.com/mitchellh/go-libghostty"
++)
++
++func main() {
++	term, err := ghostty.NewTerminal(ghostty.WithSize(80, 24))
++	if err != nil {
++		panic(err)
++	}
++	defer term.Close()
++
++	// Write some content so the terminal has state to query.
++	term.VTWrite([]byte("Hello, World!\r\n"))
++	term.VTWrite([]byte("\x1b[1;32mBold green\x1b[0m\r\n"))
++	term.VTWrite([]byte("Line 3\r\n"))
++	term.VTWrite([]byte("Line 4\r\n"))
++	term.VTWrite([]byte("Line 5\r\n"))
++
++	const iterations = 10000
++
++	// --- Benchmark 1: individual field queries (no batching) ---
++	start := time.Now()
++	for i := 0; i < iterations; i++ {
++		_, _ = term.Cols()
++		_, _ = term.Rows()
++		_, _ = term.CursorX()
++		_, _ = term.CursorY()
++		_, _ = term.CursorVisible()
++		_, _ = term.CursorPendingWrap()
++		_, _ = term.ActiveScreen()
++		_, _ = term.MouseTracking()
++		_, _ = term.TotalRows()
++		_, _ = term.ScrollbackRows()
++	}
++	individualDur := time.Since(start)
++
++	// --- Benchmark 2: batched GetMulti ---
++	keys := []ghostty.TerminalData{
++		ghostty.TerminalDataCols,
++		ghostty.TerminalDataRows,
++		ghostty.TerminalDataCursorX,
++		ghostty.TerminalDataCursorY,
++		ghostty.TerminalDataCursorVisible,
++		ghostty.TerminalDataCursorPendingWrap,
++		ghostty.TerminalDataActiveScreen,
++		ghostty.TerminalDataMouseTracking,
++		ghostty.TerminalDataTotalRows,
++		ghostty.TerminalDataScrollbackRows,
++	}
++
++	var cols uint16
++	var rows uint16
++	var cursorX uint16
++	var cursorY uint16
++	var cursorVisible bool
++	var cursorPendingWrap bool
++	var activeScreen ghostty.TerminalScreen
++	var mouseTracking bool
++	var totalRows uint
++	var scrollbackRows uint
++
++	values := []unsafe.Pointer{
++		unsafe.Pointer(&cols),
++		unsafe.Pointer(&rows),
++		unsafe.Pointer(&cursorX),
++		unsafe.Pointer(&cursorY),
++		unsafe.Pointer(&cursorVisible),
++		unsafe.Pointer(&cursorPendingWrap),
++		unsafe.Pointer(&activeScreen),
++		unsafe.Pointer(&mouseTracking),
++		unsafe.Pointer(&totalRows),
++		unsafe.Pointer(&scrollbackRows),
++	}
++
++	start = time.Now()
++	for i := 0; i < iterations; i++ {
++		_ = term.GetMulti(keys, values)
++	}
++	batchDur := time.Since(start)
++
++	totalFields := iterations * 10
++	indPerField := individualDur / time.Duration(totalFields)
++	batchPerField := batchDur / time.Duration(totalFields)
++
++	fmt.Printf("iterations=%d fields_per_iteration=10 total_fields=%d\n", iterations, 10, totalFields)
++	fmt.Printf("\n")
++	fmt.Printf("go-individual:  total=%-12s per_field=%-12s per_iteration=%s\n",
++		individualDur, indPerField, individualDur/time.Duration(iterations))
++	fmt.Printf("go-batch:       total=%-12s per_field=%-12s per_iteration=%s\n",
++		batchDur, batchPerField, batchDur/time.Duration(iterations))
++	fmt.Printf("\n")
++	fmt.Printf("batch_speedup: %.2fx\n",
++		float64(individualDur)/float64(batchDur))
++}

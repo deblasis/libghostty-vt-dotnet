@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>Colors</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Ghostty.Vt\Ghostty.Vt.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="..\..\runtimes\win-x64\native\libghostty-vt.dll"
+          Link="ghostty-vt.dll"
+          CopyToOutputDirectory="PreserveNewest"
+          Condition="Exists('..\..\runtimes\win-x64\native\libghostty-vt.dll')" />
+  </ItemGroup>
+</Project>

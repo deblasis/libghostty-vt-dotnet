@@ -513,11 +513,16 @@ public sealed unsafe class Terminal : IDisposable
         return new ColorRgb { R = native.R, G = native.G, B = native.B };
     }
 
+    public ColorRgb? ColorForeground => QueryColor(TerminalData.ColorForeground);
     public ColorRgb? ColorForegroundDefault => QueryColor(TerminalData.ColorForegroundDefault);
 
+    public ColorRgb? ColorBackground => QueryColor(TerminalData.ColorBackground);
     public ColorRgb? ColorBackgroundDefault => QueryColor(TerminalData.ColorBackgroundDefault);
 
+    public ColorRgb? ColorCursor => QueryColor(TerminalData.ColorCursor);
     public ColorRgb? ColorCursorDefault => QueryColor(TerminalData.ColorCursorDefault);
+
+    public unsafe ColorRgb[] ColorPalette => QueryPalette(TerminalData.ColorPalette);
 
     public unsafe ColorRgb[] ColorPaletteDefault
     {
@@ -536,6 +541,22 @@ public sealed unsafe class Terminal : IDisposable
                 colors[i] = new ColorRgb { R = palette[i].R, G = palette[i].G, B = palette[i].B };
             return colors;
         }
+    }
+
+    private unsafe ColorRgb[] QueryPalette(TerminalData data)
+    {
+        ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
+        var palette = new GhosttyColorRgbNative[256];
+        fixed (GhosttyColorRgbNative* ptr = palette)
+        {
+            var result = NativeMethods.ghostty_terminal_get(
+                _handle.DangerousGetHandle(), (int)data, ptr);
+            GhosttyException.ThrowIfFailure(result);
+        }
+        var colors = new ColorRgb[256];
+        for (int i = 0; i < 256; i++)
+            colors[i] = new ColorRgb { R = palette[i].R, G = palette[i].G, B = palette[i].B };
+        return colors;
     }
 
     public void Dispose()

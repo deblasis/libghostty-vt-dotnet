@@ -5,20 +5,51 @@ namespace Ghostty.Vt;
 
 public readonly struct BuildInfo
 {
-    public string Version { get; }
-    public string ZigVersion { get; }
+    public bool Simd { get; }
+    public bool KittyGraphics { get; }
+    public bool TmuxControlMode { get; }
+    public bool Optimize { get; }
+    public string VersionString { get; }
+    public int VersionMajor { get; }
+    public int VersionMinor { get; }
+    public int VersionPatch { get; }
+    public string VersionPre { get; }
+    public string VersionBuild { get; }
 
-    private BuildInfo(string version, string zigVersion)
+    private BuildInfo(
+        bool simd, bool kittyGraphics, bool tmuxControlMode, bool optimize,
+        string versionString, int versionMajor, int versionMinor, int versionPatch,
+        string versionPre, string versionBuild)
     {
-        Version = version;
-        ZigVersion = zigVersion;
+        Simd = simd;
+        KittyGraphics = kittyGraphics;
+        TmuxControlMode = tmuxControlMode;
+        Optimize = optimize;
+        VersionString = versionString;
+        VersionMajor = versionMajor;
+        VersionMinor = versionMinor;
+        VersionPatch = versionPatch;
+        VersionPre = versionPre;
+        VersionBuild = versionBuild;
     }
 
     public static unsafe BuildInfo Query()
     {
-        var version = QueryString((int)BuildInfoData.VersionString);
-        var zigVersion = QueryString((int)BuildInfoData.VersionPre);
-        return new BuildInfo(version, zigVersion);
+        var simd = QueryBool((int)BuildInfoData.Simd);
+        var kittyGraphics = QueryBool((int)BuildInfoData.KittyGraphics);
+        var tmuxControlMode = QueryBool((int)BuildInfoData.TmuxControlMode);
+        var optimize = QueryBool((int)BuildInfoData.Optimize);
+        var versionString = QueryString((int)BuildInfoData.VersionString);
+        var versionMajor = QueryInt((int)BuildInfoData.VersionMajor);
+        var versionMinor = QueryInt((int)BuildInfoData.VersionMinor);
+        var versionPatch = QueryInt((int)BuildInfoData.VersionPatch);
+        var versionPre = QueryString((int)BuildInfoData.VersionPre);
+        var versionBuild = QueryString((int)BuildInfoData.VersionBuild);
+
+        return new BuildInfo(
+            simd, kittyGraphics, tmuxControlMode, optimize,
+            versionString, versionMajor, versionMinor, versionPatch,
+            versionPre, versionBuild);
     }
 
     private static unsafe string QueryString(int data)
@@ -27,6 +58,20 @@ public readonly struct BuildInfo
         var result = NativeMethods.ghostty_build_info(data, &str);
         if (result != 0 || str.Ptr == 0 || str.Len == 0) return string.Empty;
         return Marshal.PtrToStringUTF8((IntPtr)str.Ptr, (int)str.Len) ?? string.Empty;
+    }
+
+    private static unsafe int QueryInt(int data)
+    {
+        int value = 0;
+        NativeMethods.ghostty_build_info(data, &value);
+        return value;
+    }
+
+    private static unsafe bool QueryBool(int data)
+    {
+        byte value = 0;
+        NativeMethods.ghostty_build_info(data, &value);
+        return value != 0;
     }
 }
 
