@@ -1,5 +1,7 @@
 --file
-libghostty/include/ghostty/vt.h
+ghostty-src/include/ghostty/vt.h
+--include-directory
+ghostty-src/include
 --namespace
 Ghostty.Vt.Native
 --libraryPath
