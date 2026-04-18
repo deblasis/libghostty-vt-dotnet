@@ -126,6 +126,13 @@ jobs:
   regenerate-bindings:
     needs: [prepare-ghostty-src, build-native]
     runs-on: windows-latest
+    # This job is a drift detector — it regenerates P/Invoke bindings from
+    # the upstream headers and uploads them as an artifact if they differ
+    # from the hand-maintained NativeMethods.cs. The current bindings file
+    # uses LibraryImport (net7+), while ClangSharp 18.x emits DllImport,
+    # so a clean run always produces a diff anyway. Don't block publish
+    # on this job; downstream `publish` treats it as advisory via `if`.
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
