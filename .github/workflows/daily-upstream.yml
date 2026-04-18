@@ -202,6 +202,18 @@ jobs:
       - name: Build
         run: dotnet build Ghostty.Vt.sln --configuration Release
 
+      # P/Invoke probes the assembly directory first; `dotnet test` looks for
+      # libghostty-vt.so (lib-prefixed on Linux) next to the test binaries.
+      - name: Stage native library for tests
+        run: |
+          LIB=$(find runtimes -name 'libghostty-vt.so' -print -quit)
+          if [ -z "$LIB" ]; then
+            echo "libghostty-vt.so not found under runtimes/" >&2
+            find runtimes -type f >&2
+            exit 1
+          fi
+          cp "$LIB" tests/Ghostty.Vt.Tests/bin/Release/net9.0/libghostty-vt.so
+
       - name: Test
         run: dotnet test Ghostty.Vt.sln --no-build --configuration Release
 
