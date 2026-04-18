@@ -67,21 +67,26 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Zig emits Windows DLLs to zig-out/bin (zig-out/lib holds the .lib import library);
+          # Unix shared libs land in zig-out/lib.
           - os: windows-latest
             target: x86_64-windows
             zig_target: x86_64-windows
             rid: win-x64
             artifact: ghostty-vt.dll
+            src_dir: bin
           - os: ubuntu-latest
             target: x86_64-linux
             zig_target: x86_64-linux-gnu.2.31
             rid: linux-x64
             artifact: libghostty-vt.so
+            src_dir: lib
           - os: macos-latest
             target: aarch64-macos
             zig_target: aarch64-macos
             rid: osx-arm64
             artifact: libghostty-vt.dylib
+            src_dir: lib
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -109,7 +114,7 @@ jobs:
           cd /tmp/ghostty
           zig build install -Demit-lib-vt=true -Dtarget=${{ matrix.zig_target }} -Doptimize=ReleaseSafe
           mkdir -p "${{ github.workspace }}/runtimes/${{ matrix.rid }}/native"
-          cp "zig-out/lib/${{ matrix.artifact }}" \
+          cp "zig-out/${{ matrix.src_dir }}/${{ matrix.artifact }}" \
             "${{ github.workspace }}/runtimes/${{ matrix.rid }}/native/"
 
       - name: Upload native artifact
