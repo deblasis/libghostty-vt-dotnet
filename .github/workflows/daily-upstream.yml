@@ -30,12 +30,9 @@ jobs:
           echo "changed=true" >> "$GITHUB_OUTPUT"
           echo "commit=$LATEST" >> "$GITHUB_OUTPUT"
 
-          # Clone to read version from build.zig.zon
-          git clone --depth 1 --filter=blob:none --sparse \
-            https://github.com/ghostty-org/ghostty.git /tmp/ghostty-check
-          cd /tmp/ghostty-check
-          git sparse-checkout set build.zig.zon
-          VERSION=$(grep -oP '(?<="version": ")[^"]+' build.zig.zon | head -1)
+          # Fetch build.zig.zon directly to read the upstream version (Zig ZON syntax: .version = "x.y.z")
+          VERSION=$(curl -sSfL "https://raw.githubusercontent.com/ghostty-org/ghostty/${LATEST}/build.zig.zon" \
+            | grep -oP '(?<=\.version = ")[^"]+' | head -1)
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
           echo "New upstream: $LATEST (version $VERSION)"
