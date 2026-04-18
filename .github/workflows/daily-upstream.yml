@@ -148,7 +148,7 @@ jobs:
         # global tool entry tripping up `dotnet tool install --global`.
         run: |
           dotnet tool install --tool-path "$env:RUNNER_TEMP/tools" --version 18.1.0.4 ClangSharpPInvokeGenerator
-          & "$env:RUNNER_TEMP/tools/clangsharp-pinvoke-generator.exe" @build/generate-bindings.rsp
+          & "$env:RUNNER_TEMP/tools/ClangSharpPInvokeGenerator.exe" @build/generate-bindings.rsp
 
       - name: Check for binding changes
         id: bindings
