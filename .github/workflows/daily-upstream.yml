@@ -37,9 +37,32 @@ jobs:
 
           echo "New upstream: $LATEST (version $VERSION)"
 
-  build-native:
+  prepare-ghostty-src:
     needs: check-upstream
     if: needs.check-upstream.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone Ghostty at new commit
+        run: |
+          git init ghostty-src
+          cd ghostty-src
+          git remote add origin https://github.com/ghostty-org/ghostty.git
+          git fetch --depth 1 origin ${{ needs.check-upstream.outputs.new_commit }}
+          git checkout FETCH_HEAD
+
+      - name: Tar source (preserves permissions and symlinks)
+        run: tar -cf ghostty-src.tar -C ghostty-src .
+
+      - name: Upload source artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ghostty-src
+          path: ghostty-src.tar
+          retention-days: 1
+          compression-level: 0  # already a tar; skip redundant zip compression
+
+  build-native:
+    needs: [check-upstream, prepare-ghostty-src]
     strategy:
       fail-fast: false
       matrix:
@@ -60,6 +83,9 @@ jobs:
             rid: osx-arm64
             artifact: libghostty-vt.dylib
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
 
@@ -68,22 +94,23 @@ jobs:
         with:
           version: '0.15.2'
 
-      - name: Clone Ghostty at new commit
+      - name: Download Ghostty source
+        uses: actions/download-artifact@v8
+        with:
+          name: ghostty-src
+
+      - name: Extract Ghostty source
         run: |
-          git clone --depth 1 --branch main \
-            https://github.com/ghostty-org/ghostty.git \
-            /tmp/ghostty
-          cd /tmp/ghostty
-          git fetch origin ${{ needs.check-upstream.outputs.new_commit }}
-          git checkout ${{ needs.check-upstream.outputs.new_commit }}
+          mkdir -p /tmp/ghostty
+          tar -xf ghostty-src.tar -C /tmp/ghostty
 
       - name: Build native libghostty-vt
         run: |
           cd /tmp/ghostty
           zig build install -Demit-lib-vt=true -Dtarget=${{ matrix.zig_target }} -Doptimize=ReleaseSafe
-          mkdir -p ${{ github.workspace }}/runtimes/${{ matrix.rid }}/native
-          cp zig-out/lib/${{ matrix.artifact }} \
-            ${{ github.workspace }}/runtimes/${{ matrix.rid }}/native/
+          mkdir -p "${{ github.workspace }}/runtimes/${{ matrix.rid }}/native"
+          cp "zig-out/lib/${{ matrix.artifact }}" \
+            "${{ github.workspace }}/runtimes/${{ matrix.rid }}/native/"
 
       - name: Upload native artifact
         uses: actions/upload-artifact@v7
@@ -92,17 +119,21 @@ jobs:
           path: runtimes/${{ matrix.rid }}/native/${{ matrix.artifact }}
 
   regenerate-bindings:
-    needs: build-native
+    needs: [prepare-ghostty-src, build-native]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Clone Ghostty headers
+      - name: Download Ghostty source
+        uses: actions/download-artifact@v8
+        with:
+          name: ghostty-src
+
+      - name: Extract Ghostty source
+        shell: bash
         run: |
-          git clone --depth 1 --filter=blob:none --sparse \
-            https://github.com/ghostty-org/ghostty.git /tmp/ghostty
-          cd /tmp/ghostty
-          git sparse-checkout set include
+          mkdir -p /tmp/ghostty
+          tar -xf ghostty-src.tar -C /tmp/ghostty
 
       - name: Regenerate bindings
         run: |
