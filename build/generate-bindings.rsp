@@ -49,8 +49,4 @@ GhosttyRenderStateRowCells=nint
 --additional
 -DGHOSTTY_EXPORT=
 --additional
--D_WIN64
---additional
--D_MSC_VER=1940
---additional
-"-DSSIZE_T=long long"
+--target=x86_64-pc-linux-gnu
