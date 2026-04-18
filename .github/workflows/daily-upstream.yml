@@ -129,13 +129,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # ClangSharpPInvokeGenerator 20.x+ ships as a net10.0 tool; the runner
-      # only has .NET 9 pre-installed, so install the .NET 10 SDK here.
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: '10.0.x'
-
       - name: Download Ghostty source
         uses: actions/download-artifact@v8
         with:
@@ -148,9 +141,14 @@ jobs:
           tar -xf ghostty-src.tar -C /tmp/ghostty
 
       - name: Regenerate bindings
+        # ClangSharpPInvokeGenerator 20.x+ targets net10.0, which the Windows
+        # runner does not ship. 18.1.0.4 is the last release packaged for
+        # net8.0 and works against the runner's pre-installed .NET 8/9.
+        # Install into a workspace-local tool path to avoid any pre-cached
+        # global tool entry tripping up `dotnet tool install --global`.
         run: |
-          dotnet tool install --global ClangSharpPInvokeGenerator
-          clangsharp-pinvoke-generator @build/generate-bindings.rsp
+          dotnet tool install --tool-path "$env:RUNNER_TEMP/tools" --version 18.1.0.4 ClangSharpPInvokeGenerator
+          & "$env:RUNNER_TEMP/tools/clangsharp-pinvoke-generator.exe" @build/generate-bindings.rsp
 
       - name: Check for binding changes
         id: bindings
