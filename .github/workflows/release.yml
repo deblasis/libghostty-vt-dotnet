@@ -64,12 +64,17 @@ jobs:
           echo "upstream_commit=$COMMIT" >> "$GITHUB_OUTPUT"
 
       - name: Guard 3 — pinned SHA exists upstream
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           COMMIT="${{ steps.pin.outputs.upstream_commit }}"
           # `git ls-remote` only lists ref tips, so an intermediate commit
           # will not appear; fall back to the GitHub API which resolves any
-          # reachable commit by SHA.
+          # reachable commit by SHA. Authenticated call uses the workflow's
+          # GITHUB_TOKEN to avoid the 60 req/hour unauthenticated limit that
+          # applies per shared runner IP.
           HTTP=$(curl -s -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer $GH_TOKEN" \
             "https://api.github.com/repos/ghostty-org/ghostty/commits/$COMMIT")
           if [ "$HTTP" != "200" ]; then
             echo "::error::Pinned commit $COMMIT not found upstream (HTTP $HTTP)"
@@ -146,13 +151,13 @@ jobs:
           git init ghostty-src
           cd ghostty-src
           git remote add origin https://github.com/ghostty-org/ghostty.git
-          git fetch --depth 1 origin ${{ needs.preflight.outputs.upstream_commit }}
+          git fetch --depth 1 origin "${{ needs.preflight.outputs.upstream_commit }}"
           git checkout FETCH_HEAD
 
       - name: Build native libghostty-vt
         run: |
           cd ghostty-src
-          zig build install -Demit-lib-vt=true -Dtarget=${{ matrix.zig_target }} -Doptimize=ReleaseSafe
+          zig build install -Demit-lib-vt=true -Dtarget="${{ matrix.zig_target }}" -Doptimize=ReleaseSafe
           mkdir -p "${{ github.workspace }}/runtimes/${{ matrix.rid }}/native"
           cp "zig-out/${{ matrix.src_dir }}/${{ matrix.artifact }}" \
             "${{ github.workspace }}/runtimes/${{ matrix.rid }}/native/"
@@ -234,6 +239,8 @@ jobs:
           path: artifacts
 
       - name: Publish to NuGet
+        # dotnet nuget push automatically pushes the matching *.snupkg symbols
+        # package from the same folder. --skip-duplicate makes retries safe.
         env:
           NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
         run: |
@@ -249,14 +256,12 @@ jobs:
           UPSTREAM_COMMIT: ${{ needs.preflight.outputs.upstream_commit }}
           UPSTREAM_VERSION: ${{ needs.preflight.outputs.upstream_version }}
         run: |
-          NOTES=$(cat <<EOF
-          Stable release of DeBlasis.GhosttyVt ${PKG_VERSION}, built from upstream ghostty-org/ghostty@${UPSTREAM_COMMIT} (Ghostty ${UPSTREAM_VERSION}).
-
-          📦 https://www.nuget.org/packages/DeBlasis.GhosttyVt/${PKG_VERSION}
-
-          ---
-          EOF
-          )
+          NOTES=$(printf '%s\n' \
+            "Stable release of DeBlasis.GhosttyVt ${PKG_VERSION}, built from upstream ghostty-org/ghostty@${UPSTREAM_COMMIT} (Ghostty ${UPSTREAM_VERSION})." \
+            "" \
+            "📦 https://www.nuget.org/packages/DeBlasis.GhosttyVt/${PKG_VERSION}" \
+            "" \
+            "---")
           gh release create "v${PKG_VERSION}" \
             --title "v${PKG_VERSION}" \
             --generate-notes \
@@ -267,4 +272,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PKG_VERSION: ${{ needs.preflight.outputs.package_version }}
         run: |
-          gh release upload "v${PKG_VERSION}" artifacts/*.nupkg artifacts/*.snupkg
+          # Use nullglob so a missing .snupkg doesn't pass the literal glob to gh.
+          shopt -s nullglob
+          ASSETS=(artifacts/*.nupkg artifacts/*.snupkg)
+          if [ ${#ASSETS[@]} -eq 0 ]; then
+            echo "::error::No package assets found in artifacts/"
+            exit 1
+          fi
+          gh release upload "v${PKG_VERSION}" "${ASSETS[@]}"
