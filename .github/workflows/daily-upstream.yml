@@ -242,14 +242,18 @@ jobs:
         run: |
           dotnet pack src/Ghostty.Vt/Ghostty.Vt.csproj \
             --configuration Release \
+            --output artifacts \
             -p:Version=${{ steps.version.outputs.package_version }}
 
       - name: Publish to NuGet
+        # dotnet nuget push automatically pushes the matching *.snupkg symbols
+        # package from the same folder. --skip-duplicate makes retries safe.
         if: env.NUGET_API_KEY != ''
         run: |
-          dotnet nuget push artifacts/**/*.nupkg \
+          dotnet nuget push "artifacts/*.nupkg" \
             --api-key "$NUGET_API_KEY" \
-            --source https://api.nuget.org/v3/index.json
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate
 
       - name: Skipped publish (no NUGET_API_KEY)
         if: env.NUGET_API_KEY == ''

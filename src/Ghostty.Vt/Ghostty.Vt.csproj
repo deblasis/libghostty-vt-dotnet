@@ -7,15 +7,53 @@
     <AotCompatible>true</AotCompatible>
     <IsAotCompatible>true</IsAotCompatible>
     <Version>0.0.0-dev</Version>
-    <PackageId>Ghostty.Vt</PackageId>
-    <Description>Virtual terminal engine powered by libghostty-vt</Description>
+
+    <!-- Package identity -->
+    <PackageId>DeBlasis.GhosttyVt</PackageId>
+    <Title>DeBlasis.GhosttyVt — unofficial .NET bindings for libghostty-vt</Title>
+    <Description>Unofficial .NET bindings for libghostty-vt — the standalone VT parser from the Ghostty terminal emulator. Parse VT escape sequences, inspect the terminal grid, and encode keyboard/mouse input from any .NET application. Community port; not affiliated with the Ghostty project.</Description>
     <Authors>Alessandro De Blasis</Authors>
-    <RepositoryUrl>https://github.com/deblasis/libghostty-vt-dotnet</RepositoryUrl>
+    <Company>Alessandro De Blasis</Company>
+    <Copyright>Copyright (c) 2026 Alessandro De Blasis</Copyright>
+    <PackageTags>terminal;vt;vt100;vt220;ansi;escape-sequences;ghostty;terminal-emulator;parser;pty;conpty;console</PackageTags>
+
+    <!-- Licensing -->
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+
+    <!-- Repository + project metadata -->
+    <PackageProjectUrl>https://github.com/deblasis/libghostty-vt-dotnet</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/deblasis/libghostty-vt-dotnet</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+
+    <!-- README shown on nuget.org -->
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+
+    <!-- Symbols + SourceLink: lets consumers step into our source when debugging -->
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <DebugType>portable</DebugType>
+
+    <!-- Deterministic builds on CI (GitHub Actions sets GITHUB_ACTIONS=true) -->
+    <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
   </PropertyGroup>
+
   <ItemGroup>
     <InternalsVisibleTo Include="Ghostty.Vt.Tests" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- SourceLink: embeds repo URL + commit so debuggers can fetch our .cs files -->
+    <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="All" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Pack the README for display on nuget.org -->
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
   <ItemGroup>
     <None Include="..\..\runtimes\win-x64\native\ghostty-vt.dll"
           Pack="true" PackagePath="runtimes\win-x64\native\"
