@@ -7,7 +7,7 @@ libghostty-vt
 --methodClassName
 NativeMethods
 --output
-src/Ghostty.Vt/Native
+src/Ghostty.Vt/Native/NativeMethods.cs
 --language
 c
 --config
