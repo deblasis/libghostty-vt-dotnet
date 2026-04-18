@@ -93,7 +93,7 @@ just check-upstream
 
 ## CI
 
-GitHub Actions builds the native library from upstream `ghostty-org/ghostty` and runs all tests on every push. A daily workflow checks for upstream changes and publishes updated packages automatically.
+GitHub Actions builds the native library from upstream `ghostty-org/ghostty` and runs all tests on every push. A daily workflow checks for upstream changes and publishes prerelease packages automatically. Stable releases are cut via annotated `v*` tags — see [RELEASING.md](RELEASING.md).
 
 ## License
 
