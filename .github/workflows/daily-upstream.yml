@@ -177,6 +177,15 @@ jobs:
   publish:
     needs: [check-upstream, build-native, regenerate-bindings]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # commit updated ghostty-upstream.json + create release
+      issues: write     # fallback "Create issue on failure" step
+    env:
+      # Secret gate: the publish / commit-update / release steps are skipped
+      # when NUGET_API_KEY is absent. Earlier steps (build, test, pack) still
+      # run so the daily workflow remains useful as a validation pipeline
+      # while the final publishing destination is still being decided.
+      NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
     steps:
       - uses: actions/checkout@v4
 
@@ -236,12 +245,21 @@ jobs:
             -p:Version=${{ steps.version.outputs.package_version }}
 
       - name: Publish to NuGet
+        if: env.NUGET_API_KEY != ''
         run: |
           dotnet nuget push artifacts/**/*.nupkg \
-            --api-key ${{ secrets.NUGET_API_KEY }} \
+            --api-key "$NUGET_API_KEY" \
             --source https://api.nuget.org/v3/index.json
 
+      - name: Skipped publish (no NUGET_API_KEY)
+        if: env.NUGET_API_KEY == ''
+        run: |
+          echo "::notice title=Publish skipped::NUGET_API_KEY is not set on this repo."
+          echo "The daily workflow built + tested + packed successfully, but publishing is"
+          echo "skipped until a destination is chosen and the corresponding secret is added."
+
       - name: Update ghostty-upstream.json
+        if: env.NUGET_API_KEY != ''
         run: |
           cat > ghostty-upstream.json << EOF
           {
@@ -260,6 +278,7 @@ jobs:
           git push
 
       - name: Create GitHub Release
+        if: env.NUGET_API_KEY != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
