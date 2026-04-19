@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Ghostty.Vt.Enums;
 using Ghostty.Vt.Internals;
 using Ghostty.Vt.Native;
@@ -53,7 +54,10 @@ public sealed class OscParser : IDisposable
             {
                 return new GhosttyString(nint.Zero, 0);
             }
-            return new GhosttyString(strPtr, 0); // null-terminated string
+            // Native returns a null-terminated UTF-8 string with no length;
+            // measure it before wrapping so GhosttyString.ToString() can decode it.
+            var bytes = MemoryMarshal.CreateReadOnlySpanFromNullTerminated((byte*)strPtr);
+            return new GhosttyString(strPtr, (nuint)bytes.Length);
         }
     }
 
