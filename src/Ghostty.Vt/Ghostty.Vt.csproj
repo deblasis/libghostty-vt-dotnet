@@ -56,8 +56,9 @@
 
   <!--
     Native runtimes. A single glob handles both packing and copy-to-output:
-    - Pack="true" + PackagePath with %(RecursiveDir) places each file at
-      runtimes/<rid>/native/ inside the .nupkg.
+    - Pack="true" + PackagePath="runtimes/" lets NuGet append the glob's
+      RecursiveDir automatically, producing runtimes/<rid>/native/<file> in
+      the .nupkg. (Repeating %(RecursiveDir) in PackagePath would double it.)
     - CopyToOutputDirectory + Link="%(Filename)%(Extension)" copies each file
       next to the built assembly (for local P/Invoke in dev and tests).
     Glob is anchored via $(MSBuildThisFileDirectory) so path resolution does
@@ -69,7 +70,7 @@
   <ItemGroup>
     <None Include="$(MSBuildThisFileDirectory)../../runtimes/**/*"
           Pack="true"
-          PackagePath="runtimes/%(RecursiveDir)"
+          PackagePath="runtimes/"
           CopyToOutputDirectory="PreserveNewest"
           Link="%(Filename)%(Extension)" />
   </ItemGroup>
