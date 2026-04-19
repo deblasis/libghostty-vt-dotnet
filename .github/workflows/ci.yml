@@ -63,6 +63,9 @@ jobs:
       - name: Test
         run: dotnet test Ghostty.Vt.sln --no-build --configuration Release --logger "trx"
 
+  # Single-platform (linux-x64) on push-time CI — fast-feedback path.
+  # release.yml runs the full windows/linux/macos matrix as the gate
+  # before nuget.org publish; per-push is the common-case smoke test.
   validate-pack:
     needs: build-test
     runs-on: ubuntu-latest
