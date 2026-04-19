@@ -82,6 +82,9 @@ public class ParserTests
         // retrievable from the parser surface" without pinning a
         // wrapper quirk.
         var payload = parser.CommandData.ToString();
+        // TODO(wrapper-fix): tighten to Assert.Equal("hello", payload) when
+        // OscParser.CommandData stops constructing GhosttyString with length 0
+        // — see src/Ghostty.Vt/OscParser.cs:56 and Types/GhosttyString.cs:18.
         Assert.NotNull(payload);
     }
 }
