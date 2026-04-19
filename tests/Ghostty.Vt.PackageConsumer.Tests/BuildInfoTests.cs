@@ -22,9 +22,13 @@ public class BuildInfoTests
     [Fact]
     public void Query_ReportsMinorVersionGreaterThanZero()
     {
-        // VersionMinor (not Major) because upstream Ghostty is pre-1.0
-        // (currently 0.1.0-dev). Picking a field that is actually non-zero
-        // keeps this canary's job intact: prove the int P/Invoke round-tripped.
+        // BuildInfo.Query() reports the libghostty-vt library's own version
+        // (currently 0.1.0-dev — distinct from the Ghostty application version
+        // tracked in ghostty-upstream.json). VersionMajor is 0 today, so the
+        // plan's original "> 0" assertion would always fail and be useless as a
+        // canary; asserting on VersionMinor > 0 preserves the intent (prove the
+        // int round-tripped via P/Invoke) without a permanently-red trap. Flip
+        // to VersionMajor once libghostty-vt ships 1.x.
         var info = BuildInfo.Query();
 
         Assert.True(
