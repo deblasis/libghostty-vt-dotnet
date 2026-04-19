@@ -54,29 +54,24 @@
     <None Include="README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
+  <!--
+    Native runtimes. A single glob handles both packing and copy-to-output:
+    - Pack="true" + PackagePath="runtimes/" lets NuGet append the glob's
+      RecursiveDir automatically, producing runtimes/<rid>/native/<file> in
+      the .nupkg. (Repeating %(RecursiveDir) in PackagePath would double it.)
+    - CopyToOutputDirectory + Link="%(Filename)%(Extension)" copies each file
+      next to the built assembly (for local P/Invoke in dev and tests).
+    Glob is anchored via $(MSBuildThisFileDirectory) so path resolution does
+    not depend on the invoking working directory — this matters on CI where
+    `dotnet pack` is invoked from the repo root. An empty runtimes/ tree
+    (local dev without build-native) produces an empty item list and the
+    project still builds; it just cannot produce a usable pack.
+  -->
   <ItemGroup>
-    <None Include="..\..\runtimes\win-x64\native\ghostty-vt.dll"
-          Pack="true" PackagePath="runtimes\win-x64\native\"
-          Condition="Exists('..\..\runtimes\win-x64\native\ghostty-vt.dll')" />
-    <None Include="..\..\runtimes\linux-x64\native\libghostty-vt.so"
-          Pack="true" PackagePath="runtimes\linux-x64\native\"
-          Condition="Exists('..\..\runtimes\linux-x64\native\libghostty-vt.so')" />
-    <None Include="..\..\runtimes\osx-arm64\native\libghostty-vt.dylib"
-          Pack="true" PackagePath="runtimes\osx-arm64\native\"
-          Condition="Exists('..\..\runtimes\osx-arm64\native\libghostty-vt.dylib')" />
-  </ItemGroup>
-  <ItemGroup>
-    <Content Include="..\..\runtimes\win-x64\native\ghostty-vt.dll"
-          Link="ghostty-vt.dll"
+    <None Include="$(MSBuildThisFileDirectory)../../runtimes/**/*"
+          Pack="true"
+          PackagePath="runtimes/"
           CopyToOutputDirectory="PreserveNewest"
-          Condition="Exists('..\..\runtimes\win-x64\native\ghostty-vt.dll')" />
-    <Content Include="..\..\runtimes\linux-x64\native\libghostty-vt.so"
-          Link="libghostty-vt.so"
-          CopyToOutputDirectory="PreserveNewest"
-          Condition="Exists('..\..\runtimes\linux-x64\native\libghostty-vt.so')" />
-    <Content Include="..\..\runtimes\osx-arm64\native\libghostty-vt.dylib"
-          Link="libghostty-vt.dylib"
-          CopyToOutputDirectory="PreserveNewest"
-          Condition="Exists('..\..\runtimes\osx-arm64\native\libghostty-vt.dylib')" />
+          Link="%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>
