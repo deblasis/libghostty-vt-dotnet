@@ -62,3 +62,33 @@ jobs:
 
       - name: Test
         run: dotnet test Ghostty.Vt.sln --no-build --configuration Release --logger "trx"
+
+  validate-pack:
+    needs: build-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Download native artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: libghostty-vt-linux-x64
+          path: runtimes/linux-x64/native
+
+      - name: Pack
+        run: |
+          dotnet pack src/Ghostty.Vt/Ghostty.Vt.csproj \
+            --configuration Release \
+            --output artifacts \
+            -p:Version=0.0.1-ci.${{ github.run_id }}
+
+      - name: Validate pack (real NuGet consumer)
+        run: |
+          dotnet test tests/Ghostty.Vt.PackageConsumer.Tests/Ghostty.Vt.PackageConsumer.Tests.csproj \
+            --configuration Release \
+            --logger "trx"
