@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Validates the shipped DeBlasis.GhosttyVt NuGet package the way a real
+    consumer experiences it: PackageReference against a local feed, with the
+    floating *-* version picking up whatever `just pack` just produced.
+
+    Not added to Ghostty.Vt.sln on purpose — every other flow runs
+    `dotnet test Ghostty.Vt.sln` before `dotnet pack`, so including it in the
+    solution would try to restore a nupkg that doesn't exist yet.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+
+    <!--
+      Isolate restore from the global NuGet cache so that two consecutive
+      pack+validate cycles with the same version string but different contents
+      can never resolve to a stale cached copy.
+    -->
+    <RestorePackagesPath>$(MSBuildThisFileDirectory)packages</RestorePackagesPath>
+    <RestoreNoCache>true</RestoreNoCache>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      Floating wildcard picks up the newest prerelease-or-stable package in the
+      local feed. Uses VersionOverride because the repo has central package
+      version management enabled (Directory.Packages.props), which forbids
+      inline Version on PackageReference. VersionOverride is the documented
+      escape hatch for floating versions under CPM and does not require a
+      matching PackageVersion entry.
+    -->
+    <PackageReference Include="DeBlasis.GhosttyVt" VersionOverride="*-*" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+</Project>

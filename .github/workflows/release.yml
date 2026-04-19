@@ -228,8 +228,38 @@ jobs:
           name: nuget-package
           path: artifacts/
 
-  publish:
+  validate-pack:
     needs: [preflight, pack]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Download packed nupkg
+        uses: actions/download-artifact@v8
+        with:
+          name: nuget-package
+          path: artifacts
+
+      - name: Validate pack (real NuGet consumer)
+        run: |
+          dotnet test tests/Ghostty.Vt.PackageConsumer.Tests/Ghostty.Vt.PackageConsumer.Tests.csproj \
+            --configuration Release \
+            --logger "trx"
+
+  publish:
+    needs: [preflight, validate-pack]
     if: needs.preflight.outputs.is_dry_run == 'false'
     runs-on: ubuntu-latest
     environment: nuget-release
