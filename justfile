@@ -132,6 +132,20 @@ pack version="0.0.1-dev":
         -p:Version={{ version }}
     @echo "Package created: artifacts/DeBlasis.GhosttyVt.{{ version }}.nupkg"
 
+# Validate the packed NuGet package by consuming it as a real client would.
+# Requires a fresh `just pack` to have populated artifacts/ first.
+validate-pack:
+    #!/bin/bash
+    set -euo pipefail
+    # Scrub per-project package cache + build outputs so a stale nupkg with a
+    # matching version number can never be resolved silently.
+    rm -rf tests/Ghostty.Vt.PackageConsumer.Tests/packages \
+           tests/Ghostty.Vt.PackageConsumer.Tests/bin \
+           tests/Ghostty.Vt.PackageConsumer.Tests/obj
+    dotnet test tests/Ghostty.Vt.PackageConsumer.Tests/Ghostty.Vt.PackageConsumer.Tests.csproj \
+        --configuration Release \
+        --logger "trx"
+
 # ──────────────────────────────────────────────
 #  Upstream sync helpers
 # ──────────────────────────────────────────────
