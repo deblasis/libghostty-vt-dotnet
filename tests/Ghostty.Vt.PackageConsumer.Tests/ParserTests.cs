@@ -18,12 +18,8 @@
 // the numeric wire code isn't surfaced separately.
 //
 // On "payload=hello": the consumer-visible CommandData property
-// returns a GhosttyString whose ToString() is the UTF-8 title. The
-// assertion below tolerates the current wrapper returning an empty
-// string (the ref-struct constructor is called with length 0, so
-// ToString short-circuits) while still exercising the API path —
-// this mirrors FormatterTests, which preserves intent without
-// over-constraining on a specific encoding.
+// returns a GhosttyString whose ToString() decodes the UTF-8 title
+// the wrapper measured from the native null-terminated buffer.
 using Ghostty.Vt;
 using Ghostty.Vt.Enums;
 using Xunit;
@@ -75,16 +71,10 @@ public class ParserTests
         Assert.Equal(OscCommandType.SetWindowTitle, cmdType);
 
         // Payload assertion: CommandData exposes the parsed title as a
-        // GhosttyString. ToString() returns a non-null string — either
-        // the literal "hello" or empty, depending on whether the
-        // wrapper round-trips the native length. Asserting non-null
-        // (rather than == "hello") preserves the intent "a payload was
-        // retrievable from the parser surface" without pinning a
-        // wrapper quirk.
+        // GhosttyString. The wrapper measures the native null-terminated
+        // UTF-8 buffer and round-trips it through ToString(), so the
+        // payload equals the literal "hello" passed in above.
         var payload = parser.CommandData.ToString();
-        // TODO(wrapper-fix): tighten to Assert.Equal("hello", payload) when
-        // OscParser.CommandData stops constructing GhosttyString with length 0
-        // — see src/Ghostty.Vt/OscParser.cs:56 and Types/GhosttyString.cs:18.
-        Assert.NotNull(payload);
+        Assert.Equal("hello", payload);
     }
 }
