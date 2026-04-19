@@ -124,12 +124,13 @@ test:
 test-fresh:
     dotnet test --configuration Release --logger "trx"
 
-# Pack the NuGet package
+# Pack the NuGet package into artifacts/ (aligned with CI output location)
 pack version="0.0.1-dev":
     dotnet pack src/Ghostty.Vt/Ghostty.Vt.csproj \
         --configuration Release \
+        --output artifacts \
         -p:Version={{ version }}
-    @echo "Package created: src/Ghostty.Vt/bin/Release/Ghostty.Vt.{{ version }}.nupkg"
+    @echo "Package created: artifacts/DeBlasis.GhosttyVt.{{ version }}.nupkg"
 
 # ──────────────────────────────────────────────
 #  Upstream sync helpers
