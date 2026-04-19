@@ -33,6 +33,9 @@ public class OscParserTests
             parser.Next(b);
 
         parser.End();
+
+        var payload = parser.CommandData.ToString();
+        Assert.Equal("My Title", payload);
     }
 
     [Fact]
