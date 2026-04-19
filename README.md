@@ -67,7 +67,7 @@ foreach (var row in renderState.Rows)
 
 ## NuGet
 
-The library ships as `Ghostty.Vt` on NuGet with native runtimes for:
+The library ships as [`DeBlasis.GhosttyVt`](https://www.nuget.org/packages/DeBlasis.GhosttyVt) on NuGet with native runtimes for:
 
 | Platform | Runtime ID | Native library |
 |----------|-----------|----------------|
