@@ -1,39 +1,143 @@
 name: Release
 
 on:
+  push:
+    tags: ['v*']
   workflow_dispatch:
     inputs:
-      upstream_tag:
-        description: 'Upstream Ghostty tag (e.g., v1.3.1)'
+      dry_run_commit:
+        description: 'Upstream commit SHA to build (dry run — no publish)'
         required: true
         type: string
-      package_version:
-        description: 'NuGet package version (defaults to tag without v prefix)'
-        required: false
-        type: string
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    outputs:
+      package_version: ${{ steps.compute.outputs.package_version }}
+      base_version: ${{ steps.compute.outputs.base_version }}
+      upstream_commit: ${{ steps.pin.outputs.upstream_commit }}
+      upstream_version: ${{ steps.verify.outputs.upstream_version }}
+      is_dry_run: ${{ steps.compute.outputs.is_dry_run }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute version and dry-run flag
+        id: compute
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "is_dry_run=true" >> "$GITHUB_OUTPUT"
+            # Disposable version so `dotnet pack` succeeds; never published.
+            echo "package_version=0.0.0-dryrun.${{ github.run_id }}" >> "$GITHUB_OUTPUT"
+            echo "base_version=dryrun" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          TAG="${{ github.ref_name }}"
+          # Guard 1 — tag shape. Permits v1.2.3 and v1.2.3.4 (respin).
+          if ! echo "$TAG" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$'; then
+            echo "::error::Tag $TAG does not match v<X.Y.Z> or v<X.Y.Z.N>"
+            exit 1
+          fi
+          VERSION="${TAG#v}"
+          BASE=$(echo "$VERSION" | awk -F. '{printf "%s.%s.%s", $1, $2, $3}')
+          echo "is_dry_run=false" >> "$GITHUB_OUTPUT"
+          echo "package_version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "base_version=$BASE" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve upstream pin
+        id: pin
+        run: |
+          if [ "${{ steps.compute.outputs.is_dry_run }}" = "true" ]; then
+            COMMIT="${{ inputs.dry_run_commit }}"
+          else
+            COMMIT=$(jq -r '.commit' ghostty-upstream.json)
+          fi
+          if [ -z "$COMMIT" ] || [ "$COMMIT" = "null" ]; then
+            echo "::error::Could not resolve upstream commit"
+            exit 1
+          fi
+          echo "upstream_commit=$COMMIT" >> "$GITHUB_OUTPUT"
+
+      - name: Guard 3 — pinned SHA exists upstream
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          COMMIT="${{ steps.pin.outputs.upstream_commit }}"
+          # `git ls-remote` only lists ref tips, so an intermediate commit
+          # will not appear; fall back to the GitHub API which resolves any
+          # reachable commit by SHA. Authenticated call uses the workflow's
+          # GITHUB_TOKEN to avoid the 60 req/hour unauthenticated limit that
+          # applies per shared runner IP.
+          HTTP=$(curl -s -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/ghostty-org/ghostty/commits/$COMMIT")
+          if [ "$HTTP" != "200" ]; then
+            echo "::error::Pinned commit $COMMIT not found upstream (HTTP $HTTP)"
+            exit 1
+          fi
+
+      - name: Guard 2 — tag matches upstream build.zig.zon
+        id: verify
+        if: steps.compute.outputs.is_dry_run == 'false'
+        run: |
+          COMMIT="${{ steps.pin.outputs.upstream_commit }}"
+          BASE="${{ steps.compute.outputs.base_version }}"
+          UPSTREAM=$(curl -sSfL "https://raw.githubusercontent.com/ghostty-org/ghostty/${COMMIT}/build.zig.zon" \
+            | grep -oP '(?<=\.version = ")[^"]+' | head -1)
+          if [ -z "$UPSTREAM" ]; then
+            echo "::error::Could not parse .version from upstream build.zig.zon"
+            exit 1
+          fi
+          case "$UPSTREAM" in
+            *-dev)
+              echo "::error::Upstream version $UPSTREAM is a -dev build; refusing to release"
+              exit 1
+              ;;
+          esac
+          if [ "$UPSTREAM" != "$BASE" ]; then
+            echo "::error::Tag base version $BASE does not match upstream $UPSTREAM"
+            exit 1
+          fi
+          echo "upstream_version=$UPSTREAM" >> "$GITHUB_OUTPUT"
+
+      - name: Dry run — record upstream version (informational)
+        if: steps.compute.outputs.is_dry_run == 'true'
+        run: |
+          COMMIT="${{ steps.pin.outputs.upstream_commit }}"
+          UPSTREAM=$(curl -sSfL "https://raw.githubusercontent.com/ghostty-org/ghostty/${COMMIT}/build.zig.zon" \
+            | grep -oP '(?<=\.version = ")[^"]+' | head -1 || echo "unknown")
+          echo "::notice::Dry run against upstream version $UPSTREAM (commit $COMMIT)"
+
   build-native:
+    needs: preflight
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: windows-latest
-            target: x86_64-windows
             zig_target: x86_64-windows
             rid: win-x64
             artifact: ghostty-vt.dll
+            src_dir: bin
           - os: ubuntu-latest
-            target: x86_64-linux
             zig_target: x86_64-linux-gnu.2.31
             rid: linux-x64
             artifact: libghostty-vt.so
+            src_dir: lib
           - os: macos-latest
-            target: aarch64-macos
             zig_target: aarch64-macos
             rid: osx-arm64
             artifact: libghostty-vt.dylib
+            src_dir: lib
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
 
@@ -42,18 +146,21 @@ jobs:
         with:
           version: '0.15.2'
 
-      - name: Clone Ghostty at tag
+      - name: Clone Ghostty at pinned commit
         run: |
-          git clone --depth 1 --branch ${{ inputs.upstream_tag }} \
-            https://github.com/ghostty-org/ghostty.git /tmp/ghostty
+          git init ghostty-src
+          cd ghostty-src
+          git remote add origin https://github.com/ghostty-org/ghostty.git
+          git fetch --depth 1 origin "${{ needs.preflight.outputs.upstream_commit }}"
+          git checkout FETCH_HEAD
 
       - name: Build native libghostty-vt
         run: |
-          cd /tmp/ghostty
-          zig build install -Demit-lib-vt=true -Dtarget=${{ matrix.zig_target }} -Doptimize=ReleaseSafe
-          mkdir -p ${{ github.workspace }}/runtimes/${{ matrix.rid }}/native
-          cp zig-out/lib/${{ matrix.artifact }} \
-            ${{ github.workspace }}/runtimes/${{ matrix.rid }}/native/
+          cd ghostty-src
+          zig build install -Demit-lib-vt=true -Dtarget="${{ matrix.zig_target }}" -Doptimize=ReleaseSafe
+          mkdir -p "${{ github.workspace }}/runtimes/${{ matrix.rid }}/native"
+          cp "zig-out/${{ matrix.src_dir }}/${{ matrix.artifact }}" \
+            "${{ github.workspace }}/runtimes/${{ matrix.rid }}/native/"
 
       - name: Upload native artifact
         uses: actions/upload-artifact@v7
@@ -61,8 +168,8 @@ jobs:
           name: native-${{ matrix.rid }}
           path: runtimes/${{ matrix.rid }}/native/${{ matrix.artifact }}
 
-  publish:
-    needs: build-native
+  pack:
+    needs: [preflight, build-native]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -72,28 +179,38 @@ jobs:
         with:
           dotnet-version: '9.0.x'
 
-      - name: Download all native artifacts
+      - name: Download native (win-x64)
         uses: actions/download-artifact@v8
         with:
-          pattern: native-*
-          path: runtimes
-          merge-multiple: true
+          name: native-win-x64
+          path: runtimes/win-x64/native
 
-      - name: Determine package version
-        id: version
-        run: |
-          if [ -n "${{ inputs.package_version }}" ]; then
-            echo "pkg_version=${{ inputs.package_version }}" >> "$GITHUB_OUTPUT"
-          else
-            TAG="${{ inputs.upstream_tag }}"
-            echo "pkg_version=${TAG#v}" >> "$GITHUB_OUTPUT"
-          fi
+      - name: Download native (linux-x64)
+        uses: actions/download-artifact@v8
+        with:
+          name: native-linux-x64
+          path: runtimes/linux-x64/native
 
-      - name: Restore
-        run: dotnet restore Ghostty.Vt.sln
+      - name: Download native (osx-arm64)
+        uses: actions/download-artifact@v8
+        with:
+          name: native-osx-arm64
+          path: runtimes/osx-arm64/native
 
       - name: Build
-        run: dotnet build Ghostty.Vt.sln --no-restore --configuration Release
+        run: dotnet build Ghostty.Vt.sln --configuration Release
+
+      # P/Invoke probes the assembly directory first; dotnet test looks for
+      # libghostty-vt.so (lib-prefixed on Linux) next to the test binaries.
+      - name: Stage native library for tests
+        run: |
+          LIB=$(find runtimes -name 'libghostty-vt.so' -print -quit)
+          if [ -z "$LIB" ]; then
+            echo "libghostty-vt.so not found under runtimes/" >&2
+            find runtimes -type f >&2
+            exit 1
+          fi
+          cp "$LIB" tests/Ghostty.Vt.Tests/bin/Release/net9.0/libghostty-vt.so
 
       - name: Test
         run: dotnet test Ghostty.Vt.sln --no-build --configuration Release
@@ -102,37 +219,75 @@ jobs:
         run: |
           dotnet pack src/Ghostty.Vt/Ghostty.Vt.csproj \
             --configuration Release \
-            -p:Version=${{ steps.version.outputs.pkg_version }}
+            --output artifacts \
+            -p:Version=${{ needs.preflight.outputs.package_version }}
+
+      - name: Upload package
+        uses: actions/upload-artifact@v7
+        with:
+          name: nuget-package
+          path: artifacts/
+
+  publish:
+    needs: [preflight, pack]
+    if: needs.preflight.outputs.is_dry_run == 'false'
+    runs-on: ubuntu-latest
+    environment: nuget-release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Download package
+        uses: actions/download-artifact@v8
+        with:
+          name: nuget-package
+          path: artifacts
 
       - name: Publish to NuGet
+        # dotnet nuget push automatically pushes the matching *.snupkg symbols
+        # package from the same folder. --skip-duplicate makes retries safe.
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
         run: |
-          dotnet nuget push artifacts/**/*.nupkg \
-            --api-key ${{ secrets.NUGET_API_KEY }} \
-            --source https://api.nuget.org/v3/index.json
+          dotnet nuget push "artifacts/*.nupkg" \
+            --api-key "$NUGET_API_KEY" \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PKG_VERSION: ${{ needs.preflight.outputs.package_version }}
+          UPSTREAM_COMMIT: ${{ needs.preflight.outputs.upstream_commit }}
+          UPSTREAM_VERSION: ${{ needs.preflight.outputs.upstream_version }}
         run: |
-          gh release create "${{ inputs.upstream_tag }}" \
-            --title "${{ inputs.upstream_tag }}" \
-            --notes "Stable release built from upstream ghostty-org/ghostty@${{ inputs.upstream_tag }}"
+          NOTES=$(printf '%s\n' \
+            "Stable release of DeBlasis.GhosttyVt ${PKG_VERSION}, built from upstream ghostty-org/ghostty@${UPSTREAM_COMMIT} (Ghostty ${UPSTREAM_VERSION})." \
+            "" \
+            "📦 https://www.nuget.org/packages/DeBlasis.GhosttyVt/${PKG_VERSION}" \
+            "" \
+            "---")
+          gh release create "v${PKG_VERSION}" \
+            --title "v${PKG_VERSION}" \
+            --generate-notes \
+            --notes "$NOTES"
 
-      - name: Update ghostty-upstream.json
+      - name: Upload package assets to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PKG_VERSION: ${{ needs.preflight.outputs.package_version }}
         run: |
-          COMMIT=$(git ls-remote https://github.com/ghostty-org/ghostty.git "refs/tags/${{ inputs.upstream_tag }}" | awk '{print $1}')
-          cat > ghostty-upstream.json << EOF
-          {
-            "repo": "https://github.com/ghostty-org/ghostty.git",
-            "branch": "main",
-            "commit": "$COMMIT",
-            "upstreamVersion": "${{ steps.version.outputs.pkg_version }}",
-            "lastUpdated": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          }
-          EOF
-
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add ghostty-upstream.json
-          git diff --cached --quiet || git commit -m "chore: release ${{ inputs.upstream_tag }}"
-          git push
+          # Use nullglob so a missing .snupkg doesn't pass the literal glob to gh.
+          shopt -s nullglob
+          ASSETS=(artifacts/*.nupkg artifacts/*.snupkg)
+          if [ ${#ASSETS[@]} -eq 0 ]; then
+            echo "::error::No package assets found in artifacts/"
+            exit 1
+          fi
+          gh release upload "v${PKG_VERSION}" "${ASSETS[@]}"
