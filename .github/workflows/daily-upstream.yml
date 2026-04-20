@@ -13,7 +13,7 @@ jobs:
       new_commit: ${{ steps.check.outputs.commit }}
       new_version: ${{ steps.check.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Check for upstream changes
         id: check
@@ -92,7 +92,7 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup Zig
         uses: mlugg/setup-zig@v2
@@ -139,7 +139,7 @@ jobs:
     # to match.
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Download Ghostty source
         uses: actions/download-artifact@v8
@@ -190,7 +190,7 @@ jobs:
       # while the final publishing destination is still being decided.
       NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
