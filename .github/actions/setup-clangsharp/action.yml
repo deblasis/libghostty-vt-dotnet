@@ -26,6 +26,12 @@ outputs:
   generator:
     description: Absolute path to the ClangSharpPInvokeGenerator executable.
     value: ${{ steps.install.outputs.generator }}
+  extra-args-file:
+    description: >
+      A generated response file with the machine-specific clang arguments
+      (currently -resource-dir). Pass it after build/generate-bindings.rsp so
+      the checked-in rsp stays free of absolute paths.
+    value: ${{ steps.install.outputs.extra_args_file }}
 
 runs:
   using: composite
@@ -134,4 +140,40 @@ runs:
           printf '  %-20s %s bytes, all deps resolved\n' "$lib" "$(stat -c%s "$ASM_DIR/$lib")"
         done
 
+        # libclang needs clang's own builtin headers (stddef.h, stdint.h,
+        # limits.h, ...). The libclang.runtime package ships only the shared
+        # library, so without them parsing dies on:
+        #     /usr/include/limits.h:124:16: fatal error: 'limits.h' file not found
+        # That line is an `#include_next`, which by definition resumes the
+        # search *after* /usr/include — so an extra `-I` cannot satisfy it and
+        # only `-resource-dir` will. The major version has to match libclang's.
+        CLANG_MAJOR=${LIBCLANG_VERSION%%.*}
+        find_resource_dir() {
+          if command -v "clang-$CLANG_MAJOR" >/dev/null 2>&1; then
+            "clang-$CLANG_MAJOR" -print-resource-dir 2>/dev/null && return 0
+          fi
+          for d in "/usr/lib/llvm-$CLANG_MAJOR/lib/clang/$CLANG_MAJOR" "/usr/lib/clang/$CLANG_MAJOR"; do
+            if [ -d "$d/include" ]; then echo "$d"; return 0; fi
+          done
+          return 1
+        }
+
+        RESOURCE_DIR=$(find_resource_dir || true)
+        if [ -z "$RESOURCE_DIR" ] || [ ! -f "$RESOURCE_DIR/include/limits.h" ]; then
+          echo "Clang $CLANG_MAJOR builtin headers not present; installing libclang-common-$CLANG_MAJOR-dev"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq "libclang-common-$CLANG_MAJOR-dev"
+          RESOURCE_DIR=$(find_resource_dir || true)
+        fi
+
+        if [ -z "$RESOURCE_DIR" ] || [ ! -f "$RESOURCE_DIR/include/limits.h" ]; then
+          echo "::error::Could not locate clang $CLANG_MAJOR builtin headers (need <resource-dir>/include/limits.h)"
+          exit 1
+        fi
+        echo "  clang resource dir: $RESOURCE_DIR"
+
+        EXTRA_ARGS="$TOOL_DIR/extra-args.rsp"
+        printf -- '--additional\n-resource-dir=%s\n' "$RESOURCE_DIR" > "$EXTRA_ARGS"
+
         echo "generator=$TOOL_DIR/ClangSharpPInvokeGenerator" >> "$GITHUB_OUTPUT"
+        echo "extra_args_file=$EXTRA_ARGS" >> "$GITHUB_OUTPUT"
