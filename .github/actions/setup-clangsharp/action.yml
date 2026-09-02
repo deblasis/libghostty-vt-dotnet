@@ -1,0 +1,112 @@
+name: Setup ClangSharpPInvokeGenerator (Linux)
+description: >
+  Installs ClangSharpPInvokeGenerator together with the native libraries it
+  needs on Linux. The dotnet-tool package ships ONLY Windows natives, so a
+  plain `dotnet tool install` produces a generator that cannot start on a
+  Linux runner (see issue #46). This action supplies the matching linux-x64
+  `libclang.so` and `libClangSharp.so` and fails loudly if it cannot.
+
+inputs:
+  generator-version:
+    description: >
+      ClangSharpPInvokeGenerator version. 18.1.0.4 is the last release
+      packaged for net8.0; 20.x and later target net10.0.
+    required: false
+    default: '18.1.0.4'
+  libclang-version:
+    description: libclang.runtime.linux-x64 version (must match the generator's clang major).
+    required: false
+    default: '18.1.3.2'
+  libclangsharp-version:
+    description: libclangsharp.runtime.linux-x64 version (must match the generator's clang major).
+    required: false
+    default: '18.1.3.1'
+
+outputs:
+  generator:
+    description: Absolute path to the ClangSharpPInvokeGenerator executable.
+    value: ${{ steps.install.outputs.generator }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install generator and its Linux natives
+      id: install
+      shell: bash
+      env:
+        GEN_VERSION: ${{ inputs.generator-version }}
+        LIBCLANG_VERSION: ${{ inputs.libclang-version }}
+        LIBCLANGSHARP_VERSION: ${{ inputs.libclangsharp-version }}
+      run: |
+        set -euo pipefail
+
+        for v in "$GEN_VERSION" "$LIBCLANG_VERSION" "$LIBCLANGSHARP_VERSION"; do
+          if ! [[ "$v" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
+            echo "::error::'$v' is not a valid NuGet version"
+            exit 1
+          fi
+        done
+
+        TOOL_DIR="$RUNNER_TEMP/clangsharp"
+        dotnet tool install --tool-path "$TOOL_DIR" --version "$GEN_VERSION" ClangSharpPInvokeGenerator
+
+        # Why this action exists at all:
+        #
+        # The ClangSharpPInvokeGenerator nupkg carries `libclang.dll` and
+        # `libClangSharp.dll` under tools/net8.0/any — Windows only. There is
+        # no `.so` in it at any version. On Linux the generator therefore
+        # throws DllNotFoundException from clang.getClangVersion() in the
+        # PInvokeGenerator constructor, before it opens a single header.
+        #
+        # .NET probes for a DllImport library in the assembly's own directory
+        # first; the original failure log named the exact path it wanted
+        # (".../tools/net8.0/any/libclang.so"), so dropping the .so files
+        # beside the managed assemblies is all that is required.
+        ASM_DIR=$(dirname "$(find "$TOOL_DIR/.store" -name 'ClangSharpPInvokeGenerator.dll' -print -quit)")
+        if [ -z "$ASM_DIR" ] || [ ! -d "$ASM_DIR" ]; then
+          echo "::error::Could not locate the installed generator assemblies under $TOOL_DIR/.store"
+          exit 1
+        fi
+        echo "Generator assemblies: $ASM_DIR"
+
+        fetch_native() {
+          id="$1"; ver="$2"
+          tmp=$(mktemp -d)
+          echo "Fetching $id $ver"
+          curl -sSfL --retry 5 --retry-delay 3 --retry-all-errors \
+            -o "$tmp/pkg.nupkg" \
+            "https://api.nuget.org/v3-flatcontainer/${id}/${ver}/${id}.${ver}.nupkg"
+          unzip -q -o "$tmp/pkg.nupkg" 'runtimes/linux-x64/native/*' -d "$tmp"
+          if ! ls "$tmp"/runtimes/linux-x64/native/*.so >/dev/null 2>&1; then
+            echo "::error::$id $ver contained no linux-x64 .so payload"
+            exit 1
+          fi
+          cp "$tmp"/runtimes/linux-x64/native/*.so "$ASM_DIR/"
+          rm -rf "$tmp"
+        }
+
+        fetch_native libclang.runtime.linux-x64 "$LIBCLANG_VERSION"
+        fetch_native libclangsharp.runtime.linux-x64 "$LIBCLANGSHARP_VERSION"
+
+        # Assert rather than hope. A missing or unloadable native here is the
+        # difference between "the bindings did not drift" and "the detector
+        # never ran" — the two outcomes #46 is about not confusing.
+        for lib in libclang.so libClangSharp.so; do
+          if [ ! -f "$ASM_DIR/$lib" ]; then
+            echo "::error::$lib was not installed into $ASM_DIR"
+            exit 1
+          fi
+          if ! ldd "$ASM_DIR/$lib" > /tmp/ldd.txt 2>&1; then
+            echo "::error::$lib is present but not loadable"
+            cat /tmp/ldd.txt
+            exit 1
+          fi
+          if grep -q 'not found' /tmp/ldd.txt; then
+            echo "::error::$lib has unresolved shared-library dependencies"
+            grep 'not found' /tmp/ldd.txt
+            exit 1
+          fi
+          printf '  %-20s %s bytes, all deps resolved\n' "$lib" "$(stat -c%s "$ASM_DIR/$lib")"
+        done
+
+        echo "generator=$TOOL_DIR/ClangSharpPInvokeGenerator" >> "$GITHUB_OUTPUT"

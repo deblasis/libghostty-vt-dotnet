@@ -19,10 +19,9 @@ jobs:
       # EntryPointNotFoundException for symbols upstream had since renamed.
       #
       # Detecting that drift is the daily sync's job, not per-PR CI's: the
-      # sync still resolves upstream HEAD, builds it and tests against it
-      # every night, so the main-vs-pin signal is not lost here. Note the
-      # sync's *dedicated* detector, regenerate-bindings, is currently dead
-      # (#46) — the nightly build+test is what carries this today.
+      # sync resolves upstream HEAD, builds it, tests against it, and (since
+      # #46) regenerates the bindings against it every night.
+      #
       # On `pull_request` — including from a fork — ghostty-upstream.json is
       # attacker-controlled, and a `${{ }}` expression is substituted
       # textually before bash parses the line. So validate here, once, before
@@ -69,6 +68,71 @@ jobs:
         with:
           name: libghostty-vt-linux-x64
           path: runtimes/linux-x64/native/libghostty-vt.so
+
+  # The strict half of the drift detection added in #46.
+  #
+  # daily-upstream regenerates against the NEW upstream commit and reports a
+  # difference, because a difference there is expected news. This job
+  # regenerates against the commit this repo is actually pinned to, where the
+  # committed NativeMethods.cs is supposed to already match — so any
+  # difference is a real defect and fails the build. That is the "no drift"
+  # baseline, and it is also what keeps the generator itself honest: if
+  # ClangSharp stops working again the way it had silently stopped working
+  # for months (#46), this job goes red on the very next PR instead of
+  # reporting a cheerful green nothing.
+  bindings-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Same validation as build-native above, for the same reason: on a fork
+      # `pull_request` this file is attacker-controlled.
+      - name: Resolve and validate pinned upstream commit
+        id: pin
+        run: |
+          COMMIT=$(jq -r '.commit' ghostty-upstream.json)
+          if ! [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::ghostty-upstream.json .commit is not a 40-character SHA"
+            exit 1
+          fi
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+
+      # The rsp resolves headers relative to the working directory, so the
+      # source has to land in ./ghostty-src rather than /tmp.
+      - name: Clone Ghostty at pinned commit
+        env:
+          COMMIT: ${{ steps.pin.outputs.commit }}
+        run: |
+          git init ghostty-src
+          cd ghostty-src
+          git remote add origin https://github.com/ghostty-org/ghostty.git
+          git fetch --depth 1 origin "$COMMIT"
+          git checkout FETCH_HEAD
+
+      - name: Setup ClangSharp
+        id: clangsharp
+        uses: ./.github/actions/setup-clangsharp
+
+      - name: Regenerate bindings from the pinned headers
+        run: ${{ steps.clangsharp.outputs.generator }} @build/generate-bindings.rsp
+
+      - name: Fail on drift from the committed bindings
+        run: |
+          if git diff --quiet src/Ghostty.Vt/Native/NativeMethods.cs; then
+            echo "::notice title=Bindings::No drift — regenerated bindings match the committed NativeMethods.cs."
+            exit 0
+          fi
+          echo "::error title=Binding drift::src/Ghostty.Vt/Native/NativeMethods.cs does not match what the generator produces from the pinned ghostty headers. Regenerate it with build/generate-bindings.rsp and commit the result, or update the pin and the bindings together."
+          git --no-pager diff --stat src/Ghostty.Vt/Native/NativeMethods.cs
+          git --no-pager diff -- src/Ghostty.Vt/Native/NativeMethods.cs | head -200
+          exit 1
+
+      - name: Upload regenerated bindings
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: regenerated-bindings-pinned
+          path: src/Ghostty.Vt/Native/NativeMethods.cs
 
   build-test:
     needs: build-native
