@@ -167,20 +167,27 @@ jobs:
           path: runtimes/${{ matrix.rid }}/native/${{ matrix.artifact }}
 
   regenerate-bindings:
-    needs: [prepare-ghostty-src, build-native]
+    # No longer waits on build-native: this job reads headers, never the
+    # compiled library, so the dependency only slowed the signal down.
+    needs: [prepare-ghostty-src]
     runs-on: ubuntu-latest
-    # This job is a drift detector — it regenerates P/Invoke bindings from
-    # the upstream headers and uploads them as an artifact if they differ
-    # from the hand-maintained NativeMethods.cs. The current bindings file
-    # uses LibraryImport (net7+), while ClangSharp 18.x emits DllImport,
-    # so a clean run always produces a diff anyway. Don't block publish
-    # on this job; downstream `publish` treats it as advisory via `if`.
+    # Drift detector: regenerates the P/Invoke surface from the NEW upstream
+    # headers and publishes the result as an artifact for whoever lands the
+    # bump. `ci.yml` holds the strict counterpart — regenerate against the
+    # *pinned* commit and fail on any difference.
     #
-    # Runs on Linux so ClangSharp's bundled libclang can resolve C system
-    # headers (<stddef.h>, <stdint.h>, ...) from glibc without pulling in
-    # the MSVC/Windows SDK. The rsp file passes --target=x86_64-pc-linux-gnu
-    # to match.
-    continue-on-error: true
+    # `continue-on-error: true` used to sit here and hid a generator that had
+    # never once started (#46): every run reported success while producing
+    # nothing. Two outcomes were being conflated, so they are now separated —
+    #   * the generator failing to run is a BUG and fails this job;
+    #   * the regenerated bindings differing from the committed ones is a
+    #     FINDING and is reported, not failed.
+    # `publish` no longer lists this job in a blocking position, so a red
+    # detector is visible in the run without gating the pipeline.
+    #
+    # Runs on Linux so libclang resolves C system headers (<stddef.h>,
+    # <stdint.h>, ...) from glibc without pulling in the MSVC/Windows SDK.
+    # The rsp file passes --target=x86_64-pc-linux-gnu to match.
     steps:
       - uses: actions/checkout@v4
 
@@ -194,23 +201,25 @@ jobs:
           mkdir -p ghostty-src
           tar -xf ghostty-src.tar -C ghostty-src
 
-      - name: Regenerate bindings
-        # ClangSharpPInvokeGenerator 20.x+ targets net10.0, which the runner
-        # does not ship. 18.1.0.4 is the last release packaged for net8.0
-        # and works against the runner's pre-installed .NET 8/9. Installed
-        # into a workspace-local tool path to avoid any pre-cached global
-        # tool entry tripping up `dotnet tool install --global`.
-        run: |
-          dotnet tool install --tool-path "$RUNNER_TEMP/tools" --version 18.1.0.4 ClangSharpPInvokeGenerator
-          "$RUNNER_TEMP/tools/ClangSharpPInvokeGenerator" @build/generate-bindings.rsp
+      - name: Setup ClangSharp
+        id: clangsharp
+        uses: ./.github/actions/setup-clangsharp
 
-      - name: Check for binding changes
+      - name: Regenerate bindings
+        run: ${{ steps.clangsharp.outputs.generator }} @build/generate-bindings.rsp
+
+      - name: Report binding drift
         id: bindings
         run: |
-          if git diff --exit-code src/Ghostty.Vt/Native/NativeMethods.cs; then
+          if git diff --quiet src/Ghostty.Vt/Native/NativeMethods.cs; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Bindings::Regenerated bindings match the committed NativeMethods.cs."
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
+            ADDED=$(git diff --numstat src/Ghostty.Vt/Native/NativeMethods.cs | awk '{print $1}')
+            REMOVED=$(git diff --numstat src/Ghostty.Vt/Native/NativeMethods.cs | awk '{print $2}')
+            echo "::warning title=Binding drift::Regenerated bindings differ from the committed NativeMethods.cs (+${ADDED}/-${REMOVED}). Artifact 'regenerated-bindings' has the new file."
+            git --no-pager diff --stat src/Ghostty.Vt/Native/NativeMethods.cs
           fi
 
       - name: Upload bindings
@@ -221,7 +230,12 @@ jobs:
           path: src/Ghostty.Vt/Native/NativeMethods.cs
 
   publish:
-    needs: [check-upstream, build-native, regenerate-bindings]
+    # `regenerate-bindings` is deliberately NOT a dependency any more. It no
+    # longer feeds anything into this job, and now that it can fail for real
+    # (#46) a dependency would let a broken detector block publishing. Its
+    # failure still turns the whole run red, which is the visibility that
+    # `continue-on-error: true` was destroying.
+    needs: [check-upstream, build-native]
     runs-on: ubuntu-latest
     permissions:
       contents: write   # commit updated ghostty-upstream.json + create release
@@ -264,12 +278,17 @@ jobs:
           name: native-osx-arm64
           path: runtimes/osx-arm64/native
 
-      - name: Download regenerated bindings (if changed)
-        uses: actions/download-artifact@v8
-        with:
-          name: regenerated-bindings
-          path: src/Ghostty.Vt/Native
-        continue-on-error: true
+      # NOTE: this job used to download the `regenerated-bindings` artifact
+      # over src/Ghostty.Vt/Native/NativeMethods.cs before building, so the
+      # nightly would have built, tested, packed and published machine-
+      # generated bindings in place of the hand-maintained ones. That never
+      # actually happened only because the generator had never once run (#46)
+      # and the artifact never existed — `continue-on-error: true` swallowed
+      # the download failure. Repairing the generator would have made that
+      # step live, so it is removed: the regenerated file stays an artifact
+      # for a human to review and land deliberately. ClangSharp emits
+      # DllImport while the committed file uses LibraryImport, so adopting
+      # its output wholesale is not a refactor, it is a rewrite.
 
       - name: Build
         run: dotnet build Ghostty.Vt.sln --configuration Release
