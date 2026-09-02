@@ -22,7 +22,11 @@ Use this library to parse VT output, inspect the terminal grid, build your own r
 
 ## Prerequisites
 
-- [Zig 0.15.2](https://ziglang.org/download/) — builds libghostty-vt from source
+- [Zig](https://ziglang.org/download/) — builds libghostty-vt from source. Use the version the
+  upstream commit asks for: `.minimum_zig_version` in
+  [ghostty's `build.zig.zon`](https://github.com/ghostty-org/ghostty/blob/main/build.zig.zon)
+  at the SHA pinned in `ghostty-upstream.json`. CI derives it the same way rather than
+  hardcoding it.
 - [.NET SDK 9.0](https://dotnet.microsoft.com/download/dotnet/9.0) — builds and runs the library and tests
 
 ## Quick start

@@ -141,10 +141,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Derived from the pinned commit being released, so the toolchain
+      # tracks the pin automatically as the daily sync moves it (issue #43).
       - name: Setup Zig
-        uses: mlugg/setup-zig@v2
+        uses: ./.github/actions/setup-zig
         with:
-          version: '0.15.2'
+          ghostty-ref: ${{ needs.preflight.outputs.upstream_commit }}
 
       - name: Clone Ghostty at pinned commit
         run: |

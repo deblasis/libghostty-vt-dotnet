@@ -4,6 +4,23 @@ on:
   schedule:
     - cron: '30 3 * * *'
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Build, test and pack only — do not publish, move the pin, or cut a release'
+        type: boolean
+        # Safe by default, and free: a `schedule` event does not apply
+        # workflow_dispatch input defaults (the `inputs` context is empty), so
+        # this does not touch the nightly publish path. It only means a
+        # maintainer who clicks "Run workflow" to retry a failed nightly and
+        # leaves the box alone cannot accidentally publish to nuget.org, push
+        # a moved pin to main, and cut a release. Untick it to publish.
+        default: true
+
+# A manual run racing the 03:30 cron would give two `publish` jobs both doing
+# `git push` of ghostty-upstream.json with no `pull --rebase` between them.
+concurrency:
+  group: daily-upstream
+  cancel-in-progress: false
 
 jobs:
   check-upstream:
@@ -50,7 +67,31 @@ jobs:
           git fetch --depth 1 origin ${{ needs.check-upstream.outputs.new_commit }}
           git checkout FETCH_HEAD
 
-      - name: Tar source (preserves permissions and symlinks)
+      # Windows runners cannot create symlinks during extraction without
+      # Developer Mode or SeCreateSymbolicLinkPrivilege, so a tar that carries
+      # one aborts the whole Windows build ("tar: ./CLAUDE.md: Cannot create
+      # symlink to 'AGENTS.md'"). Upstream today ships exactly one symlink
+      # (CLAUDE.md -> AGENTS.md) and none of them are load-bearing for the
+      # build, so flatten them here — once, on Linux — rather than teaching
+      # each consumer a different extraction incantation.
+      - name: Flatten symlinks (Windows runners cannot extract them)
+        run: |
+          find ghostty-src -type l -print0 | while IFS= read -r -d '' link; do
+            if [ -f "$link" ]; then
+              target=$(readlink -f "$link")
+              rm "$link" && cp "$target" "$link"
+              echo "flattened file symlink: ${link#ghostty-src/}"
+            elif [ -d "$link" ]; then
+              target=$(readlink -f "$link")
+              rm "$link" && cp -R "$target" "$link"
+              echo "flattened directory symlink: ${link#ghostty-src/}"
+            else
+              rm "$link"
+              echo "::warning title=Dangling symlink::dropped ${link#ghostty-src/} (target does not exist upstream)"
+            fi
+          done
+
+      - name: Tar source (preserves permissions; symlinks already flattened)
         run: tar -cf ghostty-src.tar -C ghostty-src .
 
       - name: Upload source artifact
@@ -94,10 +135,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Version comes from the upstream commit's own build.zig.zon, so an
+      # upstream Zig bump no longer silently breaks every sync (issue #43).
       - name: Setup Zig
-        uses: mlugg/setup-zig@v2
+        uses: ./.github/actions/setup-zig
         with:
-          version: '0.15.2'
+          ghostty-ref: ${{ needs.check-upstream.outputs.new_commit }}
 
       - name: Download Ghostty source
         uses: actions/download-artifact@v8
@@ -182,13 +225,19 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write   # commit updated ghostty-upstream.json + create release
-      issues: write     # fallback "Create issue on failure" step
+      # No `issues: write` — failure reporting moved to the notify-failure
+      # job, which is the only one that also fires when build-native fails.
     env:
       # Secret gate: the publish / commit-update / release steps are skipped
       # when NUGET_API_KEY is absent. Earlier steps (build, test, pack) still
       # run so the daily workflow remains useful as a validation pipeline
       # while the final publishing destination is still being decided.
       NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+      # A manual `workflow_dispatch` with dry_run=true exercises the whole
+      # pipeline (build / test / pack) without publishing, moving the pin, or
+      # cutting a release — the only safe way to validate a workflow change on
+      # a repo where NUGET_API_KEY is set. Empty (falsy) on scheduled runs.
+      DRY_RUN: ${{ inputs.dry_run == true }}
     steps:
       - uses: actions/checkout@v4
 
@@ -262,7 +311,7 @@ jobs:
       - name: Publish to NuGet
         # dotnet nuget push automatically pushes the matching *.snupkg symbols
         # package from the same folder. --skip-duplicate makes retries safe.
-        if: env.NUGET_API_KEY != ''
+        if: env.NUGET_API_KEY != '' && env.DRY_RUN != 'true'
         run: |
           dotnet nuget push "artifacts/*.nupkg" \
             --api-key "$NUGET_API_KEY" \
@@ -276,8 +325,13 @@ jobs:
           echo "The daily workflow built + tested + packed successfully, but publishing is"
           echo "skipped until a destination is chosen and the corresponding secret is added."
 
+      - name: Skipped publish (dry run)
+        if: env.DRY_RUN == 'true'
+        run: |
+          echo "::notice title=Dry run::Publish, pin update and release were skipped (dry_run=true)."
+
       - name: Update ghostty-upstream.json
-        if: env.NUGET_API_KEY != ''
+        if: env.NUGET_API_KEY != '' && env.DRY_RUN != 'true'
         run: |
           cat > ghostty-upstream.json << EOF
           {
@@ -296,7 +350,7 @@ jobs:
           git push
 
       - name: Create GitHub Release
-        if: env.NUGET_API_KEY != ''
+        if: env.NUGET_API_KEY != '' && env.DRY_RUN != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -304,20 +358,65 @@ jobs:
             --title "v${{ steps.version.outputs.package_version }}" \
             --notes "Automated daily build from upstream ghostty-org/ghostty@${{ needs.check-upstream.outputs.new_commit }}"
 
-      - name: Create issue on failure
-        if: failure()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          SHORT="${{ needs.check-upstream.outputs.new_commit }}"
-          gh issue create \
-            --title "Upstream sync failed for ${SHORT:0:8}" \
-            --body "Daily upstream sync failed. Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."
-
+  # Failure reporting lives here, not inside `publish`.
+  #
+  # It used to be a `Create issue on failure` step inside `publish`, which
+  # meant it could only ever report a *publish* failure. For 57 consecutive
+  # nights `build-native` failed, `publish` was skipped, and that step never
+  # ran — which is why the outage in #43 produced zero issues. This job's
+  # `if: failure()` fires whenever any ancestor failed, `build-native`
+  # included, so the alert now covers the failure mode that actually happened.
+  #
+  # It also reports one issue for the *condition*, not one per upstream SHA.
+  # The old title embedded the commit, which changes daily, so once
+  # `build-native` started passing it would have filed a brand-new issue every
+  # single night with no dedupe. Search for the open tracker first and add a
+  # dated comment; only create one when there is none. Closing the tracker is
+  # how a maintainer says "handled" — if the condition recurs after that, a
+  # fresh issue is the right outcome.
   notify-failure:
     needs: [check-upstream, publish]
     if: failure()
     runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    env:
+      # A dry run must not write to the public tracker, or the input is not
+      # the non-mutating switch it advertises.
+      DRY_RUN: ${{ inputs.dry_run == true }}
     steps:
-      - name: Failure already handled
-        run: echo "Failure notification handled by publish job issue creation"
+      - name: Report sync failure
+        if: env.DRY_RUN != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # This job deliberately has no `actions/checkout` — it only talks to
+          # the API — so `gh` has no git remote to infer the repo from and
+          # would fail with "not a git repository". GH_REPO supplies it
+          # without cloning. (The old step worked only because it happened to
+          # sit inside `publish`, which checks out.)
+          GH_REPO: ${{ github.repository }}
+          COMMIT: ${{ needs.check-upstream.outputs.new_commit }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          TITLE: Daily upstream sync is failing
+        run: |
+          set -euo pipefail
+
+          EXISTING=$(gh issue list --state open --limit 100 --json number,title \
+            | jq -r --arg t "$TITLE" 'map(select(.title == $t)) | .[0].number // empty')
+
+          if [ -n "$EXISTING" ]; then
+            echo "::notice::Commenting on existing sync-failure issue #$EXISTING"
+            gh issue comment "$EXISTING" \
+              --body "Still failing, now for upstream \`${COMMIT}\` — [run](${RUN_URL})."
+          else
+            echo "::notice::Opening a new sync-failure issue"
+            gh issue create --title "$TITLE" --body \
+          "The daily upstream sync failed for upstream \`${COMMIT}\` — [run](${RUN_URL}).
+
+          Further failures are added as comments here rather than as new issues.
+          Close this once the sync is green again; if it breaks later, a fresh issue is opened."
+          fi
+
+      - name: Reporting skipped (dry run)
+        if: env.DRY_RUN == 'true'
+        run: echo "::notice title=Dry run::Sync failed, but issue reporting was skipped (dry_run=true)."
