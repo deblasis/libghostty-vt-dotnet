@@ -46,16 +46,37 @@ if [ "$traverse_count" -eq 0 ]; then
 fi
 echo "Traversing $traverse_count headers under $INCLUDE_ROOT"
 
+LOG=$(mktemp)
+trap 'rm -f "$TRAVERSE_RSP" "$LOG"' EXIT
+
+set +e
 if [ -n "$EXTRA_ARGS" ]; then
-  "$GENERATOR" @build/generate-bindings.rsp @"$EXTRA_ARGS" @"$TRAVERSE_RSP"
+  "$GENERATOR" @build/generate-bindings.rsp @"$EXTRA_ARGS" @"$TRAVERSE_RSP" 2>&1 | tee "$LOG"
 else
-  "$GENERATOR" @build/generate-bindings.rsp @"$TRAVERSE_RSP"
+  "$GENERATOR" @build/generate-bindings.rsp @"$TRAVERSE_RSP" 2>&1 | tee "$LOG"
+fi
+rc=${PIPESTATUS[0]}
+set -e
+
+# ClangSharp's exit code is its DIAGNOSTIC COUNT, not a success flag. A
+# perfectly good run over these headers still exits ~177, one per warning for
+# function-like macros (GHOSTTY_INIT_SIZED, GHOSTTY_COLOR_PALETTE_MASK_*) and
+# unsupported visibility attributes, none of which affect the bindings. So
+# `rc != 0` must not be read as failure — and, symmetrically, `rc == 0` must
+# not be read as success: before --traverse was passed the generator emitted
+# nothing at all and exited 0 precisely because it had produced no
+# diagnostics. Judge the output instead.
+warnings=$(grep -c 'Warning (Line' "$LOG" || true)
+errors=$(grep -c 'Error (Line' "$LOG" || true)
+fatals=$(grep -c 'fatal error:' "$LOG" || true)
+
+echo "Generator exit code $rc — $errors error(s), $fatals fatal(s), $warnings warning(s)"
+
+if [ "$errors" -gt 0 ] || [ "$fatals" -gt 0 ]; then
+  echo "::error::Generator reported $errors error(s) and $fatals fatal(s); bindings cannot be trusted" >&2
+  exit 1
 fi
 
-# The generator exits 0 when it emits nothing, so its exit code alone is not
-# evidence that it worked — the whole reason #46 went unnoticed for months was
-# a step that reported success while producing no bindings. Assert the output
-# actually contains a plausible P/Invoke surface.
 [ -f "$OUTPUT" ] || { echo "::error::generator produced no $OUTPUT" >&2; exit 1; }
 
 emitted=$(grep -cE '^\s*(\[DllImport|\[LibraryImport|public static extern|internal static extern)' "$OUTPUT" || true)
