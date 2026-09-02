@@ -19,10 +19,9 @@ jobs:
       # EntryPointNotFoundException for symbols upstream had since renamed.
       #
       # Detecting that drift is the daily sync's job, not per-PR CI's: the
-      # sync still resolves upstream HEAD, builds it and tests against it
-      # every night, so the main-vs-pin signal is not lost here. Note the
-      # sync's *dedicated* detector, regenerate-bindings, is currently dead
-      # (#46) — the nightly build+test is what carries this today.
+      # sync resolves upstream HEAD, builds it, tests against it, and (since
+      # #46) regenerates the bindings against it every night.
+      #
       # On `pull_request` — including from a fork — ghostty-upstream.json is
       # attacker-controlled, and a `${{ }}` expression is substituted
       # textually before bash parses the line. So validate here, once, before
@@ -69,6 +68,119 @@ jobs:
         with:
           name: libghostty-vt-linux-x64
           path: runtimes/linux-x64/native/libghostty-vt.so
+
+  # The strict half of the drift detection added in #46. Two gates:
+  #
+  #   1. the generator runs against the pinned headers and emits a real
+  #      P/Invoke surface — which keeps ClangSharp itself honest, so that if
+  #      it breaks again the way it had silently been broken for months, the
+  #      next PR goes red instead of reporting a cheerful green nothing;
+  #   2. every entry point the committed bindings declare still exists in
+  #      those headers.
+  #
+  # Note what is deliberately NOT here: a diff of the generated file against
+  # NativeMethods.cs. That comparison can never come back clean, because
+  # NativeMethods.cs is not generator output — it is a hand-maintained subset
+  # (97 of 183 exported functions) using LibraryImport and `internal`, while
+  # the generator emits DllImport, `public`, and everything it can see. The
+  # first successful generator run produced a 650-line diff that deleted the
+  # entire file. A check that can only ever fail is not a check, so gate 2
+  # asks the question that actually has a right answer: are the symbols we
+  # P/Invoke still there? That is precisely the failure that cost 20 test
+  # failures when the pin went stale.
+  bindings-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Same validation as build-native above, for the same reason: on a fork
+      # `pull_request` this file is attacker-controlled.
+      - name: Resolve and validate pinned upstream commit
+        id: pin
+        run: |
+          COMMIT=$(jq -r '.commit' ghostty-upstream.json)
+          if ! [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::ghostty-upstream.json .commit is not a 40-character SHA"
+            exit 1
+          fi
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+
+      # The rsp resolves headers relative to the working directory, so the
+      # source has to land in ./ghostty-src rather than /tmp.
+      - name: Clone Ghostty at pinned commit
+        env:
+          COMMIT: ${{ steps.pin.outputs.commit }}
+        run: |
+          git init ghostty-src
+          cd ghostty-src
+          git remote add origin https://github.com/ghostty-org/ghostty.git
+          git fetch --depth 1 origin "$COMMIT"
+          git checkout FETCH_HEAD
+
+      - name: Setup ClangSharp
+        id: clangsharp
+        uses: ./.github/actions/setup-clangsharp
+
+      # Gate 0 — test the gates themselves, with deliberately broken stub
+      # generators, before trusting anything they say below.
+      #
+      # These gates exist to fail, which makes a gate that has quietly become
+      # incapable of failing indistinguishable from one that is passing. That
+      # is #46 exactly, and the first fix for it reintroduced the same defect:
+      # the emitted-count check measured the checked-in file `actions/checkout`
+      # had left at the output path, so a generator that wrote nothing scored
+      # the hand-maintained bindings as its own output.
+      #
+      # Runs before the real regeneration, because it reads the committed
+      # NativeMethods.cs that the regeneration step deletes.
+      - name: Self-test the binding gates
+        run: bash build/selftest-binding-gates.sh ghostty-src/include/ghostty
+
+      # Gate 1 — the generator must run AND emit a real P/Invoke surface.
+      # Exit code alone is not evidence: it exits 0 while emitting nothing.
+      - name: Regenerate bindings from the pinned headers
+        run: bash build/generate-bindings.sh "${{ steps.clangsharp.outputs.generator }}" "${{ steps.clangsharp.outputs.extra-args-file }}"
+
+      # Gate 2 — the generated output must match the checked-in reference,
+      # byte for byte.
+      #
+      # Generator-output-vs-NativeMethods.cs can never be clean, but
+      # generated-vs-generated is apples to apples and is byte-stable in
+      # practice (verified SHA-256 identical across independent runs). This is
+      # the only gate that can see a SIGNATURE change: when
+      # ghostty_terminal_new lost its by-value options struct upstream the
+      # name was untouched, so the entry-point check below reports a clean
+      # 97/97 while the ABI silently corrupts. Here it is a one-line diff.
+      - name: Check generated output matches the checked-in reference
+        run: |
+          if diff -u build/bindings-reference/NativeMethods.pinned.cs                     src/Ghostty.Vt/Native/NativeMethods.cs > "$RUNNER_TEMP/reference.diff"; then
+            echo "::notice title=Bindings::Generated output is byte-identical to the checked-in reference."
+            exit 0
+          fi
+          echo "::error title=Binding reference drift::The bindings the generator produces from the pinned headers no longer match build/bindings-reference/NativeMethods.pinned.cs. If ghostty-upstream.json moved, refresh the reference in the same commit (download the 'regenerated-bindings-pinned' artifact from this run and copy it over the reference file). If the pin did not move, the generator or its toolchain changed and that needs explaining before it is accepted."
+          head -c 20000 "$RUNNER_TEMP/reference.diff"
+          exit 1
+
+      # Gate 3 — every entry point the committed bindings P/Invoke must still
+      # exist in the pinned headers. Read the committed file from git: the
+      # regeneration step has replaced the working copy. This catches
+      # removals; gate 2 catches signature changes. Neither subsumes the other.
+      - name: Check declared entry points still exist upstream
+        run: |
+          git show HEAD:src/Ghostty.Vt/Native/NativeMethods.cs > "$RUNNER_TEMP/committed-bindings.cs"
+          bash build/check-binding-symbols.sh "$RUNNER_TEMP/committed-bindings.cs" ghostty-src/include/ghostty
+
+      # Uploaded on success as well as failure: on failure it is what you
+      # copy over the reference, and on success it is a convenient artifact.
+      # `error` is now meaningful — the regeneration step deletes the output
+      # path first, so a missing file here means the generator wrote nothing.
+      - name: Upload regenerated bindings
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: regenerated-bindings-pinned
+          path: src/Ghostty.Vt/Native/NativeMethods.cs
+          if-no-files-found: ignore
 
   build-test:
     needs: build-native

@@ -1,0 +1,11 @@
+# Deliberately narrow: this repo had no .gitattributes, so only the files that
+# genuinely break under newline conversion are listed.
+
+# The pinned generator output is compared byte-for-byte against what
+# ClangSharp produces on the Linux CI runner. Any newline conversion on
+# checkout would make that diff fail for a reason that has nothing to do with
+# the bindings.
+build/bindings-reference/*.cs -text
+
+# Shell scripts run on Linux; a CRLF here breaks the shebang.
+*.sh text eol=lf
