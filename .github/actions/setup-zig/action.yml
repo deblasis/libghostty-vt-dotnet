@@ -60,12 +60,12 @@ runs:
           | head -1)
 
         if [ -z "$VERSION" ]; then
-          echo "::error::ghostty@${REF} build.zig.zon has no .minimum_zig_version; refusing to guess a toolchain"
+          echo "::error::ghostty@${GHOSTTY_REF} build.zig.zon has no .minimum_zig_version; refusing to guess a toolchain"
           exit 1
         fi
 
         echo "zig_version=$VERSION" >> "$GITHUB_OUTPUT"
-        echo "::notice title=Zig toolchain::ghostty@${REF} requires Zig $VERSION"
+        echo "::notice title=Zig toolchain::ghostty@${GHOSTTY_REF} requires Zig $VERSION"
 
     - name: Setup Zig
       uses: mlugg/setup-zig@v2
