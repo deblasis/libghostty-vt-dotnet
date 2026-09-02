@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: '30 3 * * *'
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Build, test and pack only — do not publish, move the pin, or cut a release'
+        type: boolean
+        default: false
 
 jobs:
   check-upstream:
@@ -50,7 +55,31 @@ jobs:
           git fetch --depth 1 origin ${{ needs.check-upstream.outputs.new_commit }}
           git checkout FETCH_HEAD
 
-      - name: Tar source (preserves permissions and symlinks)
+      # Windows runners cannot create symlinks during extraction without
+      # Developer Mode or SeCreateSymbolicLinkPrivilege, so a tar that carries
+      # one aborts the whole Windows build ("tar: ./CLAUDE.md: Cannot create
+      # symlink to 'AGENTS.md'"). Upstream today ships exactly one symlink
+      # (CLAUDE.md -> AGENTS.md) and none of them are load-bearing for the
+      # build, so flatten them here — once, on Linux — rather than teaching
+      # each consumer a different extraction incantation.
+      - name: Flatten symlinks (Windows runners cannot extract them)
+        run: |
+          find ghostty-src -type l -print0 | while IFS= read -r -d '' link; do
+            if [ -f "$link" ]; then
+              target=$(readlink -f "$link")
+              rm "$link" && cp "$target" "$link"
+              echo "flattened file symlink: ${link#ghostty-src/}"
+            elif [ -d "$link" ]; then
+              target=$(readlink -f "$link")
+              rm "$link" && cp -R "$target" "$link"
+              echo "flattened directory symlink: ${link#ghostty-src/}"
+            else
+              rm "$link"
+              echo "::warning title=Dangling symlink::dropped ${link#ghostty-src/} (target does not exist upstream)"
+            fi
+          done
+
+      - name: Tar source (preserves permissions; symlinks already flattened)
         run: tar -cf ghostty-src.tar -C ghostty-src .
 
       - name: Upload source artifact
@@ -94,10 +123,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Version comes from the upstream commit's own build.zig.zon, so an
+      # upstream Zig bump no longer silently breaks every sync (issue #43).
       - name: Setup Zig
-        uses: mlugg/setup-zig@v2
+        uses: ./.github/actions/setup-zig
         with:
-          version: '0.15.2'
+          ghostty-ref: ${{ needs.check-upstream.outputs.new_commit }}
 
       - name: Download Ghostty source
         uses: actions/download-artifact@v8
@@ -189,6 +220,11 @@ jobs:
       # run so the daily workflow remains useful as a validation pipeline
       # while the final publishing destination is still being decided.
       NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+      # A manual `workflow_dispatch` with dry_run=true exercises the whole
+      # pipeline (build / test / pack) without publishing, moving the pin, or
+      # cutting a release — the only safe way to validate a workflow change on
+      # a repo where NUGET_API_KEY is set. Empty (falsy) on scheduled runs.
+      DRY_RUN: ${{ inputs.dry_run == true }}
     steps:
       - uses: actions/checkout@v4
 
@@ -262,7 +298,7 @@ jobs:
       - name: Publish to NuGet
         # dotnet nuget push automatically pushes the matching *.snupkg symbols
         # package from the same folder. --skip-duplicate makes retries safe.
-        if: env.NUGET_API_KEY != ''
+        if: env.NUGET_API_KEY != '' && env.DRY_RUN != 'true'
         run: |
           dotnet nuget push "artifacts/*.nupkg" \
             --api-key "$NUGET_API_KEY" \
@@ -276,8 +312,13 @@ jobs:
           echo "The daily workflow built + tested + packed successfully, but publishing is"
           echo "skipped until a destination is chosen and the corresponding secret is added."
 
+      - name: Skipped publish (dry run)
+        if: env.DRY_RUN == 'true'
+        run: |
+          echo "::notice title=Dry run::Publish, pin update and release were skipped (dry_run=true)."
+
       - name: Update ghostty-upstream.json
-        if: env.NUGET_API_KEY != ''
+        if: env.NUGET_API_KEY != '' && env.DRY_RUN != 'true'
         run: |
           cat > ghostty-upstream.json << EOF
           {
@@ -296,7 +337,7 @@ jobs:
           git push
 
       - name: Create GitHub Release
-        if: env.NUGET_API_KEY != ''
+        if: env.NUGET_API_KEY != '' && env.DRY_RUN != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

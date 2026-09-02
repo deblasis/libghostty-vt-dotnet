@@ -1,0 +1,55 @@
+name: Setup Zig for Ghostty
+description: >
+  Installs the Zig toolchain that a given ghostty commit declares it needs,
+  read from `.minimum_zig_version` in that commit's build.zig.zon, instead of
+  a version hardcoded in the workflow. Upstream bumps its minimum Zig from
+  time to time; a hardcoded pin turns every such bump into a silent, total
+  build failure (see issue #43, which froze the upstream pin for 57 days).
+
+inputs:
+  ghostty-ref:
+    description: >
+      Ghostty git ref whose build.zig.zon declares the required Zig version.
+      Pass the exact commit SHA the job is going to build wherever one is
+      available, so the toolchain and the source always agree.
+    required: true
+
+outputs:
+  zig-version:
+    description: The Zig version that was resolved and installed.
+    value: ${{ steps.resolve.outputs.zig_version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve required Zig version from upstream build.zig.zon
+      id: resolve
+      shell: bash
+      run: |
+        set -euo pipefail
+        REF='${{ inputs.ghostty-ref }}'
+        URL="https://raw.githubusercontent.com/ghostty-org/ghostty/${REF}/build.zig.zon"
+
+        if ! ZON=$(curl -sSfL "$URL"); then
+          echo "::error::Could not fetch $URL"
+          exit 1
+        fi
+
+        # Deliberately sed, not `grep -oP`: this action also runs on the macOS
+        # and Windows runners, whose grep has no -P.
+        VERSION=$(printf '%s\n' "$ZON" \
+          | sed -n 's/.*\.minimum_zig_version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' \
+          | head -1)
+
+        if [ -z "$VERSION" ]; then
+          echo "::error::ghostty@${REF} build.zig.zon has no .minimum_zig_version; refusing to guess a toolchain"
+          exit 1
+        fi
+
+        echo "zig_version=$VERSION" >> "$GITHUB_OUTPUT"
+        echo "::notice title=Zig toolchain::ghostty@${REF} requires Zig $VERSION"
+
+    - name: Setup Zig
+      uses: mlugg/setup-zig@v2
+      with:
+        version: ${{ steps.resolve.outputs.zig_version }}

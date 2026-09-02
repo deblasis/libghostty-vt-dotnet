@@ -12,10 +12,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # This job builds ghostty `main` (below), so the toolchain is derived
+      # from `main` too. Hardcoding it here made CI red the moment upstream
+      # raised its minimum Zig (issue #43).
       - name: Setup Zig
-        uses: mlugg/setup-zig@v2
+        uses: ./.github/actions/setup-zig
         with:
-          version: '0.15.2'
+          ghostty-ref: main
 
       - name: Clone Ghostty upstream
         run: |
