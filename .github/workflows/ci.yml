@@ -69,17 +69,25 @@ jobs:
           name: libghostty-vt-linux-x64
           path: runtimes/linux-x64/native/libghostty-vt.so
 
-  # The strict half of the drift detection added in #46.
+  # The strict half of the drift detection added in #46. Two gates:
   #
-  # daily-upstream regenerates against the NEW upstream commit and reports a
-  # difference, because a difference there is expected news. This job
-  # regenerates against the commit this repo is actually pinned to, where the
-  # committed NativeMethods.cs is supposed to already match — so any
-  # difference is a real defect and fails the build. That is the "no drift"
-  # baseline, and it is also what keeps the generator itself honest: if
-  # ClangSharp stops working again the way it had silently stopped working
-  # for months (#46), this job goes red on the very next PR instead of
-  # reporting a cheerful green nothing.
+  #   1. the generator runs against the pinned headers and emits a real
+  #      P/Invoke surface — which keeps ClangSharp itself honest, so that if
+  #      it breaks again the way it had silently been broken for months, the
+  #      next PR goes red instead of reporting a cheerful green nothing;
+  #   2. every entry point the committed bindings declare still exists in
+  #      those headers.
+  #
+  # Note what is deliberately NOT here: a diff of the generated file against
+  # NativeMethods.cs. That comparison can never come back clean, because
+  # NativeMethods.cs is not generator output — it is a hand-maintained subset
+  # (97 of 183 exported functions) using LibraryImport and `internal`, while
+  # the generator emits DllImport, `public`, and everything it can see. The
+  # first successful generator run produced a 650-line diff that deleted the
+  # entire file. A check that can only ever fail is not a check, so gate 2
+  # asks the question that actually has a right answer: are the symbols we
+  # P/Invoke still there? That is precisely the failure that cost 20 test
+  # failures when the pin went stale.
   bindings-drift:
     runs-on: ubuntu-latest
     steps:
@@ -113,30 +121,28 @@ jobs:
         id: clangsharp
         uses: ./.github/actions/setup-clangsharp
 
+      # Gate 1 — the generator must run AND emit a real P/Invoke surface.
+      # Exit code alone is not evidence: it exits 0 while emitting nothing.
       - name: Regenerate bindings from the pinned headers
-        run: ${{ steps.clangsharp.outputs.generator }} @build/generate-bindings.rsp @${{ steps.clangsharp.outputs.extra-args-file }}
+        run: bash build/generate-bindings.sh "${{ steps.clangsharp.outputs.generator }}" "${{ steps.clangsharp.outputs.extra-args-file }}"
 
-      - name: Fail on drift from the committed bindings
-        id: drift
+      # Gate 2 — every entry point the committed bindings P/Invoke must still
+      # exist in the pinned headers. Read the committed file from git: the
+      # step above has just overwritten the working copy.
+      - name: Check declared entry points still exist upstream
         run: |
-          if git diff --quiet src/Ghostty.Vt/Native/NativeMethods.cs; then
-            echo "::notice title=Bindings::No drift — regenerated bindings match the committed NativeMethods.cs."
-            exit 0
-          fi
-          echo "::error title=Binding drift::src/Ghostty.Vt/Native/NativeMethods.cs does not match what the generator produces from the pinned ghostty headers. Regenerate it with build/generate-bindings.rsp and commit the result, or update the pin and the bindings together."
-          git --no-pager diff --stat src/Ghostty.Vt/Native/NativeMethods.cs
-          git --no-pager diff -- src/Ghostty.Vt/Native/NativeMethods.cs | head -200
-          exit 1
+          git show HEAD:src/Ghostty.Vt/Native/NativeMethods.cs > "$RUNNER_TEMP/committed-bindings.cs"
+          bash build/check-binding-symbols.sh "$RUNNER_TEMP/committed-bindings.cs" ghostty-src/include/ghostty
 
-      # Only when the drift step itself failed — otherwise an earlier failure
-      # (a broken generator, say) would upload the untouched committed file
-      # under a name that claims it was regenerated.
+      # Kept as a reference for whoever lands an upstream bump, on success as
+      # well as failure. It is NOT a diff target — see the job comment.
       - name: Upload regenerated bindings
-        if: failure() && steps.drift.conclusion == 'failure'
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: regenerated-bindings-pinned
           path: src/Ghostty.Vt/Native/NativeMethods.cs
+          if-no-files-found: ignore
 
   build-test:
     needs: build-native
