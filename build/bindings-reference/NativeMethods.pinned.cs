@@ -10,10 +10,17 @@ namespace Ghostty.Vt.Native
         GHOSTTY_INVALID_VALUE = -2,
         GHOSTTY_OUT_OF_SPACE = -3,
         GHOSTTY_NO_VALUE = -4,
+        GHOSTTY_IO_ERROR = -5,
+        GHOSTTY_LIMIT_EXCEEDED = -6,
+        GHOSTTY_REJECTED = -7,
         GHOSTTY_RESULT_MAX_VALUE = 2147483647,
     }
 
     public partial struct GhosttyTerminalImpl
+    {
+    }
+
+    public partial struct GhosttySnapshotDecoderImpl
     {
     }
 
@@ -42,6 +49,10 @@ namespace Ghostty.Vt.Native
     }
 
     public partial struct GhosttyRenderStateRowCellsImpl
+    {
+    }
+
+    public partial struct GhosttySearchImpl
     {
     }
 
@@ -248,6 +259,39 @@ namespace Ghostty.Vt.Native
         GHOSTTY_FOCUS_GAINED = 0,
         GHOSTTY_FOCUS_LOST = 1,
         GHOSTTY_FOCUS_MAX_VALUE = 2147483647,
+    }
+
+    public unsafe partial struct GhosttyReader
+    {
+        [NativeTypeName("GhosttyReaderFn")]
+        public delegate* unmanaged[Cdecl]<void*, byte*, nuint, nuint*, byte> read;
+
+        public void* userdata;
+    }
+
+    public unsafe partial struct GhosttyWriter
+    {
+        [NativeTypeName("GhosttyWriterFn")]
+        public delegate* unmanaged[Cdecl]<void*, byte*, nuint, byte> write;
+
+        public void* userdata;
+    }
+
+    public unsafe partial struct GhosttyMimeReader
+    {
+        [NativeTypeName("GhosttyMimeReaderFn")]
+        public delegate* unmanaged[Cdecl]<void*, GhosttyString, GhosttyWriter, byte> read;
+
+        public void* userdata;
+    }
+
+    public unsafe partial struct GhosttyCellsView
+    {
+        [NativeTypeName("const GhosttyCell *")]
+        public nuint* ptr;
+
+        [NativeTypeName("size_t")]
+        public nuint len;
     }
 
     [NativeTypeName("unsigned int")]
@@ -466,6 +510,17 @@ namespace Ghostty.Vt.Native
 
         [NativeTypeName("_Bool")]
         public byte rectangle;
+    }
+
+    public unsafe partial struct GhosttySelectionBuffer
+    {
+        public GhosttySelection* ptr;
+
+        [NativeTypeName("size_t")]
+        public nuint cap;
+
+        [NativeTypeName("size_t")]
+        public nuint len;
     }
 
     public unsafe partial struct GhosttyTerminalSelectWordOptions
@@ -794,16 +849,21 @@ namespace Ghostty.Vt.Native
         public uint source_height;
     }
 
-    public partial struct GhosttyTerminalOptions
+    [NativeTypeName("unsigned int")]
+    public enum GhosttyTerminalCompressionMode : uint
     {
-        [NativeTypeName("uint16_t")]
-        public ushort cols;
+        GHOSTTY_TERMINAL_COMPRESSION_MODE_INCREMENTAL = 0,
+        GHOSTTY_TERMINAL_COMPRESSION_MODE_FULL = 1,
+        GHOSTTY_TERMINAL_COMPRESSION_MODE_MAX_VALUE = 2147483647,
+    }
 
-        [NativeTypeName("uint16_t")]
-        public ushort rows;
-
-        [NativeTypeName("size_t")]
-        public nuint max_scrollback;
+    [NativeTypeName("unsigned int")]
+    public enum GhosttyTerminalCompressionResult : uint
+    {
+        GHOSTTY_TERMINAL_COMPRESSION_RESULT_UNSUPPORTED = 0,
+        GHOSTTY_TERMINAL_COMPRESSION_RESULT_PENDING = 1,
+        GHOSTTY_TERMINAL_COMPRESSION_RESULT_COMPLETE = 2,
+        GHOSTTY_TERMINAL_COMPRESSION_RESULT_MAX_VALUE = 2147483647,
     }
 
     [NativeTypeName("unsigned int")]
@@ -876,6 +936,218 @@ namespace Ghostty.Vt.Native
     }
 
     [NativeTypeName("unsigned int")]
+    public enum GhosttyTerminalUnknownSequenceTag : uint
+    {
+        GHOSTTY_TERMINAL_UNKNOWN_SEQUENCE_APC = 0,
+        GHOSTTY_TERMINAL_UNKNOWN_SEQUENCE_MAX_VALUE = 2147483647,
+    }
+
+    public partial struct GhosttyTerminalUnknownStringSequence
+    {
+        [NativeTypeName("_Bool")]
+        public byte truncated;
+
+        public GhosttyString content;
+    }
+
+    [StructLayout(LayoutKind.Explicit)]
+    public partial struct GhosttyTerminalUnknownSequenceValue
+    {
+        [FieldOffset(0)]
+        public GhosttyTerminalUnknownStringSequence apc;
+
+        [FieldOffset(0)]
+        [NativeTypeName("uint64_t[16]")]
+        public __padding_e__FixedBuffer _padding;
+
+        [InlineArray(16)]
+        public partial struct __padding_e__FixedBuffer
+        {
+            public nuint e0;
+        }
+    }
+
+    public partial struct GhosttyTerminalUnknownSequence
+    {
+        public GhosttyTerminalUnknownSequenceTag tag;
+
+        public GhosttyTerminalUnknownSequenceValue value;
+    }
+
+    [NativeTypeName("unsigned int")]
+    public enum GhosttyClipboardLocation : uint
+    {
+        GHOSTTY_CLIPBOARD_LOCATION_STANDARD = 0,
+        GHOSTTY_CLIPBOARD_LOCATION_SELECTION = 1,
+        GHOSTTY_CLIPBOARD_LOCATION_PRIMARY = 2,
+        GHOSTTY_CLIPBOARD_LOCATION_MAX_VALUE = 2147483647,
+    }
+
+    public partial struct GhosttyClipboardContent
+    {
+        public GhosttyString mime;
+
+        public GhosttyString data;
+    }
+
+    [NativeTypeName("unsigned int")]
+    public enum GhosttyClipboardWriteResult : uint
+    {
+        GHOSTTY_CLIPBOARD_WRITE_RESULT_SUCCESS = 0,
+        GHOSTTY_CLIPBOARD_WRITE_RESULT_DENIED = 1,
+        GHOSTTY_CLIPBOARD_WRITE_RESULT_UNSUPPORTED = 2,
+        GHOSTTY_CLIPBOARD_WRITE_RESULT_BUSY = 3,
+        GHOSTTY_CLIPBOARD_WRITE_RESULT_INVALID_DATA = 4,
+        GHOSTTY_CLIPBOARD_WRITE_RESULT_IO_ERROR = 5,
+        GHOSTTY_CLIPBOARD_WRITE_RESULT_MAX_VALUE = 2147483647,
+    }
+
+    public partial struct GhosttyClipboardWriteReply
+    {
+        [NativeTypeName("size_t")]
+        public nuint size;
+
+        public GhosttyClipboardWriteResult result;
+
+        [NativeTypeName("_Bool")]
+        public byte remember;
+    }
+
+    public unsafe partial struct GhosttyClipboardWrite
+    {
+        [NativeTypeName("size_t")]
+        public nuint size;
+
+        public GhosttyClipboardLocation location;
+
+        [NativeTypeName("const GhosttyClipboardContent *")]
+        public GhosttyClipboardContent* contents;
+
+        [NativeTypeName("size_t")]
+        public nuint contents_len;
+
+        public GhosttyString name;
+
+        [NativeTypeName("_Bool")]
+        public byte granted;
+
+        [NativeTypeName("_Bool")]
+        public byte can_remember;
+
+        [NativeTypeName("const void *")]
+        public void* ctx;
+
+        [NativeTypeName("GhosttyClipboardWriteReplyFn")]
+        public delegate* unmanaged[Cdecl]<GhosttyClipboardWrite*, GhosttyClipboardWriteReply*, void> reply;
+    }
+
+    [NativeTypeName("unsigned int")]
+    public enum GhosttyClipboardReadResult : uint
+    {
+        GHOSTTY_CLIPBOARD_READ_RESULT_SUCCESS = 0,
+        GHOSTTY_CLIPBOARD_READ_RESULT_DENIED = 1,
+        GHOSTTY_CLIPBOARD_READ_RESULT_UNSUPPORTED = 2,
+        GHOSTTY_CLIPBOARD_READ_RESULT_BUSY = 3,
+        GHOSTTY_CLIPBOARD_READ_RESULT_IO_ERROR = 4,
+        GHOSTTY_CLIPBOARD_READ_RESULT_MAX_VALUE = 2147483647,
+    }
+
+    public unsafe partial struct GhosttyClipboardReadReply
+    {
+        [NativeTypeName("size_t")]
+        public nuint size;
+
+        public GhosttyClipboardReadResult result;
+
+        [NativeTypeName("const GhosttyClipboardContent *")]
+        public GhosttyClipboardContent* contents;
+
+        [NativeTypeName("size_t")]
+        public nuint contents_len;
+
+        [NativeTypeName("const GhosttyString *")]
+        public GhosttyString* available;
+
+        [NativeTypeName("size_t")]
+        public nuint available_len;
+
+        [NativeTypeName("_Bool")]
+        public byte remember;
+    }
+
+    public unsafe partial struct GhosttyClipboardRead
+    {
+        [NativeTypeName("size_t")]
+        public nuint size;
+
+        public GhosttyClipboardLocation location;
+
+        [NativeTypeName("const GhosttyString *")]
+        public GhosttyString* mimes;
+
+        [NativeTypeName("size_t")]
+        public nuint mimes_len;
+
+        [NativeTypeName("_Bool")]
+        public byte list;
+
+        public GhosttyString name;
+
+        [NativeTypeName("_Bool")]
+        public byte granted;
+
+        [NativeTypeName("_Bool")]
+        public byte can_remember;
+
+        [NativeTypeName("const void *")]
+        public void* ctx;
+
+        [NativeTypeName("GhosttyClipboardReadReplyFn")]
+        public delegate* unmanaged[Cdecl]<GhosttyClipboardRead*, GhosttyClipboardReadReply*, void> reply;
+    }
+
+    public partial struct GhosttyTerminalDesktopNotification
+    {
+        [NativeTypeName("size_t")]
+        public nuint size;
+
+        public GhosttyString title;
+
+        public GhosttyString body;
+    }
+
+    [NativeTypeName("unsigned int")]
+    public enum GhosttyTerminalProgressState : uint
+    {
+        GHOSTTY_TERMINAL_PROGRESS_STATE_REMOVE = 0,
+        GHOSTTY_TERMINAL_PROGRESS_STATE_SET = 1,
+        GHOSTTY_TERMINAL_PROGRESS_STATE_ERROR = 2,
+        GHOSTTY_TERMINAL_PROGRESS_STATE_INDETERMINATE = 3,
+        GHOSTTY_TERMINAL_PROGRESS_STATE_PAUSE = 4,
+        GHOSTTY_TERMINAL_PROGRESS_STATE_MAX_VALUE = 2147483647,
+    }
+
+    public partial struct GhosttyTerminalProgressReport
+    {
+        [NativeTypeName("size_t")]
+        public nuint size;
+
+        public GhosttyTerminalProgressState state;
+
+        [NativeTypeName("int8_t")]
+        public sbyte progress;
+    }
+
+    public partial struct GhosttyTerminalModeConfig
+    {
+        [NativeTypeName("GhosttyMode")]
+        public ushort mode;
+
+        [NativeTypeName("_Bool")]
+        public byte value;
+    }
+
+    [NativeTypeName("unsigned int")]
     public enum GhosttyTerminalOption : uint
     {
         GHOSTTY_TERMINAL_OPT_USERDATA = 0,
@@ -904,6 +1176,20 @@ namespace Ghostty.Vt.Native
         GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_BLINK = 23,
         GHOSTTY_TERMINAL_OPT_GLYPH_PROTOCOL = 24,
         GHOSTTY_TERMINAL_OPT_PWD_CHANGED = 25,
+        GHOSTTY_TERMINAL_OPT_CLIPBOARD_WRITE = 26,
+        GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES = 27,
+        GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_LINES = 28,
+        GHOSTTY_TERMINAL_OPT_DESKTOP_NOTIFICATION = 29,
+        GHOSTTY_TERMINAL_OPT_PROGRESS_REPORT = 30,
+        GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES = 31,
+        GHOSTTY_TERMINAL_OPT_TITLE_REPORT = 32,
+        GHOSTTY_TERMINAL_OPT_MODE_DEFAULT = 33,
+        GHOSTTY_TERMINAL_OPT_MODE = 34,
+        GHOSTTY_TERMINAL_OPT_UNKNOWN_SEQUENCE = 35,
+        GHOSTTY_TERMINAL_OPT_UNKNOWN_MAX_BYTES = 36,
+        GHOSTTY_TERMINAL_OPT_TERMINFO_NAME = 37,
+        GHOSTTY_TERMINAL_OPT_CLIPBOARD_READ = 38,
+        GHOSTTY_TERMINAL_OPT_CLIPBOARD_WRITE_MAX_BYTES = 39,
         GHOSTTY_TERMINAL_OPT_MAX_VALUE = 2147483647,
     }
 
@@ -943,6 +1229,14 @@ namespace Ghostty.Vt.Native
         GHOSTTY_TERMINAL_DATA_KITTY_GRAPHICS = 30,
         GHOSTTY_TERMINAL_DATA_SELECTION = 31,
         GHOSTTY_TERMINAL_DATA_VIEWPORT_ACTIVE = 32,
+        GHOSTTY_TERMINAL_DATA_VT_PROCESSING_ERROR = 33,
+        GHOSTTY_TERMINAL_DATA_SCROLLBACK_MAX_BYTES = 34,
+        GHOSTTY_TERMINAL_DATA_SCROLLBACK_MAX_LINES = 35,
+        GHOSTTY_TERMINAL_DATA_CONTINUATION_MAX_BYTES = 36,
+        GHOSTTY_TERMINAL_DATA_MODE = 37,
+        GHOSTTY_TERMINAL_DATA_VT_GROUND = 38,
+        GHOSTTY_TERMINAL_DATA_CURSOR_AT_PROMPT = 39,
+        GHOSTTY_TERMINAL_DATA_CLIPBOARD_WRITE_MAX_BYTES = 40,
         GHOSTTY_TERMINAL_DATA_MAX_VALUE = 2147483647,
     }
 
@@ -1055,6 +1349,8 @@ namespace Ghostty.Vt.Native
         GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_X = 15,
         GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_Y = 16,
         GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_WIDE_TAIL = 17,
+        GHOSTTY_RENDER_STATE_DATA_CURSOR = 18,
+        GHOSTTY_RENDER_STATE_DATA_COLORS = 19,
         GHOSTTY_RENDER_STATE_DATA_MAX_VALUE = 2147483647,
     }
 
@@ -1073,6 +1369,7 @@ namespace Ghostty.Vt.Native
         GHOSTTY_RENDER_STATE_ROW_DATA_RAW = 2,
         GHOSTTY_RENDER_STATE_ROW_DATA_CELLS = 3,
         GHOSTTY_RENDER_STATE_ROW_DATA_SELECTION = 4,
+        GHOSTTY_RENDER_STATE_ROW_DATA_CELLS_RAW = 5,
         GHOSTTY_RENDER_STATE_ROW_DATA_MAX_VALUE = 2147483647,
     }
 
@@ -1093,6 +1390,35 @@ namespace Ghostty.Vt.Native
 
         [NativeTypeName("uint16_t")]
         public ushort end_x;
+    }
+
+    public partial struct GhosttyRenderStateCursor
+    {
+        [NativeTypeName("size_t")]
+        public nuint size;
+
+        [NativeTypeName("_Bool")]
+        public byte viewport_has_value;
+
+        [NativeTypeName("uint16_t")]
+        public ushort viewport_x;
+
+        [NativeTypeName("uint16_t")]
+        public ushort viewport_y;
+
+        [NativeTypeName("_Bool")]
+        public byte wide_tail;
+
+        [NativeTypeName("_Bool")]
+        public byte visible;
+
+        [NativeTypeName("_Bool")]
+        public byte blinking;
+
+        [NativeTypeName("_Bool")]
+        public byte password_input;
+
+        public GhosttyRenderStateCursorVisualStyle visual_style;
     }
 
     public partial struct GhosttyRenderStateColors
@@ -1161,6 +1487,10 @@ namespace Ghostty.Vt.Native
         GHOSTTY_OSC_COMMAND_CONEMU_XTERM_EMULATION = 20,
         GHOSTTY_OSC_COMMAND_CONEMU_COMMENT = 21,
         GHOSTTY_OSC_COMMAND_KITTY_TEXT_SIZING = 22,
+        GHOSTTY_OSC_COMMAND_KITTY_CLIPBOARD_PROTOCOL = 23,
+        GHOSTTY_OSC_COMMAND_KITTY_DND_PROTOCOL = 24,
+        GHOSTTY_OSC_COMMAND_CONTEXT_SIGNAL = 25,
+        GHOSTTY_OSC_COMMAND_KITTY_DESKTOP_NOTIFICATION = 26,
         GHOSTTY_OSC_COMMAND_TYPE_MAX_VALUE = 2147483647,
     }
 
@@ -1331,6 +1661,7 @@ namespace Ghostty.Vt.Native
         GHOSTTY_SYS_OPT_USERDATA = 0,
         GHOSTTY_SYS_OPT_DECODE_PNG = 1,
         GHOSTTY_SYS_OPT_LOG = 2,
+        GHOSTTY_SYS_OPT_RANDOM_SECURE = 3,
         GHOSTTY_SYS_OPT_MAX_VALUE = 2147483647,
     }
 
@@ -1661,6 +1992,99 @@ namespace Ghostty.Vt.Native
         GHOSTTY_MOUSE_ENCODER_OPT_TRACK_LAST_CELL = 4,
         GHOSTTY_MOUSE_ENCODER_OPT_MAX_VALUE = 2147483647,
     }
+
+    [NativeTypeName("unsigned int")]
+    public enum GhosttyPasteSource : uint
+    {
+        GHOSTTY_PASTE_SOURCE_CLIPBOARD = 0,
+        GHOSTTY_PASTE_SOURCE_TEXT = 1,
+        GHOSTTY_PASTE_SOURCE_MAX_VALUE = 2147483647,
+    }
+
+    public unsafe partial struct GhosttyPaste
+    {
+        [NativeTypeName("size_t")]
+        public nuint size;
+
+        public GhosttyClipboardLocation location;
+
+        public GhosttyPasteSource source;
+
+        [NativeTypeName("const GhosttyString *")]
+        public GhosttyString* mimes;
+
+        [NativeTypeName("size_t")]
+        public nuint mimes_len;
+
+        public GhosttyMimeReader reader;
+
+        [NativeTypeName("_Bool")]
+        public byte allow_unsafe;
+    }
+
+    [NativeTypeName("unsigned int")]
+    public enum GhosttySearchStatus : uint
+    {
+        GHOSTTY_SEARCH_STATUS_RUNNING = 0,
+        GHOSTTY_SEARCH_STATUS_FEED_REQUIRED = 1,
+        GHOSTTY_SEARCH_STATUS_COMPLETE = 2,
+        GHOSTTY_SEARCH_STATUS_MAX_VALUE = 2147483647,
+    }
+
+    [NativeTypeName("unsigned int")]
+    public enum GhosttySearchScroll : uint
+    {
+        GHOSTTY_SEARCH_SCROLL_IF_NEEDED = 0,
+        GHOSTTY_SEARCH_SCROLL_NONE = 1,
+        GHOSTTY_SEARCH_SCROLL_MAX_VALUE = 2147483647,
+    }
+
+    [NativeTypeName("unsigned int")]
+    public enum GhosttySearchData : uint
+    {
+        GHOSTTY_SEARCH_DATA_STATUS = 0,
+        GHOSTTY_SEARCH_DATA_NEEDLE = 1,
+        GHOSTTY_SEARCH_DATA_TOTAL_MATCHES = 2,
+        GHOSTTY_SEARCH_DATA_SELECTED_INDEX = 3,
+        GHOSTTY_SEARCH_DATA_SELECTED_MATCH = 4,
+        GHOSTTY_SEARCH_DATA_MATCHES = 5,
+        GHOSTTY_SEARCH_DATA_VIEWPORT_MATCHES = 6,
+        GHOSTTY_SEARCH_DATA_SELECT_SCROLL = 7,
+        GHOSTTY_SEARCH_DATA_MAX_VALUE = 2147483647,
+    }
+
+    [NativeTypeName("unsigned int")]
+    public enum GhosttySearchOption : uint
+    {
+        GHOSTTY_SEARCH_OPT_NEEDLE = 0,
+        GHOSTTY_SEARCH_OPT_SELECT_NEXT = 1,
+        GHOSTTY_SEARCH_OPT_SELECT_PREV = 2,
+        GHOSTTY_SEARCH_OPT_SELECT_SCROLL = 3,
+        GHOSTTY_SEARCH_OPT_MAX_VALUE = 2147483647,
+    }
+
+    [NativeTypeName("unsigned int")]
+    public enum GhosttySnapshotDecoderOption : uint
+    {
+        GHOSTTY_SNAPSHOT_DECODER_OPT_MAX_CONTINUATION_BYTES = 0,
+        GHOSTTY_SNAPSHOT_DECODER_OPT_RETAIN_CONTINUATION = 1,
+        GHOSTTY_SNAPSHOT_DECODER_OPT_MAX_VALUE = 2147483647,
+    }
+
+    [NativeTypeName("unsigned int")]
+    public enum GhosttySnapshotDecoderData : uint
+    {
+        GHOSTTY_SNAPSHOT_DECODER_DATA_INVALID = 0,
+        GHOSTTY_SNAPSHOT_DECODER_DATA_MAX_CONTINUATION_BYTES = 1,
+        GHOSTTY_SNAPSHOT_DECODER_DATA_SOURCE_OFFSET = 2,
+        GHOSTTY_SNAPSHOT_DECODER_DATA_HISTORY_ROWS_PRIMARY = 3,
+        GHOSTTY_SNAPSHOT_DECODER_DATA_HISTORY_ROWS_ALTERNATE = 4,
+        GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_SCREEN = 5,
+        GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_ROWS = 6,
+        GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_REMAINING = 7,
+        GHOSTTY_SNAPSHOT_DECODER_DATA_RETAIN_CONTINUATION = 8,
+        GHOSTTY_SNAPSHOT_DECODER_DATA_MAX_VALUE = 2147483647,
+    }
 using System;
 using System.Diagnostics;
 
@@ -1725,7 +2149,7 @@ namespace Ghostty.Vt.Native
         public static extern GhosttyResult ghostty_build_info(GhosttyBuildInfo data, void* @out);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        public static extern void ghostty_color_rgb_get(GhosttyColorRgb color, [NativeTypeName("uint8_t *")] byte* r, [NativeTypeName("uint8_t *")] byte* g, [NativeTypeName("uint8_t *")] byte* b);
+        public static extern void ghostty_color_rgb_get([NativeTypeName("const GhosttyColorRgb *")] GhosttyColorRgb* color, [NativeTypeName("uint8_t *")] byte* r, [NativeTypeName("uint8_t *")] byte* g, [NativeTypeName("uint8_t *")] byte* b);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         public static extern GhosttyResult ghostty_color_parse_x11([NativeTypeName("const char *")] sbyte* name, [NativeTypeName("size_t")] nuint len, GhosttyColorRgb* @out);
@@ -1740,16 +2164,16 @@ namespace Ghostty.Vt.Native
         public static extern void ghostty_color_palette_default(GhosttyColorRgb* @out);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        public static extern void ghostty_color_palette_generate([NativeTypeName("const GhosttyColorRgb *")] GhosttyColorRgb* @base, [NativeTypeName("const GhosttyColorPaletteMask *")] GhosttyColorPaletteMask* skip, GhosttyColorRgb bg, GhosttyColorRgb fg, [NativeTypeName("_Bool")] byte harmonious, GhosttyColorRgb* @out);
+        public static extern void ghostty_color_palette_generate([NativeTypeName("const GhosttyColorRgb *")] GhosttyColorRgb* @base, [NativeTypeName("const GhosttyColorPaletteMask *")] GhosttyColorPaletteMask* skip, [NativeTypeName("const GhosttyColorRgb *")] GhosttyColorRgb* bg, [NativeTypeName("const GhosttyColorRgb *")] GhosttyColorRgb* fg, [NativeTypeName("_Bool")] byte harmonious, GhosttyColorRgb* @out);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        public static extern double ghostty_color_luminance(GhosttyColorRgb color);
+        public static extern double ghostty_color_luminance([NativeTypeName("const GhosttyColorRgb *")] GhosttyColorRgb* color);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        public static extern double ghostty_color_perceived_luminance(GhosttyColorRgb color);
+        public static extern double ghostty_color_perceived_luminance([NativeTypeName("const GhosttyColorRgb *")] GhosttyColorRgb* color);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        public static extern double ghostty_color_contrast(GhosttyColorRgb a, GhosttyColorRgb b);
+        public static extern double ghostty_color_contrast([NativeTypeName("const GhosttyColorRgb *")] GhosttyColorRgb* a, [NativeTypeName("const GhosttyColorRgb *")] GhosttyColorRgb* b);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         [return: NativeTypeName("const GhosttyColorX11Entry *")]
@@ -1937,7 +2361,7 @@ namespace Ghostty.Vt.Native
         public static extern GhosttyResult ghostty_kitty_graphics_placement_render_info([NativeTypeName("GhosttyKittyGraphicsPlacementIterator")] nint iterator, [NativeTypeName("GhosttyKittyGraphicsImage")] nint image, [NativeTypeName("GhosttyTerminal")] nint terminal, GhosttyKittyGraphicsPlacementRenderInfo* out_info);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        public static extern GhosttyResult ghostty_terminal_new([NativeTypeName("const GhosttyAllocator *")] GhosttyAllocator* allocator, [NativeTypeName("GhosttyTerminal *")] nint* terminal, GhosttyTerminalOptions options);
+        public static extern GhosttyResult ghostty_terminal_new([NativeTypeName("const GhosttyAllocator *")] GhosttyAllocator* allocator, [NativeTypeName("GhosttyTerminal *")] nint* terminal, [NativeTypeName("uint16_t")] ushort cols, [NativeTypeName("uint16_t")] ushort rows);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         public static extern void ghostty_terminal_free([NativeTypeName("GhosttyTerminal")] nint terminal);
@@ -1955,13 +2379,25 @@ namespace Ghostty.Vt.Native
         public static extern void ghostty_terminal_vt_write([NativeTypeName("GhosttyTerminal")] nint terminal, [NativeTypeName("const uint8_t *")] byte* data, [NativeTypeName("size_t")] nuint len);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern GhosttyResult ghostty_terminal_vt_write_until_ground([NativeTypeName("GhosttyTerminal")] nint terminal, [NativeTypeName("const uint8_t *")] byte* data, [NativeTypeName("size_t")] nuint len, [NativeTypeName("size_t *")] nuint* out_consumed);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern GhosttyResult ghostty_terminal_continuation_write([NativeTypeName("GhosttyTerminal")] nint terminal, GhosttyWriter writer);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern GhosttyResult ghostty_terminal_continuation_buf([NativeTypeName("GhosttyTerminal")] nint terminal, [NativeTypeName("uint8_t *")] byte* buf, [NativeTypeName("size_t")] nuint buf_len, [NativeTypeName("size_t *")] nuint* out_written);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern GhosttyResult ghostty_terminal_continuation_alloc([NativeTypeName("GhosttyTerminal")] nint terminal, [NativeTypeName("const GhosttyAllocator *")] GhosttyAllocator* allocator, [NativeTypeName("uint8_t **")] byte** out_ptr, [NativeTypeName("size_t *")] nuint* out_len);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         public static extern void ghostty_terminal_scroll_viewport([NativeTypeName("GhosttyTerminal")] nint terminal, GhosttyTerminalScrollViewport behavior);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        public static extern GhosttyResult ghostty_terminal_mode_get([NativeTypeName("GhosttyTerminal")] nint terminal, [NativeTypeName("GhosttyMode")] ushort mode, [NativeTypeName("_Bool *")] bool* out_value);
+        public static extern GhosttyResult ghostty_terminal_compression_activity([NativeTypeName("GhosttyTerminal")] nint terminal, [NativeTypeName("uint64_t *")] nuint* out_activity);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        public static extern GhosttyResult ghostty_terminal_mode_set([NativeTypeName("GhosttyTerminal")] nint terminal, [NativeTypeName("GhosttyMode")] ushort mode, [NativeTypeName("_Bool")] byte value);
+        public static extern GhosttyResult ghostty_terminal_compress([NativeTypeName("GhosttyTerminal")] nint terminal, GhosttyTerminalCompressionMode mode, GhosttyTerminalCompressionResult* out_result);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         public static extern GhosttyResult ghostty_terminal_get([NativeTypeName("GhosttyTerminal")] nint terminal, GhosttyTerminalData data, void* @out);
@@ -1980,6 +2416,9 @@ namespace Ghostty.Vt.Native
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         public static extern GhosttyResult ghostty_formatter_terminal_new([NativeTypeName("const GhosttyAllocator *")] GhosttyAllocator* allocator, [NativeTypeName("GhosttyFormatter *")] nint* formatter, [NativeTypeName("GhosttyTerminal")] nint terminal, GhosttyFormatterTerminalOptions options);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern GhosttyResult ghostty_formatter_format([NativeTypeName("GhosttyFormatter")] nint formatter, GhosttyWriter writer);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         public static extern GhosttyResult ghostty_formatter_format_buf([NativeTypeName("GhosttyFormatter")] nint formatter, [NativeTypeName("uint8_t *")] byte* buf, [NativeTypeName("size_t")] nuint buf_len, [NativeTypeName("size_t *")] nuint* out_written);
@@ -2006,6 +2445,9 @@ namespace Ghostty.Vt.Native
         public static extern GhosttyResult ghostty_render_state_end_update([NativeTypeName("GhosttyRenderState")] nint state);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern GhosttyResult ghostty_render_state_clean([NativeTypeName("GhosttyRenderState")] nint state);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         public static extern GhosttyResult ghostty_render_state_get([NativeTypeName("GhosttyRenderState")] nint state, GhosttyRenderStateData data, void* @out);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
@@ -2013,9 +2455,6 @@ namespace Ghostty.Vt.Native
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         public static extern GhosttyResult ghostty_render_state_set([NativeTypeName("GhosttyRenderState")] nint state, GhosttyRenderStateOption option, [NativeTypeName("const void *")] void* value);
-
-        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        public static extern GhosttyResult ghostty_render_state_colors_get([NativeTypeName("GhosttyRenderState")] nint state, GhosttyRenderStateColors* out_colors);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         public static extern GhosttyResult ghostty_render_state_row_iterator_new([NativeTypeName("const GhosttyAllocator *")] GhosttyAllocator* allocator, [NativeTypeName("GhosttyRenderStateRowIterator *")] nint* out_iterator);
@@ -2026,6 +2465,10 @@ namespace Ghostty.Vt.Native
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         [return: NativeTypeName("_Bool")]
         public static extern byte ghostty_render_state_row_iterator_next([NativeTypeName("GhosttyRenderStateRowIterator")] nint iterator);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        [return: NativeTypeName("_Bool")]
+        public static extern byte ghostty_render_state_row_iterator_next_dirty([NativeTypeName("GhosttyRenderStateRowIterator")] nint iterator, [NativeTypeName("uint16_t *")] ushort* out_y);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         public static extern GhosttyResult ghostty_render_state_row_get([NativeTypeName("GhosttyRenderStateRowIterator")] nint iterator, GhosttyRenderStateRowData data, void* @out);
@@ -2252,11 +2695,74 @@ namespace Ghostty.Vt.Native
         public static extern GhosttyResult ghostty_mouse_encoder_encode([NativeTypeName("GhosttyMouseEncoder")] nint encoder, [NativeTypeName("GhosttyMouseEvent")] GhosttyMouseEventImpl* @event, [NativeTypeName("char *")] sbyte* out_buf, [NativeTypeName("size_t")] nuint out_buf_size, [NativeTypeName("size_t *")] nuint* out_len);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern GhosttyResult ghostty_terminal_paste([NativeTypeName("GhosttyTerminal")] nint terminal, [NativeTypeName("const GhosttyPaste *")] GhosttyPaste* paste, [NativeTypeName("_Bool *")] bool* out_written);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         [return: NativeTypeName("_Bool")]
         public static extern byte ghostty_paste_is_safe([NativeTypeName("const char *")] sbyte* data, [NativeTypeName("size_t")] nuint len);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         public static extern GhosttyResult ghostty_paste_encode([NativeTypeName("char *")] sbyte* data, [NativeTypeName("size_t")] nuint data_len, [NativeTypeName("_Bool")] byte bracketed, [NativeTypeName("char *")] sbyte* buf, [NativeTypeName("size_t")] nuint buf_len, [NativeTypeName("size_t *")] nuint* out_written);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern GhosttyResult ghostty_search_new([NativeTypeName("const GhosttyAllocator *")] GhosttyAllocator* allocator, [NativeTypeName("GhosttySearch *")] GhosttySearchImpl** out_search, [NativeTypeName("GhosttyTerminal")] nint terminal);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern void ghostty_search_free([NativeTypeName("GhosttySearch")] GhosttySearchImpl* search);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern GhosttyResult ghostty_search_tick([NativeTypeName("GhosttySearch")] GhosttySearchImpl* search, GhosttySearchStatus* out_status);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern GhosttyResult ghostty_search_feed([NativeTypeName("GhosttySearch")] GhosttySearchImpl* search);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern GhosttyResult ghostty_search_run([NativeTypeName("GhosttySearch")] GhosttySearchImpl* search);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern GhosttyResult ghostty_search_set([NativeTypeName("GhosttySearch")] GhosttySearchImpl* search, GhosttySearchOption option, [NativeTypeName("const void *")] void* value);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern GhosttyResult ghostty_search_get([NativeTypeName("GhosttySearch")] GhosttySearchImpl* search, GhosttySearchData data, void* value);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern GhosttyResult ghostty_search_get_multi([NativeTypeName("GhosttySearch")] GhosttySearchImpl* search, [NativeTypeName("size_t")] nuint count, [NativeTypeName("const GhosttySearchData *")] GhosttySearchData* keys, void** values, [NativeTypeName("size_t *")] nuint* out_written);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern GhosttyResult ghostty_snapshot_encode([NativeTypeName("GhosttyTerminal")] nint terminal, GhosttyWriter writer);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern GhosttyResult ghostty_snapshot_encode_buf([NativeTypeName("GhosttyTerminal")] nint terminal, [NativeTypeName("uint8_t *")] byte* buf, [NativeTypeName("size_t")] nuint buf_len, [NativeTypeName("size_t *")] nuint* out_written);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern GhosttyResult ghostty_snapshot_encode_alloc([NativeTypeName("GhosttyTerminal")] nint terminal, [NativeTypeName("const GhosttyAllocator *")] GhosttyAllocator* allocator, [NativeTypeName("uint8_t **")] byte** out_ptr, [NativeTypeName("size_t *")] nuint* out_len);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern GhosttyResult ghostty_snapshot_decoder_new([NativeTypeName("const GhosttyAllocator *")] GhosttyAllocator* allocator, [NativeTypeName("GhosttySnapshotDecoder *")] GhosttySnapshotDecoderImpl** decoder, GhosttyReader reader);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern GhosttyResult ghostty_snapshot_decoder_new_buf([NativeTypeName("const GhosttyAllocator *")] GhosttyAllocator* allocator, [NativeTypeName("GhosttySnapshotDecoder *")] GhosttySnapshotDecoderImpl** decoder, [NativeTypeName("const uint8_t *")] byte* ptr, [NativeTypeName("size_t")] nuint len);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern void ghostty_snapshot_decoder_free([NativeTypeName("GhosttySnapshotDecoder")] GhosttySnapshotDecoderImpl* decoder);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern GhosttyResult ghostty_snapshot_decoder_set([NativeTypeName("GhosttySnapshotDecoder")] GhosttySnapshotDecoderImpl* decoder, GhosttySnapshotDecoderOption option, [NativeTypeName("const void *")] void* value);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern GhosttyResult ghostty_snapshot_decoder_ready([NativeTypeName("GhosttySnapshotDecoder")] GhosttySnapshotDecoderImpl* decoder, [NativeTypeName("GhosttyTerminal *")] nint* terminal);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern GhosttyResult ghostty_snapshot_decoder_next([NativeTypeName("GhosttySnapshotDecoder")] GhosttySnapshotDecoderImpl* decoder);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern GhosttyResult ghostty_snapshot_decoder_decode([NativeTypeName("GhosttySnapshotDecoder")] GhosttySnapshotDecoderImpl* decoder, [NativeTypeName("GhosttyTerminal *")] nint* terminal);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern GhosttyResult ghostty_snapshot_decoder_get([NativeTypeName("GhosttySnapshotDecoder")] GhosttySnapshotDecoderImpl* decoder, GhosttySnapshotDecoderData data, void* @out);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern GhosttyResult ghostty_snapshot_decoder_get_multi([NativeTypeName("GhosttySnapshotDecoder")] GhosttySnapshotDecoderImpl* decoder, [NativeTypeName("size_t")] nuint count, [NativeTypeName("const GhosttySnapshotDecoderData *")] GhosttySnapshotDecoderData* keys, void** values, [NativeTypeName("size_t *")] nuint* out_written);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         [return: NativeTypeName("uint8_t")]
@@ -2572,8 +3078,14 @@ namespace Ghostty.Vt.Native
         [NativeTypeName("#define GHOSTTY_MODE_COLOR_SCHEME_REPORT (ghostty_mode_new(2031, false))")]
         public static readonly ushort GHOSTTY_MODE_COLOR_SCHEME_REPORT = (ghostty_mode_new(2031, (0) != 0));
 
+        [NativeTypeName("#define GHOSTTY_MODE_VISIBILITY_REPORT (ghostty_mode_new(2033, false))")]
+        public static readonly ushort GHOSTTY_MODE_VISIBILITY_REPORT = (ghostty_mode_new(2033, (0) != 0));
+
         [NativeTypeName("#define GHOSTTY_MODE_IN_BAND_RESIZE (ghostty_mode_new(2048, false))")]
         public static readonly ushort GHOSTTY_MODE_IN_BAND_RESIZE = (ghostty_mode_new(2048, (0) != 0));
+
+        [NativeTypeName("#define GHOSTTY_MODE_PASTE_EVENTS (ghostty_mode_new(5522, false))")]
+        public static readonly ushort GHOSTTY_MODE_PASTE_EVENTS = (ghostty_mode_new(5522, (0) != 0));
 
         [NativeTypeName("#define GHOSTTY_MODS_SHIFT (1 << 0)")]
         public const int GHOSTTY_MODS_SHIFT = (1 << 0);

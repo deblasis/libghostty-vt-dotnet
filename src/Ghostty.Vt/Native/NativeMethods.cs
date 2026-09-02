@@ -8,9 +8,19 @@ internal static unsafe partial class NativeMethods
 
     // --- Terminal lifecycle ---
 
+    // Upstream dropped the by-value GhosttyTerminalOptions struct: cols and rows
+    // are scalar parameters now, and everything else the struct carried (notably
+    // max scrollback) moved to ghostty_terminal_set after construction.
+    //
+    // The old shape was silently wrong rather than a link error, because the
+    // symbol name never changed. On SysV the 16-byte struct arrived in two
+    // INTEGER registers, so `rows` read the struct's MaxScrollback field --
+    // which is exactly why the suite reported 1000 rows. On Windows x64 the
+    // same struct passes BY REFERENCE, so `cols` would be the low 16 bits of a
+    // pointer and `rows` uninitialised. We ship win-x64.
     [LibraryImport(LibraryName)]
     internal static partial int ghostty_terminal_new(
-        nint allocator, nint* terminal, GhosttyTerminalOptionsNative options);
+        nint allocator, nint* terminal, ushort cols, ushort rows);
 
     [LibraryImport(LibraryName)]
     internal static partial void ghostty_terminal_free(nint terminal);
@@ -50,14 +60,11 @@ internal static unsafe partial class NativeMethods
         nint terminal, GhosttyGridRefNative* grid_ref, int tag, GhosttyPointCoordinateNative* @out);
 
     // --- Terminal mode ---
-
-    [LibraryImport(LibraryName)]
-    internal static partial int ghostty_terminal_mode_get(
-        nint terminal, uint mode, byte* out_value);
-
-    [LibraryImport(LibraryName)]
-    internal static partial int ghostty_terminal_mode_set(
-        nint terminal, uint mode, byte value);
+    //
+    // ghostty_terminal_mode_get/_set no longer exist. Modes are read through
+    // ghostty_terminal_get with TerminalData.Mode and written through
+    // ghostty_terminal_set with TerminalOption.Mode, both carrying a
+    // GhosttyTerminalModeConfigNative. See that struct for the layout contract.
 
     // --- Terminal scroll ---
 
@@ -82,9 +89,6 @@ internal static unsafe partial class NativeMethods
     internal static partial int ghostty_render_state_get(
         nint state, int data, void* @out);
 
-    [LibraryImport(LibraryName)]
-    internal static partial int ghostty_render_state_colors_get(
-        nint state, void* out_colors);
 
     // --- RenderState row iterator ---
 
@@ -420,13 +424,17 @@ internal static unsafe partial class NativeMethods
         byte* buf, nuint buf_len, nuint* out_written);
 }
 
-// Native struct matching GhosttyTerminalOptions: { uint16_t cols, uint16_t rows, size_t max_scrollback }
+// Native struct matching GhosttyTerminalModeConfig:
+//   { GhosttyMode mode; bool value; }
+// GhosttyMode is uint16_t (modes.h), C bool is one byte, so the layout is
+// mode@0 (2 bytes), value@2 (1 byte), tail-padded to 4. Upstream documents this
+// layout as frozen: "This struct has a frozen layout and will not gain fields
+// in future versions", so it needs no sized-struct size prefix.
 [StructLayout(LayoutKind.Sequential)]
-internal struct GhosttyTerminalOptionsNative
+internal struct GhosttyTerminalModeConfigNative
 {
-    public ushort Cols;
-    public ushort Rows;
-    public nuint MaxScrollback;
+    public ushort Mode;
+    public byte Value;
 }
 
 // Native struct matching GhosttyPoint: { GhosttyPointTag tag, GhosttyPointValue value }
