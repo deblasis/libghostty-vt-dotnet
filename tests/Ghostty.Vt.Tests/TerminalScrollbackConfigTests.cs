@@ -56,22 +56,35 @@ public class TerminalScrollbackConfigTests
     /// transcribed one off in the same direction they would name the *byte*
     /// limit, which sits immediately before the line limit in both upstream
     /// enums, and both tests would still pass while the knob we turn is wrong.
+    /// This one fails in that case.
     /// </para>
     /// <para>
-    /// This asserts a RATIO between two limits rather than an absolute row
-    /// count, and that shape is load-bearing. The first version of this test
-    /// bounded a single terminal's retained rows and passed for the wrong
-    /// reason: upstream prunes at page granularity, and a page of 80-column
-    /// rows turns out to hold roughly 900. A 300-line limit and a
-    /// 100,000-line limit both retained ~924 rows -- one page -- so the
-    /// "bounded" assertion was satisfied by the page floor while the line limit
-    /// did nothing observable. Comparing two limits removes that floor from the
-    /// comparison: it is present in both arms and cancels.
+    /// Measured behaviour this is calibrated against, because two earlier
+    /// versions of this test were wrong in ways only CI could show:
+    /// </para>
+    /// <list type="bullet">
+    /// <item>A 100,000-line limit with 5,000 lines written retained 924 rows,
+    /// not 5,000. A 25,000-line limit with 30,000 written retained 1,027.
+    /// Retention plateaus around a thousand rows no matter how high the line
+    /// limit goes, so something other than the line limit -- a default byte
+    /// budget -- bounds the upper arm. Any assertion expecting the large arm to
+    /// approach its configured limit is testing a false model.</item>
+    /// <item>A 500-line limit with the same input retained 448. Below the
+    /// plateau the line limit is the binding constraint, which is the only
+    /// region where this setting is observable at all.</item>
+    /// </list>
+    /// <para>
+    /// Hence the two assertions below. The first is the discriminating one: a
+    /// 500-line limit lands well under the plateau, whereas a 500-BYTE limit
+    /// could not -- pruning is page-granular, so a byte limit cannot retain
+    /// less than one page, and one page is what produces the ~1,000-row
+    /// plateau. The second is a monotonicity control: under a byte-limit
+    /// mix-up both arms collapse onto that same plateau and stop differing.
     /// </para>
     /// <para>
-    /// A byte limit cannot produce this ratio. Byte pruning is page-granular
-    /// too, so under a bytes mix-up both arms collapse to about one page and
-    /// the ratio goes to 1.
+    /// An earlier version asserted only an absolute bound on a single terminal
+    /// and passed for exactly the wrong reason -- the page floor satisfied it
+    /// while the line limit did nothing observable.
     /// </para>
     /// </remarks>
     [Fact]
@@ -87,10 +100,14 @@ public class TerminalScrollbackConfigTests
         var largeRows = large.ScrollbackRows;
 
         Assert.True(
-            largeRows > smallRows * 3,
-            $"a 25,000-line limit should retain far more of {WrittenLines:N0} written lines than a "
-            + $"500-line limit, but got large={largeRows} vs small={smallRows}. A ratio near 1 means "
-            + "the configured limit is not governing retention -- most likely the byte limit is being "
-            + "set instead of the line limit.");
+            smallRows <= 700,
+            $"a 500-line limit should hold retention well under the ~1,000-row plateau, got {smallRows}. "
+            + "At or above the plateau the line limit is not binding at all -- which is what setting the "
+            + "byte limit by mistake would look like, since byte pruning cannot go below one page.");
+
+        Assert.True(
+            largeRows > smallRows * 3 / 2,
+            $"raising the limit should raise retention, but got large={largeRows} vs small={smallRows}. "
+            + "Arms that do not differ mean the configured limit is not governing retention.");
     }
 }
