@@ -24,15 +24,16 @@ public sealed class TerminalOptions
     public Func<ColorScheme?>? OnColorScheme { get; set; }
     public Func<DeviceAttributes?>? OnDeviceAttributes { get; set; }
 
-    // Build the native options struct (cols, rows, max_scrollback).
-    // Callbacks are registered after terminal creation via ghostty_terminal_set.
-    internal GhosttyTerminalOptionsNative BuildNativeOptions(int cols, int rows)
-    {
-        return new GhosttyTerminalOptionsNative
-        {
-            Cols = (ushort)cols,
-            Rows = (ushort)rows,
-            MaxScrollback = (nuint)1000, // default scrollback
-        };
-    }
+    /// <summary>
+    /// Maximum physical lines retained in scrollback. Defaults to 1000, which is
+    /// the value the removed <c>GhosttyTerminalOptions.max_scrollback</c> field
+    /// carried, so terminals created without configuring this behave as before.
+    /// </summary>
+    /// <remarks>
+    /// Upstream treats this as an estimate: scrollback is pruned at page
+    /// granularity, so the retained line count is usually somewhat higher.
+    /// Applied after construction via <c>ghostty_terminal_set</c>, because
+    /// upstream removed the by-value options struct that used to carry it.
+    /// </remarks>
+    public nuint MaxScrollbackLines { get; set; } = 1000;
 }
