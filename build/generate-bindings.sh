@@ -79,7 +79,10 @@ fi
 
 [ -f "$OUTPUT" ] || { echo "::error::generator produced no $OUTPUT" >&2; exit 1; }
 
-emitted=$(grep -cE '^\s*(\[DllImport|\[LibraryImport|public static extern|internal static extern)' "$OUTPUT" || true)
+# Count the interop attribute, exactly one per bound function. Matching the
+# `extern` line as well would double-count, and a detector that reports a
+# number twice the truth is not one anybody should trust.
+emitted=$(grep -cE '^[[:space:]]*\[(DllImport|LibraryImport)' "$OUTPUT" || true)
 MIN_EXPECTED=${MIN_EXPECTED:-100}
 echo "Emitted P/Invoke declarations: $emitted (minimum expected: $MIN_EXPECTED)"
 
