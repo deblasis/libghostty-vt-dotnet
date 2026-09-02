@@ -12,17 +12,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # This job builds ghostty `main` (below), so the toolchain is derived
-      # from `main` too. Hardcoding it here made CI red the moment upstream
-      # raised its minimum Zig (issue #43).
+      # Build the *pinned* commit, not `main`. NativeMethods.cs is
+      # hand-maintained against the SHA in ghostty-upstream.json, so building
+      # main here tested a pairing this repo never ships: with the pin 57 days
+      # behind (issue #43), 20 of 197 tests failed with
+      # EntryPointNotFoundException for symbols upstream had since renamed.
+      # Detecting that drift is the daily sync's job, not per-PR CI's.
+      - name: Resolve pinned upstream commit
+        id: pin
+        run: echo "commit=$(jq -r '.commit' ghostty-upstream.json)" >> "$GITHUB_OUTPUT"
+
+      # Toolchain derived from that commit's build.zig.zon rather than
+      # hardcoded, so an upstream Zig bump cannot silently break CI (#43).
       - name: Setup Zig
         uses: ./.github/actions/setup-zig
         with:
-          ghostty-ref: main
+          ghostty-ref: ${{ steps.pin.outputs.commit }}
 
-      - name: Clone Ghostty upstream
+      - name: Clone Ghostty at pinned commit
         run: |
-          git clone --depth 1 https://github.com/ghostty-org/ghostty.git /tmp/ghostty
+          git init /tmp/ghostty
+          cd /tmp/ghostty
+          git remote add origin https://github.com/ghostty-org/ghostty.git
+          git fetch --depth 1 origin "${{ steps.pin.outputs.commit }}"
+          git checkout FETCH_HEAD
 
       - name: Build native libghostty-vt
         run: |
