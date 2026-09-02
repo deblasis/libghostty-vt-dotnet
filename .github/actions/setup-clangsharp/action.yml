@@ -88,6 +88,31 @@ runs:
         fetch_native libclang.runtime.linux-x64 "$LIBCLANG_VERSION"
         fetch_native libclangsharp.runtime.linux-x64 "$LIBCLANGSHARP_VERSION"
 
+        # libClangSharp.so has a DT_NEEDED on libclang by SONAME
+        # ("libclang.so.18.1"), but the libclang.runtime package ships the
+        # file unversioned as plain "libclang.so", so the dynamic loader
+        # cannot resolve it. Add the SONAME as a symlink — derived from ldd's
+        # own "not found" line rather than hardcoded, so a future clang ABI
+        # bump does not silently re-break this.
+        for missing in $(ldd "$ASM_DIR/libClangSharp.so" 2>/dev/null | awk '/not found/ {print $1}'); do
+          case "$missing" in
+            libclang.so.*)
+              ln -sf libclang.so "$ASM_DIR/$missing"
+              echo "  linked $missing -> libclang.so"
+              ;;
+            *)
+              echo "::error::libClangSharp.so needs '$missing', which this action does not provide"
+              exit 1
+              ;;
+          esac
+        done
+
+        # The assembly directory is not on the default loader search path, so
+        # resolving that DT_NEEDED needs it explicitly — both for the ldd
+        # assertions below and for the generator step that follows.
+        export LD_LIBRARY_PATH="$ASM_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+        echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
+
         # Assert rather than hope. A missing or unloadable native here is the
         # difference between "the bindings did not drift" and "the detector
         # never ran" — the two outcomes #46 is about not confusing.
