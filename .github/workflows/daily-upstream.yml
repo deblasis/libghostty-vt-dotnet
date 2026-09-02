@@ -8,7 +8,19 @@ on:
       dry_run:
         description: 'Build, test and pack only — do not publish, move the pin, or cut a release'
         type: boolean
-        default: false
+        # Safe by default, and free: a `schedule` event does not apply
+        # workflow_dispatch input defaults (the `inputs` context is empty), so
+        # this does not touch the nightly publish path. It only means a
+        # maintainer who clicks "Run workflow" to retry a failed nightly and
+        # leaves the box alone cannot accidentally publish to nuget.org, push
+        # a moved pin to main, and cut a release. Untick it to publish.
+        default: true
+
+# A manual run racing the 03:30 cron would give two `publish` jobs both doing
+# `git push` of ghostty-upstream.json with no `pull --rebase` between them.
+concurrency:
+  group: daily-upstream
+  cancel-in-progress: false
 
 jobs:
   check-upstream:
@@ -213,7 +225,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write   # commit updated ghostty-upstream.json + create release
-      issues: write     # fallback "Create issue on failure" step
+      # No `issues: write` — failure reporting moved to the notify-failure
+      # job, which is the only one that also fires when build-native fails.
     env:
       # Secret gate: the publish / commit-update / release steps are skipped
       # when NUGET_API_KEY is absent. Earlier steps (build, test, pack) still
@@ -345,20 +358,59 @@ jobs:
             --title "v${{ steps.version.outputs.package_version }}" \
             --notes "Automated daily build from upstream ghostty-org/ghostty@${{ needs.check-upstream.outputs.new_commit }}"
 
-      - name: Create issue on failure
-        if: failure()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          SHORT="${{ needs.check-upstream.outputs.new_commit }}"
-          gh issue create \
-            --title "Upstream sync failed for ${SHORT:0:8}" \
-            --body "Daily upstream sync failed. Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."
-
+  # Failure reporting lives here, not inside `publish`.
+  #
+  # It used to be a `Create issue on failure` step inside `publish`, which
+  # meant it could only ever report a *publish* failure. For 57 consecutive
+  # nights `build-native` failed, `publish` was skipped, and that step never
+  # ran — which is why the outage in #43 produced zero issues. This job's
+  # `if: failure()` fires whenever any ancestor failed, `build-native`
+  # included, so the alert now covers the failure mode that actually happened.
+  #
+  # It also reports one issue for the *condition*, not one per upstream SHA.
+  # The old title embedded the commit, which changes daily, so once
+  # `build-native` started passing it would have filed a brand-new issue every
+  # single night with no dedupe. Search for the open tracker first and add a
+  # dated comment; only create one when there is none. Closing the tracker is
+  # how a maintainer says "handled" — if the condition recurs after that, a
+  # fresh issue is the right outcome.
   notify-failure:
     needs: [check-upstream, publish]
     if: failure()
     runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    env:
+      # A dry run must not write to the public tracker, or the input is not
+      # the non-mutating switch it advertises.
+      DRY_RUN: ${{ inputs.dry_run == true }}
     steps:
-      - name: Failure already handled
-        run: echo "Failure notification handled by publish job issue creation"
+      - name: Report sync failure
+        if: env.DRY_RUN != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMMIT: ${{ needs.check-upstream.outputs.new_commit }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          TITLE: Daily upstream sync is failing
+        run: |
+          set -euo pipefail
+
+          EXISTING=$(gh issue list --state open --limit 100 --json number,title \
+            | jq -r --arg t "$TITLE" 'map(select(.title == $t)) | .[0].number // empty')
+
+          if [ -n "$EXISTING" ]; then
+            echo "::notice::Commenting on existing sync-failure issue #$EXISTING"
+            gh issue comment "$EXISTING" \
+              --body "Still failing, now for upstream \`${COMMIT}\` — [run](${RUN_URL})."
+          else
+            echo "::notice::Opening a new sync-failure issue"
+            gh issue create --title "$TITLE" --body \
+          "The daily upstream sync failed for upstream \`${COMMIT}\` — [run](${RUN_URL}).
+
+          Further failures are added as comments here rather than as new issues.
+          Close this once the sync is green again; if it breaks later, a fresh issue is opened."
+          fi
+
+      - name: Reporting skipped (dry run)
+        if: env.DRY_RUN == 'true'
+        run: echo "::notice title=Dry run::Sync failed, but issue reporting was skipped (dry_run=true)."
