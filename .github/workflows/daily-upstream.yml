@@ -205,29 +205,30 @@ jobs:
         id: clangsharp
         uses: ./.github/actions/setup-clangsharp
 
+      # Hard failure: the generator must run and emit a real P/Invoke surface.
+      # Its exit code alone proves nothing — it exits 0 while emitting nothing.
       - name: Regenerate bindings
-        run: ${{ steps.clangsharp.outputs.generator }} @build/generate-bindings.rsp @${{ steps.clangsharp.outputs.extra-args-file }}
+        run: bash build/generate-bindings.sh "${{ steps.clangsharp.outputs.generator }}" "${{ steps.clangsharp.outputs.extra-args-file }}"
 
-      - name: Report binding drift
-        id: bindings
+      # Reported, not failed: entry points disappearing at a *new* upstream
+      # commit is the news this job exists to deliver, not a defect in the
+      # repo. ci.yml enforces the same check against the pinned commit, where
+      # a missing symbol really is a defect.
+      - name: Report entry points removed upstream
         run: |
-          if git diff --quiet src/Ghostty.Vt/Native/NativeMethods.cs; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "::notice title=Bindings::Regenerated bindings match the committed NativeMethods.cs."
+          git show HEAD:src/Ghostty.Vt/Native/NativeMethods.cs > "$RUNNER_TEMP/committed-bindings.cs"
+          if bash build/check-binding-symbols.sh "$RUNNER_TEMP/committed-bindings.cs" ghostty-src/include/ghostty; then
+            echo "::notice title=Bindings::Every declared entry point still exists at the new upstream commit."
           else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-            ADDED=$(git diff --numstat src/Ghostty.Vt/Native/NativeMethods.cs | awk '{print $1}')
-            REMOVED=$(git diff --numstat src/Ghostty.Vt/Native/NativeMethods.cs | awk '{print $2}')
-            echo "::warning title=Binding drift::Regenerated bindings differ from the committed NativeMethods.cs (+${ADDED}/-${REMOVED}). Artifact 'regenerated-bindings' has the new file."
-            git --no-pager diff --stat src/Ghostty.Vt/Native/NativeMethods.cs
+            echo "::warning title=Binding drift::Entry points listed above no longer exist upstream. The bindings must be updated before this commit can be adopted; the 'regenerated-bindings' artifact holds the generator's view of the new API."
           fi
 
       - name: Upload bindings
-        if: steps.bindings.outputs.changed == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: regenerated-bindings
           path: src/Ghostty.Vt/Native/NativeMethods.cs
+          if-no-files-found: error
 
   publish:
     # `regenerate-bindings` is deliberately NOT a dependency any more. It no
