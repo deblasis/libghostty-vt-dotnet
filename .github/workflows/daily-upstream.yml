@@ -206,7 +206,7 @@ jobs:
         uses: ./.github/actions/setup-clangsharp
 
       - name: Regenerate bindings
-        run: ${{ steps.clangsharp.outputs.generator }} @build/generate-bindings.rsp
+        run: ${{ steps.clangsharp.outputs.generator }} @build/generate-bindings.rsp @${{ steps.clangsharp.outputs.extra-args-file }}
 
       - name: Report binding drift
         id: bindings

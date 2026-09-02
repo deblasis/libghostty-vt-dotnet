@@ -114,7 +114,7 @@ jobs:
         uses: ./.github/actions/setup-clangsharp
 
       - name: Regenerate bindings from the pinned headers
-        run: ${{ steps.clangsharp.outputs.generator }} @build/generate-bindings.rsp
+        run: ${{ steps.clangsharp.outputs.generator }} @build/generate-bindings.rsp @${{ steps.clangsharp.outputs.extra-args-file }}
 
       - name: Fail on drift from the committed bindings
         id: drift
