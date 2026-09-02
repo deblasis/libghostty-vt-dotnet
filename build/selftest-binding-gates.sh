@@ -22,8 +22,29 @@ INCLUDE=${1:?usage: selftest-binding-gates.sh <ghostty-include-dir>}
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO=$(cd "$HERE/.." && pwd)
 
+# shellcheck source=build/ghostty-symbols.sh
+source "$HERE/ghostty-symbols.sh"
+
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
+
+# How many functions the headers under test actually export. The gate's floor
+# is a percentage of this (see generate-bindings.sh), so every stub meant to
+# look HEALTHY has to be sized from the same number.
+#
+# These counts used to be the literal 171 -- the export count at the pin where
+# this file was written. A literal silently turns the self-test into a broken
+# one the moment upstream exports more functions: the floor rises past 171, the
+# "healthy" stub is rejected, and the suite fails on a case that describes
+# correct behaviour. Moving the pin to 349f0260 did exactly that. Worse, the
+# regression guard below would still have reported "ok" -- for the wrong
+# reason, because its pre-existing file fell under the floor rather than
+# because the generator's stale output was correctly discarded.
+HEALTHY_COUNT=$(ghostty_exported_symbols "$INCLUDE" | grep -c . || true)
+if [ "${HEALTHY_COUNT:-0}" -lt 1 ]; then
+  echo "::error::Could not count exported symbols under $INCLUDE; the self-test cannot size its stubs." >&2
+  exit 1
+fi
 
 pass=0
 fail=0
@@ -50,6 +71,7 @@ mkstub() { # mkstub <path> <body>
 
 run_gen() { # run_gen <stub> [include]
   ( cd "$REPO" && OUTPUT="$TMP/out.cs" RSP=build/generate-bindings.rsp \
+      HEALTHY_COUNT="$HEALTHY_COUNT" \
       bash build/generate-bindings.sh "$1" "" "${2:-$INCLUDE}" ) >"$TMP/log" 2>&1
   return $?
 }
@@ -66,7 +88,7 @@ run_gen "$TMP/crash.sh"; check "crash writing nothing must fail" 1 $?
 # file already sits at the output path — which is what `actions/checkout`
 # leaves there. Without the pre-run removal, the gate counts the committed
 # hand-maintained bindings and reports them as freshly generated.
-emit_attributes "$TMP/out.cs" 171
+emit_attributes "$TMP/out.cs" "$HEALTHY_COUNT"
 mkstub "$TMP/silent.sh" 'exit 0'
 run_gen "$TMP/silent.sh"; check "silent stub must not inherit the committed file" 1 $?
 
@@ -83,7 +105,7 @@ run_gen "$TMP/fatal.sh"; check "fatal diagnostic must fail" 1 $?
 mkstub "$TMP/good.sh" '
 for i in $(seq 1 177); do echo "    Warning (Line $i, Column 9 in x.h): Function like macro definition records are not supported"; done
 : > "$OUTPUT"
-for i in $(seq 1 171); do printf "        [DllImport(\"libghostty-vt\")]\n        public static extern int ghostty_x$i();\n" >> "$OUTPUT"; done
+for i in $(seq 1 "$HEALTHY_COUNT"); do printf "        [DllImport(\"libghostty-vt\")]\n        public static extern int ghostty_x$i();\n" >> "$OUTPUT"; done
 exit 177'
 run_gen "$TMP/good.sh"; check "warnings + non-zero exit + real output passes" 0 $?
 

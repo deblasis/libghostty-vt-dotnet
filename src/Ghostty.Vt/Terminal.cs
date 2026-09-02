@@ -61,7 +61,7 @@ public sealed unsafe class Terminal : IDisposable
                 options.OnWritePty(span);
             });
             options.Pinner.Pin(del);
-            NativeMethods.ghostty_terminal_set(handle, 1, (void*)Marshal.GetFunctionPointerForDelegate(del));
+            NativeMethods.ghostty_terminal_set(handle, (int)TerminalOption.WritePty, (void*)Marshal.GetFunctionPointerForDelegate(del));
         }
 
         // Ord 2: Bell — void (terminal, userdata)
@@ -69,7 +69,7 @@ public sealed unsafe class Terminal : IDisposable
         {
             var del = new GhosttyTerminalNotifyFn((_, _) => options.OnBell());
             options.Pinner.Pin(del);
-            NativeMethods.ghostty_terminal_set(handle, 2, (void*)Marshal.GetFunctionPointerForDelegate(del));
+            NativeMethods.ghostty_terminal_set(handle, (int)TerminalOption.Bell, (void*)Marshal.GetFunctionPointerForDelegate(del));
         }
 
         // Ord 3: Enquiry — GhosttyString (terminal, userdata)
@@ -92,7 +92,7 @@ public sealed unsafe class Terminal : IDisposable
                 return result;
             });
             options.Pinner.Pin(del);
-            NativeMethods.ghostty_terminal_set(handle, 3, (void*)Marshal.GetFunctionPointerForDelegate(del));
+            NativeMethods.ghostty_terminal_set(handle, (int)TerminalOption.Enquiry, (void*)Marshal.GetFunctionPointerForDelegate(del));
         }
 
         // Ord 4: Xtversion — GhosttyString (terminal, userdata)
@@ -114,7 +114,7 @@ public sealed unsafe class Terminal : IDisposable
                 return result;
             });
             options.Pinner.Pin(del);
-            NativeMethods.ghostty_terminal_set(handle, 4, (void*)Marshal.GetFunctionPointerForDelegate(del));
+            NativeMethods.ghostty_terminal_set(handle, (int)TerminalOption.Xtversion, (void*)Marshal.GetFunctionPointerForDelegate(del));
         }
 
         // Ord 5: TitleChanged — void (terminal, userdata)
@@ -122,7 +122,7 @@ public sealed unsafe class Terminal : IDisposable
         {
             var del = new GhosttyTerminalNotifyFn((_, _) => options.OnTitleChanged());
             options.Pinner.Pin(del);
-            NativeMethods.ghostty_terminal_set(handle, 5, (void*)Marshal.GetFunctionPointerForDelegate(del));
+            NativeMethods.ghostty_terminal_set(handle, (int)TerminalOption.TitleChanged, (void*)Marshal.GetFunctionPointerForDelegate(del));
         }
 
         // Ord 6: Size — bool (terminal, userdata, GhosttySizeReportSize* out_size)
@@ -144,7 +144,7 @@ public sealed unsafe class Terminal : IDisposable
                 return (byte)1; // true — handled
             });
             options.Pinner.Pin(del);
-            NativeMethods.ghostty_terminal_set(handle, 6, (void*)Marshal.GetFunctionPointerForDelegate(del));
+            NativeMethods.ghostty_terminal_set(handle, (int)TerminalOption.Size, (void*)Marshal.GetFunctionPointerForDelegate(del));
         }
 
         // Ord 7: ColorScheme — bool (terminal, userdata, GhosttyColorScheme* out_scheme)
@@ -160,7 +160,7 @@ public sealed unsafe class Terminal : IDisposable
                 return (byte)1; // true — handled
             });
             options.Pinner.Pin(del);
-            NativeMethods.ghostty_terminal_set(handle, 7, (void*)Marshal.GetFunctionPointerForDelegate(del));
+            NativeMethods.ghostty_terminal_set(handle, (int)TerminalOption.ColorScheme, (void*)Marshal.GetFunctionPointerForDelegate(del));
         }
 
         // Ord 8: DeviceAttributes — bool (terminal, userdata, GhosttyDeviceAttributes* out_attrs)
@@ -199,7 +199,7 @@ public sealed unsafe class Terminal : IDisposable
                 return (byte)1; // true — handled
             });
             options.Pinner.Pin(del);
-            NativeMethods.ghostty_terminal_set(handle, 8, (void*)Marshal.GetFunctionPointerForDelegate(del));
+            NativeMethods.ghostty_terminal_set(handle, (int)TerminalOption.DeviceAttributes, (void*)Marshal.GetFunctionPointerForDelegate(del));
         }
 
         // PwdChanged is not a native callback — it's observed via OnTitleChanged + reading Pwd.
@@ -237,13 +237,47 @@ public sealed unsafe class Terminal : IDisposable
     public int ScrollbackRows => QueryInt(TerminalData.ScrollbackRows);
 
     /// <summary>
-    /// The configured maximum number of physical scrollback lines, as set by
-    /// <see cref="TerminalOptions.MaxScrollbackLines"/>. Upstream reports the
-    /// primary screen's configured value even while an alternate screen is
-    /// active, and this is the configured limit, not the retained line count --
-    /// pruning happens at page granularity, so the retained count runs higher.
+    /// The configured maximum number of physical scrollback lines, or
+    /// <see langword="null"/> when the line limit is unlimited.
     /// </summary>
-    public int MaxScrollbackLines => QueryInt(TerminalData.ScrollbackMaxLines);
+    /// <remarks>
+    /// Upstream reports the primary screen's configured value even while an
+    /// alternate screen is active, and this is the configured limit, not the
+    /// retained line count -- pruning happens at page granularity, so the
+    /// retained count runs higher.
+    /// <para>
+    /// Deliberately not routed through <c>QueryInt</c>. Upstream signals
+    /// "unlimited" with <c>GHOSTTY_NO_VALUE</c> and leaves the output buffer
+    /// untouched; <c>QueryInt</c> discards the result code and would return its
+    /// zeroed local, reporting <c>0</c> -- which in this API means "no
+    /// scrollback at all". That is a semantic inversion in the most dangerous
+    /// direction, so this property reads the code and maps it to null.
+    /// </para>
+    /// <para>
+    /// The value is a <c>size_t</c> upstream and is returned here as a
+    /// <see cref="long"/> rather than an <see cref="int"/>, so a limit above
+    /// <see cref="int.MaxValue"/> does not silently truncate.
+    /// </para>
+    /// </remarks>
+    public unsafe long? MaxScrollbackLines
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
+            long value = 0;
+            var result = NativeMethods.ghostty_terminal_get(
+                _handle.DangerousGetHandle(), (int)TerminalData.ScrollbackMaxLines, &value);
+            if (result == GhosttyResultNoValue) return null;
+            GhosttyException.ThrowIfFailure(result);
+            return value;
+        }
+    }
+
+    /// <summary>
+    /// <c>GHOSTTY_NO_VALUE</c>. Not an error: upstream uses it to say "this
+    /// setting has no value", e.g. an unlimited scrollback line limit.
+    /// </summary>
+    private const int GhosttyResultNoValue = -4;
     public int WidthPx => QueryInt(TerminalData.WidthPx);
     public int HeightPx => QueryInt(TerminalData.HeightPx);
     public bool MouseTracking => QueryInt(TerminalData.MouseTracking) != 0;
@@ -301,7 +335,7 @@ public sealed unsafe class Terminal : IDisposable
         if (pwd == null)
         {
             NativeMethods.ghostty_terminal_set(
-                _handle.DangerousGetHandle(), 10 /* OPT_PWD */, null);
+                _handle.DangerousGetHandle(), (int)TerminalOption.Pwd, null);
             return;
         }
         var bytes = System.Text.Encoding.UTF8.GetBytes(pwd);
@@ -311,7 +345,7 @@ public sealed unsafe class Terminal : IDisposable
             gs.Ptr = (nint)ptr;
             gs.Len = (nuint)bytes.Length;
             NativeMethods.ghostty_terminal_set(
-                _handle.DangerousGetHandle(), 10 /* OPT_PWD */, &gs);
+                _handle.DangerousGetHandle(), (int)TerminalOption.Pwd, &gs);
         }
     }
 
@@ -325,7 +359,7 @@ public sealed unsafe class Terminal : IDisposable
             gs.Ptr = (nint)ptr;
             gs.Len = (nuint)bytes.Length;
             NativeMethods.ghostty_terminal_set(
-                _handle.DangerousGetHandle(), 9 /* OPT_TITLE */, &gs);
+                _handle.DangerousGetHandle(), (int)TerminalOption.Title, &gs);
         }
     }
 
@@ -335,12 +369,12 @@ public sealed unsafe class Terminal : IDisposable
         if (c == null)
         {
             NativeMethods.ghostty_terminal_set(
-                _handle.DangerousGetHandle(), 11 /* OPT_COLOR_FOREGROUND */, null);
+                _handle.DangerousGetHandle(), (int)TerminalOption.ColorForeground, null);
             return;
         }
         var native = new GhosttyColorRgbNative { R = c.Value.R, G = c.Value.G, B = c.Value.B };
         NativeMethods.ghostty_terminal_set(
-            _handle.DangerousGetHandle(), 11 /* OPT_COLOR_FOREGROUND */, &native);
+            _handle.DangerousGetHandle(), (int)TerminalOption.ColorForeground, &native);
     }
 
     public unsafe void SetBackgroundColor(ColorRgb? c)
@@ -349,12 +383,12 @@ public sealed unsafe class Terminal : IDisposable
         if (c == null)
         {
             NativeMethods.ghostty_terminal_set(
-                _handle.DangerousGetHandle(), 12 /* OPT_COLOR_BACKGROUND */, null);
+                _handle.DangerousGetHandle(), (int)TerminalOption.ColorBackground, null);
             return;
         }
         var native = new GhosttyColorRgbNative { R = c.Value.R, G = c.Value.G, B = c.Value.B };
         NativeMethods.ghostty_terminal_set(
-            _handle.DangerousGetHandle(), 12 /* OPT_COLOR_BACKGROUND */, &native);
+            _handle.DangerousGetHandle(), (int)TerminalOption.ColorBackground, &native);
     }
 
     public unsafe void SetCursorColor(ColorRgb? c)
@@ -363,12 +397,12 @@ public sealed unsafe class Terminal : IDisposable
         if (c == null)
         {
             NativeMethods.ghostty_terminal_set(
-                _handle.DangerousGetHandle(), 13 /* OPT_COLOR_CURSOR */, null);
+                _handle.DangerousGetHandle(), (int)TerminalOption.ColorCursor, null);
             return;
         }
         var native = new GhosttyColorRgbNative { R = c.Value.R, G = c.Value.G, B = c.Value.B };
         NativeMethods.ghostty_terminal_set(
-            _handle.DangerousGetHandle(), 13 /* OPT_COLOR_CURSOR */, &native);
+            _handle.DangerousGetHandle(), (int)TerminalOption.ColorCursor, &native);
     }
 
     public unsafe void SetColorPalette(ColorRgb[]? palette)
@@ -377,7 +411,7 @@ public sealed unsafe class Terminal : IDisposable
         if (palette == null)
         {
             NativeMethods.ghostty_terminal_set(
-                _handle.DangerousGetHandle(), 14 /* OPT_COLOR_PALETTE */, null);
+                _handle.DangerousGetHandle(), (int)TerminalOption.ColorPalette, null);
             return;
         }
         // Convert to array of GhosttyColorRgbNative (up to 256 entries)
@@ -387,7 +421,7 @@ public sealed unsafe class Terminal : IDisposable
         fixed (GhosttyColorRgbNative* ptr = native)
         {
             NativeMethods.ghostty_terminal_set(
-                _handle.DangerousGetHandle(), 14 /* OPT_COLOR_PALETTE */, ptr);
+                _handle.DangerousGetHandle(), (int)TerminalOption.ColorPalette, ptr);
         }
     }
 
