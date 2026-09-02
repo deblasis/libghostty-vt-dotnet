@@ -16,6 +16,9 @@ namespace Ghostty.Vt.Tests;
 /// </remarks>
 public class TerminalScrollbackConfigTests
 {
+    private const int WrittenLines = 30_000;
+    private const int LineWidth = 40;
+
     private static void WriteLines(Terminal term, int count, int width)
     {
         var line = new string('x', width) + "\r\n";
@@ -42,46 +45,52 @@ public class TerminalScrollbackConfigTests
         Assert.Equal(4321L, term.MaxScrollbackLines);
     }
 
-    // The two tests above only prove a value survives a round trip through the
-    // binding's own two constants -- TerminalOption.ScrollbackMaxLines to write,
-    // TerminalData.ScrollbackMaxLines to read. If BOTH were transcribed one off
-    // in the same direction they would name the *byte* limit, which sits
-    // immediately before the line limit in both upstream enums, and both tests
-    // would still pass while the knob we actually turn is the wrong one.
-    //
-    // These two discriminate, and they rely on a real asymmetry rather than on
-    // a magic number: upstream prunes BYTES at page granularity, and a page is
-    // roughly 400KB. The content below is ~200KB, so a byte limit of 300 would
-    // prune NOTHING and the terminal would retain all 5000 lines. A line limit
-    // of 300 retains a few hundred. The two outcomes are three orders of
-    // magnitude apart, so the band does not need to be tight.
-    //
-    // Both upstream limits default to unlimited, so nothing else is binding here.
-
+    /// <summary>
+    /// The configured limit actually governs how much history is retained.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The two tests above only prove a value survives a round trip through the
+    /// binding's own two constants -- <c>TerminalOption.ScrollbackMaxLines</c>
+    /// to write, <c>TerminalData.ScrollbackMaxLines</c> to read. If both were
+    /// transcribed one off in the same direction they would name the *byte*
+    /// limit, which sits immediately before the line limit in both upstream
+    /// enums, and both tests would still pass while the knob we turn is wrong.
+    /// </para>
+    /// <para>
+    /// This asserts a RATIO between two limits rather than an absolute row
+    /// count, and that shape is load-bearing. The first version of this test
+    /// bounded a single terminal's retained rows and passed for the wrong
+    /// reason: upstream prunes at page granularity, and a page of 80-column
+    /// rows turns out to hold roughly 900. A 300-line limit and a
+    /// 100,000-line limit both retained ~924 rows -- one page -- so the
+    /// "bounded" assertion was satisfied by the page floor while the line limit
+    /// did nothing observable. Comparing two limits removes that floor from the
+    /// comparison: it is present in both arms and cancels.
+    /// </para>
+    /// <para>
+    /// A byte limit cannot produce this ratio. Byte pruning is page-granular
+    /// too, so under a bytes mix-up both arms collapse to about one page and
+    /// the ratio goes to 1.
+    /// </para>
+    /// </remarks>
     [Fact]
-    public void MaxScrollbackLines_BoundsRetainedHistory()
+    public void MaxScrollbackLines_GovernsRetainedHistory()
     {
-        using var term = new Terminal(80, 24, o => o.MaxScrollbackLines = 300);
-        WriteLines(term, 5000, 40);
+        using var small = new Terminal(80, 24, o => o.MaxScrollbackLines = 500);
+        using var large = new Terminal(80, 24, o => o.MaxScrollbackLines = 25_000);
 
-        // Upstream prunes lines at page granularity too, so the retained count
-        // sits somewhat above the configured limit -- "dozens to a hundred or
-        // so" per its own docs. 1000 is generous headroom over 300 while still
-        // being nowhere near the 5000 that a non-binding limit would leave.
-        Assert.InRange(term.ScrollbackRows, 1, 1000);
-    }
+        WriteLines(small, WrittenLines, LineWidth);
+        WriteLines(large, WrittenLines, LineWidth);
 
-    [Fact]
-    public void MaxScrollbackLines_LargeLimitRetainsFarMore()
-    {
-        // The negative control for the test above: without this, that one could
-        // pass on a terminal that retains almost nothing for reasons unrelated
-        // to the limit we set.
-        using var term = new Terminal(80, 24, o => o.MaxScrollbackLines = 100_000);
-        WriteLines(term, 5000, 40);
+        var smallRows = small.ScrollbackRows;
+        var largeRows = large.ScrollbackRows;
 
         Assert.True(
-            term.ScrollbackRows > 2000,
-            $"a 100,000-line limit should retain most of 5000 written lines, got {term.ScrollbackRows}");
+            largeRows > smallRows * 3,
+            $"a 25,000-line limit should retain far more of {WrittenLines:N0} written lines than a "
+            + $"500-line limit, but got large={largeRows} vs small={smallRows}. A ratio near 1 means "
+            + "the configured limit is not governing retention -- most likely the byte limit is being "
+            + "set instead of the line limit.");
     }
 }
