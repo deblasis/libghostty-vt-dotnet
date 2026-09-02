@@ -25,12 +25,30 @@ runs:
     - name: Resolve required Zig version from upstream build.zig.zon
       id: resolve
       shell: bash
+      # Via `env:`, never `${{ }}` inside the script. A `${{ }}` expression is
+      # substituted textually before bash parses the line, so a caller passing
+      # a ref that came from a file (see ci.yml, where on a fork
+      # `pull_request` ghostty-upstream.json is attacker-controlled) would get
+      # arbitrary command execution here.
+      env:
+        GHOSTTY_REF: ${{ inputs.ghostty-ref }}
       run: |
         set -euo pipefail
-        REF='${{ inputs.ghostty-ref }}'
-        URL="https://raw.githubusercontent.com/ghostty-org/ghostty/${REF}/build.zig.zon"
 
-        if ! ZON=$(curl -sSfL "$URL"); then
+        # Defence in depth: every caller validates its own ref, but this
+        # action is reusable, so it refuses anything that is not plausibly a
+        # git ref before interpolating it into a URL. `=~` matches against the
+        # whole string, so an embedded newline is rejected too.
+        if ! [[ "$GHOSTTY_REF" =~ ^[0-9A-Za-z._/-]+$ ]]; then
+          echo "::error::ghostty-ref is not a plausible git ref; refusing to use it"
+          exit 1
+        fi
+
+        URL="https://raw.githubusercontent.com/ghostty-org/ghostty/${GHOSTTY_REF}/build.zig.zon"
+
+        # raw.githubusercontent.com rate-limits per shared-runner IP, and this
+        # action runs on all three legs of a matrix at once.
+        if ! ZON=$(curl -sSfL --retry 5 --retry-delay 3 --retry-all-errors "$URL"); then
           echo "::error::Could not fetch $URL"
           exit 1
         fi
