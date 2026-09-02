@@ -20,20 +20,28 @@
 # upstream adds (search.h, snapshot.h and io.h all appeared in one release)
 # are picked up without anyone remembering to edit a file.
 #
+# Exit codes: 0 success, 1 the generator could not produce trustworthy output.
+#
 # Usage:
 #   build/generate-bindings.sh <generator> [extra-args-rsp] [include-root]
 
 set -euo pipefail
 
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=build/ghostty-symbols.sh
+source "$SCRIPT_DIR/ghostty-symbols.sh"
+
 GENERATOR=${1:?usage: generate-bindings.sh <generator> [extra-args-rsp] [include-root]}
 EXTRA_ARGS=${2:-}
 INCLUDE_ROOT=${3:-ghostty-src/include/ghostty}
 OUTPUT=${OUTPUT:-src/Ghostty.Vt/Native/NativeMethods.cs}
+RSP=${RSP:-build/generate-bindings.rsp}
 
 [ -d "$INCLUDE_ROOT" ] || { echo "::error::include root not found: $INCLUDE_ROOT" >&2; exit 1; }
 
 TRAVERSE_RSP=$(mktemp)
-trap 'rm -f "$TRAVERSE_RSP"' EXIT
+LOG=$(mktemp)
+trap 'rm -f "$TRAVERSE_RSP" "$LOG"' EXIT
 
 while IFS= read -r header; do
   printf -- '--traverse\n%s\n' "$header" >> "$TRAVERSE_RSP"
@@ -46,14 +54,20 @@ if [ "$traverse_count" -eq 0 ]; then
 fi
 echo "Traversing $traverse_count headers under $INCLUDE_ROOT"
 
-LOG=$(mktemp)
-trap 'rm -f "$TRAVERSE_RSP" "$LOG"' EXIT
+# CRITICAL: the output path is a checked-in file that `actions/checkout` has
+# already placed on disk. If the generator writes nothing — which is exactly
+# how #46 failed for months — then a bare `[ -f "$OUTPUT" ]` passes and any
+# count taken from it silently measures the hand-maintained bindings instead
+# of generated output. That makes the gate report on a file the generator
+# never touched. Delete it first so "produced nothing" is distinguishable
+# from "produced something".
+rm -f "$OUTPUT"
 
 set +e
 if [ -n "$EXTRA_ARGS" ]; then
-  "$GENERATOR" @build/generate-bindings.rsp @"$EXTRA_ARGS" @"$TRAVERSE_RSP" 2>&1 | tee "$LOG"
+  "$GENERATOR" @"$RSP" @"$EXTRA_ARGS" @"$TRAVERSE_RSP" 2>&1 | tee "$LOG"
 else
-  "$GENERATOR" @build/generate-bindings.rsp @"$TRAVERSE_RSP" 2>&1 | tee "$LOG"
+  "$GENERATOR" @"$RSP" @"$TRAVERSE_RSP" 2>&1 | tee "$LOG"
 fi
 rc=${PIPESTATUS[0]}
 set -e
@@ -69,24 +83,42 @@ set -e
 warnings=$(grep -c 'Warning (Line' "$LOG" || true)
 errors=$(grep -c 'Error (Line' "$LOG" || true)
 fatals=$(grep -c 'fatal error:' "$LOG" || true)
+# A .NET crash produces neither: the original #46 failure was an unhandled
+# DllNotFoundException, which matches none of the diagnostic patterns above.
+crashes=$(grep -cE 'Unhandled exception|DllNotFoundException' "$LOG" || true)
 
-echo "Generator exit code $rc — $errors error(s), $fatals fatal(s), $warnings warning(s)"
+echo "Generator exit code $rc — $errors error(s), $fatals fatal(s), $crashes crash(es), $warnings warning(s)"
 
+if [ "$crashes" -gt 0 ]; then
+  echo "::error::Generator crashed (unhandled exception); bindings cannot be trusted" >&2
+  exit 1
+fi
 if [ "$errors" -gt 0 ] || [ "$fatals" -gt 0 ]; then
   echo "::error::Generator reported $errors error(s) and $fatals fatal(s); bindings cannot be trusted" >&2
   exit 1
 fi
 
-[ -f "$OUTPUT" ] || { echo "::error::generator produced no $OUTPUT" >&2; exit 1; }
+if [ ! -f "$OUTPUT" ]; then
+  echo "::error::Generator produced no $OUTPUT (exit code $rc). It wrote nothing at all — treat this as a broken generator, not as an empty diff." >&2
+  exit 1
+fi
 
-# Count the interop attribute, exactly one per bound function. Matching the
-# `extern` line as well would double-count, and a detector that reports a
-# number twice the truth is not one anybody should trust.
-emitted=$(grep -cE '^[[:space:]]*\[(DllImport|LibraryImport)' "$OUTPUT" || true)
-MIN_EXPECTED=${MIN_EXPECTED:-100}
-echo "Emitted P/Invoke declarations: $emitted (minimum expected: $MIN_EXPECTED)"
+# One attribute per bound function, whatever the declaration style.
+emitted=$(ghostty_interop_attribute_count "$OUTPUT")
+
+# The floor is derived from the headers actually being traversed, not a magic
+# constant: a fixed 100 would have let the generator silently lose 41% of a
+# 171-function surface, and would have drifted further from the truth with
+# every upstream release. ClangSharp legitimately skips a few declarations
+# (inline helpers, unsupported forms), so allow a margin rather than
+# demanding parity.
+exported=$(ghostty_exported_symbols "$INCLUDE_ROOT" | grep -c . || true)
+MIN_RATIO=${MIN_RATIO:-85}
+MIN_EXPECTED=${MIN_EXPECTED:-$(( exported * MIN_RATIO / 100 ))}
+
+echo "Emitted P/Invoke declarations: $emitted (headers export $exported; floor $MIN_EXPECTED = ${MIN_RATIO}%)"
 
 if [ "$emitted" -lt "$MIN_EXPECTED" ]; then
-  echo "::error::Generator emitted only $emitted P/Invoke declarations (expected at least $MIN_EXPECTED). It exited successfully but produced nothing usable — treat this as a broken generator, not as an empty diff." >&2
+  echo "::error::Generator emitted only $emitted P/Invoke declarations against $exported exported functions (floor $MIN_EXPECTED). It produced nothing usable — treat this as a broken generator, not as an empty diff." >&2
   exit 1
 fi

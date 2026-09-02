@@ -3,65 +3,70 @@
 # Verify that every native entry point declared in NativeMethods.cs still
 # exists as an exported declaration in a given ghostty include tree.
 #
-# Why this and not a diff of the generated file:
+# This is a NAME-EXISTENCE check and nothing more. It deliberately cannot see
+# a signature change: when ghostty_terminal_new lost its by-value options
+# struct upstream the name was untouched, so this reports a clean 97/97 while
+# the ABI silently corrupts. Catching that is the job of the generated-vs-
+# reference diff in ci.yml, not of this script. Neither check subsumes the
+# other and both are wired up.
 #
-#   NativeMethods.cs is not generator output and never has been. It is a
-#   hand-maintained, curated subset — 97 of the ~183 exported functions —
-#   written with LibraryImport and `internal` visibility, while
-#   ClangSharpPInvokeGenerator emits DllImport, `public`, and every symbol it
-#   can see. Diffing the two can therefore never come back clean, which made
-#   the old "regenerate and diff" check incapable of ever reporting good news.
-#
-#   What actually matters is narrower and checkable: does every entry point we
-#   P/Invoke still exist upstream? That is exactly the failure that cost 20
-#   test failures when the pin went stale (EntryPointNotFoundException for
-#   ghostty_terminal_mode_get/_set and ghostty_render_state_colors_get), and
-#   it is a question with a correct answer rather than a permanent diff.
+# Exit codes are distinct so callers can treat the two outcomes differently:
+#   0  every declared entry point is present
+#   1  DRIFT — one or more declared entry points no longer exist upstream
+#   2  CANNOT RUN — bad inputs; the question was never actually asked
 #
 # Usage:
 #   build/check-binding-symbols.sh <bindings.cs> <ghostty-include-dir>
-#
-# Exits non-zero, listing the offenders, if any declared entry point is gone.
 
 set -euo pipefail
 
-BINDINGS=${1:?usage: check-binding-symbols.sh <bindings.cs> <ghostty-include-dir>}
-INCLUDE=${2:?usage: check-binding-symbols.sh <bindings.cs> <ghostty-include-dir>}
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=build/ghostty-symbols.sh
+source "$SCRIPT_DIR/ghostty-symbols.sh"
 
-[ -f "$BINDINGS" ] || { echo "::error::bindings file not found: $BINDINGS" >&2; exit 1; }
-[ -d "$INCLUDE" ]  || { echo "::error::include directory not found: $INCLUDE" >&2; exit 1; }
+BINDINGS=${1:-}
+INCLUDE=${2:-}
 
-# LibraryImport uses the method name as the entry point; the file sets no
-# explicit EntryPoint anywhere, so the declared method names are the symbols.
-declared=$(grep -E 'static partial' "$BINDINGS" \
-  | grep -oE 'ghostty_[a-z0-9_]+' | sort -u)
+if [ -z "$BINDINGS" ] || [ -z "$INCLUDE" ]; then
+  echo "::error::usage: check-binding-symbols.sh <bindings.cs> <ghostty-include-dir>" >&2
+  exit 2
+fi
+[ -f "$BINDINGS" ] || { echo "::error::bindings file not found: $BINDINGS" >&2; exit 2; }
+[ -d "$INCLUDE" ]  || { echo "::error::include directory not found: $INCLUDE" >&2; exit 2; }
 
-# Only real declarations: the name immediately before the opening paren of a
-# GHOSTTY_API line. Matching bare "ghostty_x(" anywhere would also pick up
-# prose in doc comments, which routinely name replacement functions and would
-# therefore mask exactly the removals this is looking for. Taking the *last*
-# ghostty_ token before the paren also handles declarations whose return type
-# is itself snake_case (e.g. "GHOSTTY_API ghostty_info_s ghostty_info(").
-available=$(find "$INCLUDE" -name '*.h' -exec cat {} + \
-  | grep -hoE '^GHOSTTY_API[^(]*\(' \
-  | sed -E 's/.*[^A-Za-z0-9_](ghostty_[a-z0-9_]+)[[:space:]]*\($/\1/' \
-  | grep -E '^ghostty_[a-z0-9_]+$' | sort -u)
+# Both helpers end in `|| true`, so an empty result reaches the guards below
+# instead of killing the script under `set -e`. An earlier revision of this
+# file put the guards after bare pipelines, which meant `set -euo pipefail`
+# aborted on the failing grep and the guards were unreachable dead code — the
+# script exited 1 with completely empty output.
+declared=$(ghostty_declared_entry_points "$BINDINGS")
+available=$(ghostty_exported_symbols "$INCLUDE")
 
 declared_n=$(printf '%s\n' "$declared" | grep -c . || true)
 available_n=$(printf '%s\n' "$available" | grep -c . || true)
 
-# Both sides get an emptiness guard. An empty set on either side makes the
-# comparison trivially pass while verifying nothing, which is the same failure
-# shape as the job this script replaces: a check whose universe was empty and
-# which therefore always reported success.
+# An empty set on either side makes the comparison trivially pass while
+# verifying nothing — the same failure shape as the job this replaces.
 if [ "$available_n" -eq 0 ]; then
   echo "::error::No GHOSTTY_API declarations found under $INCLUDE — the header tree looks wrong, refusing to report a clean result" >&2
-  exit 1
+  exit 2
 fi
-
 if [ "$declared_n" -eq 0 ]; then
   echo "::error::No P/Invoke entry points found in $BINDINGS — wrong file, or the declaration style changed; refusing to report a clean result" >&2
-  exit 1
+  exit 2
+fi
+
+# Entry points are taken from the method names, which is only valid while no
+# declaration overrides them with EntryPoint=. Nothing enforced that, so a
+# single `[LibraryImport(Lib, EntryPoint = "ghostty_x")] static partial Foo()`
+# would drop silently out of the checked set: the count would slip from 97 to
+# 96 and the run would stay green while the binary threw
+# EntryPointNotFoundException. Assert the two counts agree instead of
+# asserting it in a comment.
+attributes_n=$(ghostty_interop_attribute_count "$BINDINGS")
+if [ "$declared_n" -ne "$attributes_n" ]; then
+  echo "::error::$BINDINGS has $attributes_n interop attributes but $declared_n resolvable entry-point names. A declaration is probably using EntryPoint= or an unrecognised form, which would silently shrink the checked set. Refusing to report a result." >&2
+  exit 2
 fi
 
 missing=$(comm -23 <(printf '%s\n' "$declared") <(printf '%s\n' "$available") || true)

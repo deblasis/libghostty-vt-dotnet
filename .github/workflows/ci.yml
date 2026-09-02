@@ -121,21 +121,59 @@ jobs:
         id: clangsharp
         uses: ./.github/actions/setup-clangsharp
 
+      # Gate 0 — test the gates themselves, with deliberately broken stub
+      # generators, before trusting anything they say below.
+      #
+      # These gates exist to fail, which makes a gate that has quietly become
+      # incapable of failing indistinguishable from one that is passing. That
+      # is #46 exactly, and the first fix for it reintroduced the same defect:
+      # the emitted-count check measured the checked-in file `actions/checkout`
+      # had left at the output path, so a generator that wrote nothing scored
+      # the hand-maintained bindings as its own output.
+      #
+      # Runs before the real regeneration, because it reads the committed
+      # NativeMethods.cs that the regeneration step deletes.
+      - name: Self-test the binding gates
+        run: bash build/selftest-binding-gates.sh ghostty-src/include/ghostty
+
       # Gate 1 — the generator must run AND emit a real P/Invoke surface.
       # Exit code alone is not evidence: it exits 0 while emitting nothing.
       - name: Regenerate bindings from the pinned headers
         run: bash build/generate-bindings.sh "${{ steps.clangsharp.outputs.generator }}" "${{ steps.clangsharp.outputs.extra-args-file }}"
 
-      # Gate 2 — every entry point the committed bindings P/Invoke must still
+      # Gate 2 — the generated output must match the checked-in reference,
+      # byte for byte.
+      #
+      # Generator-output-vs-NativeMethods.cs can never be clean, but
+      # generated-vs-generated is apples to apples and is byte-stable in
+      # practice (verified SHA-256 identical across independent runs). This is
+      # the only gate that can see a SIGNATURE change: when
+      # ghostty_terminal_new lost its by-value options struct upstream the
+      # name was untouched, so the entry-point check below reports a clean
+      # 97/97 while the ABI silently corrupts. Here it is a one-line diff.
+      - name: Check generated output matches the checked-in reference
+        run: |
+          if diff -u build/bindings-reference/NativeMethods.pinned.cs                     src/Ghostty.Vt/Native/NativeMethods.cs > "$RUNNER_TEMP/reference.diff"; then
+            echo "::notice title=Bindings::Generated output is byte-identical to the checked-in reference."
+            exit 0
+          fi
+          echo "::error title=Binding reference drift::The bindings the generator produces from the pinned headers no longer match build/bindings-reference/NativeMethods.pinned.cs. If ghostty-upstream.json moved, refresh the reference in the same commit (download the 'regenerated-bindings-pinned' artifact from this run and copy it over the reference file). If the pin did not move, the generator or its toolchain changed and that needs explaining before it is accepted."
+          head -c 20000 "$RUNNER_TEMP/reference.diff"
+          exit 1
+
+      # Gate 3 — every entry point the committed bindings P/Invoke must still
       # exist in the pinned headers. Read the committed file from git: the
-      # step above has just overwritten the working copy.
+      # regeneration step has replaced the working copy. This catches
+      # removals; gate 2 catches signature changes. Neither subsumes the other.
       - name: Check declared entry points still exist upstream
         run: |
           git show HEAD:src/Ghostty.Vt/Native/NativeMethods.cs > "$RUNNER_TEMP/committed-bindings.cs"
           bash build/check-binding-symbols.sh "$RUNNER_TEMP/committed-bindings.cs" ghostty-src/include/ghostty
 
-      # Kept as a reference for whoever lands an upstream bump, on success as
-      # well as failure. It is NOT a diff target — see the job comment.
+      # Uploaded on success as well as failure: on failure it is what you
+      # copy over the reference, and on success it is a convenient artifact.
+      # `error` is now meaningful — the regeneration step deletes the output
+      # path first, so a missing file here means the generator wrote nothing.
       - name: Upload regenerated bindings
         if: always()
         uses: actions/upload-artifact@v7

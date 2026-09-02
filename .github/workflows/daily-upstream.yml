@@ -212,15 +212,49 @@ jobs:
 
       # Reported, not failed: entry points disappearing at a *new* upstream
       # commit is the news this job exists to deliver, not a defect in the
-      # repo. ci.yml enforces the same check against the pinned commit, where
-      # a missing symbol really is a defect.
+      # repo. ci.yml runs the same check against the pinned commit, where a
+      # missing symbol really is a defect and does fail.
+      #
+      # Branching on the exit code matters. Treating "any non-zero" as drift
+      # would report a *broken checker* as news — a cheerful "binding drift"
+      # warning above an empty list of entry points — which is precisely the
+      # conflation between "detector says no" and "detector cannot speak" that
+      # #46 was made of. The script distinguishes them: 1 = drift, 2 = the
+      # question was never asked.
       - name: Report entry points removed upstream
         run: |
           git show HEAD:src/Ghostty.Vt/Native/NativeMethods.cs > "$RUNNER_TEMP/committed-bindings.cs"
-          if bash build/check-binding-symbols.sh "$RUNNER_TEMP/committed-bindings.cs" ghostty-src/include/ghostty; then
-            echo "::notice title=Bindings::Every declared entry point still exists at the new upstream commit."
+          set +e
+          bash build/check-binding-symbols.sh "$RUNNER_TEMP/committed-bindings.cs" ghostty-src/include/ghostty
+          rc=$?
+          set -e
+          case "$rc" in
+            0)
+              echo "::notice title=Bindings::Every declared entry point still exists at the new upstream commit."
+              ;;
+            1)
+              echo "::warning title=Binding drift::Entry points listed above no longer exist upstream. The bindings must be updated before this commit can be adopted; the 'regenerated-bindings' artifact holds the generator's view of the new API."
+              ;;
+            *)
+              echo "::error::check-binding-symbols.sh could not run (exit $rc). This is a broken check, not a clean result."
+              exit 1
+              ;;
+          esac
+
+      # Informational: what the upstream API change actually looks like, as a
+      # diff against the same reference ci.yml gates the pinned output on.
+      # This is the closest thing to a ready-made summary of the work a delta
+      # PR has to absorb, including signature changes that the entry-point
+      # check above cannot see.
+      - name: Summarise API change against the pinned reference
+        run: |
+          if diff -u build/bindings-reference/NativeMethods.pinned.cs                     src/Ghostty.Vt/Native/NativeMethods.cs > "$RUNNER_TEMP/upstream.diff"; then
+            echo "::notice title=API::The new upstream commit generates bindings identical to the pinned reference."
           else
-            echo "::warning title=Binding drift::Entry points listed above no longer exist upstream. The bindings must be updated before this commit can be adopted; the 'regenerated-bindings' artifact holds the generator's view of the new API."
+            added=$(grep -c '^+' "$RUNNER_TEMP/upstream.diff" || true)
+            removed=$(grep -c '^-' "$RUNNER_TEMP/upstream.diff" || true)
+            echo "::warning title=API::Upstream generates different bindings than the pinned reference (+${added}/-${removed} diff lines). See the log and the 'regenerated-bindings' artifact."
+            head -c 20000 "$RUNNER_TEMP/upstream.diff"
           fi
 
       - name: Upload bindings
@@ -401,6 +435,12 @@ jobs:
     # pipeline; leaving it out here as well would have made it silent in the
     # one place anyone actually looks — which is precisely how #46 went
     # unnoticed for months.
+    #
+    # Known consequence of that choice, deliberately accepted: if
+    # `regenerate-bindings` fails while `publish` succeeds, this files
+    # "Daily upstream sync is failing" on a run that DID publish to NuGet and
+    # DID move the pin. The alert is correct that something needs attention,
+    # but its title overstates what went wrong — read the run before acting.
     needs: [check-upstream, regenerate-bindings, publish]
     if: failure()
     runs-on: ubuntu-latest
