@@ -50,8 +50,17 @@ available=$(find "$INCLUDE" -name '*.h' -exec cat {} + \
 declared_n=$(printf '%s\n' "$declared" | grep -c . || true)
 available_n=$(printf '%s\n' "$available" | grep -c . || true)
 
+# Both sides get an emptiness guard. An empty set on either side makes the
+# comparison trivially pass while verifying nothing, which is the same failure
+# shape as the job this script replaces: a check whose universe was empty and
+# which therefore always reported success.
 if [ "$available_n" -eq 0 ]; then
   echo "::error::No GHOSTTY_API declarations found under $INCLUDE — the header tree looks wrong, refusing to report a clean result" >&2
+  exit 1
+fi
+
+if [ "$declared_n" -eq 0 ]; then
+  echo "::error::No P/Invoke entry points found in $BINDINGS — wrong file, or the declaration style changed; refusing to report a clean result" >&2
   exit 1
 fi
 
