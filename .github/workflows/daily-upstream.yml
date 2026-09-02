@@ -389,6 +389,12 @@ jobs:
         if: env.DRY_RUN != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # This job deliberately has no `actions/checkout` — it only talks to
+          # the API — so `gh` has no git remote to infer the repo from and
+          # would fail with "not a git repository". GH_REPO supplies it
+          # without cloning. (The old step worked only because it happened to
+          # sit inside `publish`, which checks out.)
+          GH_REPO: ${{ github.repository }}
           COMMIT: ${{ needs.check-upstream.outputs.new_commit }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           TITLE: Daily upstream sync is failing
