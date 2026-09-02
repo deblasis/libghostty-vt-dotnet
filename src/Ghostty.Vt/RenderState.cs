@@ -48,8 +48,11 @@ public sealed class RenderState : IDisposable
             new Span<byte>(buf, StructSize).Clear();
             *(nuint*)(buf + 0) = StructSize; // size field
 
-            var result = NativeMethods.ghostty_render_state_colors_get(
-                _handle.DangerousGetHandle(), buf);
+            // ghostty_render_state_colors_get was folded into the generic
+            // accessor; the sized-struct contract (zeroed, `size` set) is
+            // unchanged, and is what the buffer setup above satisfies.
+            var result = NativeMethods.ghostty_render_state_get(
+                _handle.DangerousGetHandle(), (int)RenderStateData.Colors, buf);
             GhosttyException.ThrowIfFailure(result);
 
             // Read fields at exact offsets per type JSON:
@@ -209,6 +212,14 @@ public enum RenderStateData
     CursorViewportX = 15,
     CursorViewportY = 16,
     CursorViewportWideTail = 17,
+    /// <summary>All cursor state in one sized struct (GhosttyRenderStateCursor).</summary>
+    Cursor = 18,
+    /// <summary>
+    /// All render-state colors in one sized struct (GhosttyRenderStateColors).
+    /// The output must be zeroed with its <c>size</c> field set before querying.
+    /// Replaces the removed <c>ghostty_render_state_colors_get</c>.
+    /// </summary>
+    Colors = 19,
 }
 
 public ref struct RenderStateRowEnumerable

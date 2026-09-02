@@ -20,14 +20,29 @@ public sealed unsafe class Terminal : IDisposable
         configure?.Invoke(options);
         _options = options;
 
-        var nativeOpts = options.BuildNativeOptions(cols, rows);
         nint handle = nint.Zero;
         var result = NativeMethods.ghostty_terminal_new(
             nint.Zero, // default allocator
             &handle,
-            nativeOpts);
+            (ushort)cols,
+            (ushort)rows);
         if (result != 0 || handle == nint.Zero)
             throw new GhosttyException($"Failed to create terminal (result={result})");
+
+        // Max scrollback used to ride along in the construction options struct.
+        // Upstream removed that struct, so it is a post-construction set now.
+        // Applied before the handle is wrapped, so the failure path is a plain
+        // free with no SafeHandle to keep consistent, and before callbacks are
+        // registered so native cannot call into managed code mid-configuration.
+        var maxScrollback = options.MaxScrollbackLines;
+        var scrollbackResult = NativeMethods.ghostty_terminal_set(
+            handle, (int)TerminalOption.ScrollbackMaxLines, &maxScrollback);
+        if (scrollbackResult != 0)
+        {
+            NativeMethods.ghostty_terminal_free(handle);
+            throw new GhosttyException(
+                $"Failed to set max scrollback lines (result={scrollbackResult})");
+        }
 
         _handle = new TerminalSafeHandle(handle);
 
@@ -220,6 +235,15 @@ public sealed unsafe class Terminal : IDisposable
     public TerminalScreen ActiveScreen => (TerminalScreen)QueryInt(TerminalData.ActiveScreen);
     public int TotalRows => QueryInt(TerminalData.TotalRows);
     public int ScrollbackRows => QueryInt(TerminalData.ScrollbackRows);
+
+    /// <summary>
+    /// The configured maximum number of physical scrollback lines, as set by
+    /// <see cref="TerminalOptions.MaxScrollbackLines"/>. Upstream reports the
+    /// primary screen's configured value even while an alternate screen is
+    /// active, and this is the configured limit, not the retained line count --
+    /// pruning happens at page granularity, so the retained count runs higher.
+    /// </summary>
+    public int MaxScrollbackLines => QueryInt(TerminalData.ScrollbackMaxLines);
     public int WidthPx => QueryInt(TerminalData.WidthPx);
     public int HeightPx => QueryInt(TerminalData.HeightPx);
     public bool MouseTracking => QueryInt(TerminalData.MouseTracking) != 0;
@@ -407,20 +431,42 @@ public sealed unsafe class Terminal : IDisposable
         NativeMethods.ghostty_terminal_reset(_handle.DangerousGetHandle());
     }
 
+    /// <summary>Reads the current value of a terminal mode.</summary>
+    /// <remarks>
+    /// <c>ghostty_terminal_mode_get</c> no longer exists upstream; modes are read
+    /// through the generic accessor with <see cref="TerminalData.Mode"/>, passing
+    /// a config struct whose <c>Mode</c> field the caller initialises.
+    /// </remarks>
+    /// <exception cref="GhosttyException">The mode is not recognised.</exception>
     public bool ModeGet(TerminalMode mode)
     {
         ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
-        byte value = 0;
-        NativeMethods.ghostty_terminal_mode_get(
-            _handle.DangerousGetHandle(), (uint)mode, &value);
-        return value != 0;
+        var config = new GhosttyTerminalModeConfigNative { Mode = (ushort)mode, Value = 0 };
+        var result = NativeMethods.ghostty_terminal_get(
+            _handle.DangerousGetHandle(), (int)TerminalData.Mode, &config);
+        // The previous binding discarded this result, so an unrecognised mode
+        // silently read as false. Upstream returns GHOSTTY_INVALID_VALUE for one.
+        GhosttyException.ThrowIfFailure(result);
+        return config.Value != 0;
     }
 
+    /// <summary>Sets the current value of a terminal mode.</summary>
+    /// <remarks>
+    /// Writes the live value only; the value restored by a full reset (RIS) is a
+    /// separate option (<see cref="TerminalOption.ModeDefault"/>).
+    /// </remarks>
+    /// <exception cref="GhosttyException">The mode is not recognised.</exception>
     public void ModeSet(TerminalMode mode, bool value)
     {
         ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
-        NativeMethods.ghostty_terminal_mode_set(
-            _handle.DangerousGetHandle(), (uint)mode, (byte)(value ? 1 : 0));
+        var config = new GhosttyTerminalModeConfigNative
+        {
+            Mode = (ushort)mode,
+            Value = (byte)(value ? 1 : 0),
+        };
+        var result = NativeMethods.ghostty_terminal_set(
+            _handle.DangerousGetHandle(), (int)TerminalOption.Mode, &config);
+        GhosttyException.ThrowIfFailure(result);
     }
 
     public void ScrollViewportToTop()
