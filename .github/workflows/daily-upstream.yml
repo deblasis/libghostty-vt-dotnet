@@ -254,6 +254,15 @@ jobs:
             added=$(grep -c '^+' "$RUNNER_TEMP/upstream.diff" || true)
             removed=$(grep -c '^-' "$RUNNER_TEMP/upstream.diff" || true)
             echo "::warning title=API::Upstream generates different bindings than the pinned reference (+${added}/-${removed} diff lines). See the log and the 'regenerated-bindings' artifact."
+            # Signature-level changes first, and unabridged. These are the
+            # highest-signal subset and are what the entry-point check cannot
+            # see: ghostty_terminal_new losing its by-value options struct is
+            # one line here and invisible everywhere else. Printing only the
+            # truncated head of the full diff would have buried it -- in the
+            # first run of this step it fell past the 20000-character cut.
+            echo "--- changed declarations (signature level) ---"
+            grep -E '^[+-].*static extern' "$RUNNER_TEMP/upstream.diff" || true
+            echo "--- full diff (truncated) ---"
             head -c 20000 "$RUNNER_TEMP/upstream.diff"
           fi
 
