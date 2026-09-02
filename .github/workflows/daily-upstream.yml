@@ -395,7 +395,13 @@ jobs:
   # how a maintainer says "handled" — if the condition recurs after that, a
   # fresh issue is the right outcome.
   notify-failure:
-    needs: [check-upstream, publish]
+    # `regenerate-bindings` is listed even though nothing consumes it, so that
+    # a broken generator reaches the tracker issue and not just the run's
+    # colour. Removing it from `publish`'s dependencies stopped it gating the
+    # pipeline; leaving it out here as well would have made it silent in the
+    # one place anyone actually looks — which is precisely how #46 went
+    # unnoticed for months.
+    needs: [check-upstream, regenerate-bindings, publish]
     if: failure()
     runs-on: ubuntu-latest
     permissions:
