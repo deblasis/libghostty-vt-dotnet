@@ -8,7 +8,38 @@ This document is for maintainers. Day-to-day users should see the [README](READM
 
 - Package `1.3.2` corresponds to upstream Ghostty `v1.3.2`, always.
 - Packaging-only respins (e.g. a bad `.snupkg`, a missing native artifact) ship as a 4-digit version: `1.3.2.1`, `1.3.2.2`, etc. SemVer permits this.
-- There are no independent version bumps. If our .NET surface changes in a breaking way without an upstream bump, we wait for the next upstream release rather than breaking the mirror.
+- There are no independent version bumps. If our .NET surface changes in a breaking way without an upstream bump, we do **not** invent a version of our own — see interim prereleases below.
+
+### Interim prereleases
+
+A tag may carry a prerelease suffix — `v1.4.0-rc.1` — to ship a validated
+binding surface **before** upstream cuts the release it mirrors.
+
+This does not break the mirror; it extends it forward. The tag still names the
+upstream version the binding is *for*, and SemVer orders `1.4.0-rc.1` below
+`1.4.0`, so the eventual stable supersedes it without a version collision. It
+also sorts above every `1.3.2-ci.*` build from the daily stream, so
+`--prerelease` consumers get the newer surface.
+
+The guards differ from a stable release in exactly one way: a `-dev` upstream
+is expected rather than fatal, because the version being named has not been cut
+yet. What is still enforced is **direction** — a prerelease may name the
+upstream version in flight or a later one, never an earlier one, which would
+claim to mirror a release that has already shipped with a settled, different
+surface.
+
+Use this when the binding has changed in a way consumers need and upstream's
+next stable has not landed. Prefer waiting when it has not.
+
+**The version you name is a bet.** If you tag `v1.4.0-rc.1` and upstream's next
+stable turns out to be `1.3.3`, the prerelease is stranded — nuget.org publishes
+cannot be deleted, only unlisted. Name a version you have reason to believe is
+coming.
+
+`build/selftest-release-guards.sh` covers both guards and runs in CI. It
+executes the workflow's real `run:` blocks rather than a copy of them, and every
+refusal case asserts *which* refusal fired — a guard that exits non-zero for an
+unrelated reason otherwise looks identical to one that works.
 
 This keeps the story on nuget.org one sentence long: *"install `1.3.2` to get the VT parser from Ghostty `v1.3.2`."*
 

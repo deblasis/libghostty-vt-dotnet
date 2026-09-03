@@ -23,6 +23,7 @@ jobs:
       upstream_commit: ${{ steps.pin.outputs.upstream_commit }}
       upstream_version: ${{ steps.verify.outputs.upstream_version }}
       is_dry_run: ${{ steps.compute.outputs.is_dry_run }}
+      is_prerelease: ${{ steps.compute.outputs.is_prerelease }}
     steps:
       - uses: actions/checkout@v4
 
@@ -38,16 +39,33 @@ jobs:
           fi
 
           TAG="${{ github.ref_name }}"
-          # Guard 1 — tag shape. Permits v1.2.3 and v1.2.3.4 (respin).
-          if ! echo "$TAG" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$'; then
-            echo "::error::Tag $TAG does not match v<X.Y.Z> or v<X.Y.Z.N>"
+          # Guard 1 — tag shape. Permits:
+          #   v1.2.3        stable
+          #   v1.2.3.4      packaging respin
+          #   v1.2.3-rc.1   INTERIM PRERELEASE (see Guard 2 and RELEASING.md)
+          #
+          # An interim prerelease exists so we can ship a validated binding
+          # surface before upstream cuts the stable release it mirrors. SemVer
+          # orders 1.4.0-rc.1 below 1.4.0, so the eventual stable supersedes it
+          # without a version collision, and it sorts above every 1.3.2-ci.*
+          # build in the daily stream.
+          if ! echo "$TAG" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::Tag $TAG does not match v<X.Y.Z>, v<X.Y.Z.N>, or v<X.Y.Z-prerelease>"
             exit 1
           fi
           VERSION="${TAG#v}"
-          BASE=$(echo "$VERSION" | awk -F. '{printf "%s.%s.%s", $1, $2, $3}')
+          # Strip the prerelease suffix before deriving the numeric base, or
+          # `awk -F.` would fold "0-rc" into the patch field.
+          NUMERIC="${VERSION%%-*}"
+          case "$VERSION" in
+            *-*) PRERELEASE=true ;;
+            *)   PRERELEASE=false ;;
+          esac
+          BASE=$(echo "$NUMERIC" | awk -F. '{printf "%s.%s.%s", $1, $2, $3}')
           echo "is_dry_run=false" >> "$GITHUB_OUTPUT"
           echo "package_version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "base_version=$BASE" >> "$GITHUB_OUTPUT"
+          echo "is_prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
 
       - name: Resolve upstream pin
         id: pin
@@ -93,15 +111,35 @@ jobs:
             echo "::error::Could not parse .version from upstream build.zig.zon"
             exit 1
           fi
-          case "$UPSTREAM" in
-            *-dev)
-              echo "::error::Upstream version $UPSTREAM is a -dev build; refusing to release"
+          PRERELEASE="${{ steps.compute.outputs.is_prerelease }}"
+          UPSTREAM_NUMERIC="${UPSTREAM%%-*}"
+
+          if [ "$PRERELEASE" = "true" ]; then
+            # Interim prerelease. The mirror still holds -- the tag names the
+            # upstream version this binding is FOR -- but that version may not
+            # be cut yet, so a -dev upstream is expected rather than fatal.
+            #
+            # The one thing still enforced is direction: a prerelease may name
+            # the upstream version in flight or a later one, never an earlier
+            # one, which would claim to mirror a release that has already
+            # shipped with a different surface.
+            LOWEST=$({ echo "$UPSTREAM_NUMERIC"; echo "$BASE"; } | sort -V | head -1)
+            if [ "$BASE" != "$UPSTREAM_NUMERIC" ] && [ "$LOWEST" = "$BASE" ]; then
+              echo "::error::Prerelease tag base $BASE is BEHIND upstream $UPSTREAM. A prerelease may name the version in flight or a later one, never an earlier one."
               exit 1
-              ;;
-          esac
-          if [ "$UPSTREAM" != "$BASE" ]; then
-            echo "::error::Tag base version $BASE does not match upstream $UPSTREAM"
-            exit 1
+            fi
+            echo "::notice::Interim prerelease $BASE against upstream $UPSTREAM. Publishing ahead of the stable it mirrors; SemVer orders it below $BASE."
+          else
+            case "$UPSTREAM" in
+              *-dev)
+                echo "::error::Upstream version $UPSTREAM is a -dev build; refusing to cut a STABLE release. Tag an interim prerelease (v${BASE}-rc.1) if you need to ship before upstream does."
+                exit 1
+                ;;
+            esac
+            if [ "$UPSTREAM" != "$BASE" ]; then
+              echo "::error::Tag base version $BASE does not match upstream $UPSTREAM"
+              exit 1
+            fi
           fi
           echo "upstream_version=$UPSTREAM" >> "$GITHUB_OUTPUT"
 
@@ -298,15 +336,28 @@ jobs:
           PKG_VERSION: ${{ needs.preflight.outputs.package_version }}
           UPSTREAM_COMMIT: ${{ needs.preflight.outputs.upstream_commit }}
           UPSTREAM_VERSION: ${{ needs.preflight.outputs.upstream_version }}
+          IS_PRERELEASE: ${{ needs.preflight.outputs.is_prerelease }}
         run: |
+          if [ "$IS_PRERELEASE" = "true" ]; then
+            HEADLINE="Interim prerelease of DeBlasis.GhosttyVt ${PKG_VERSION}, built from upstream ghostty-org/ghostty@${UPSTREAM_COMMIT} (Ghostty ${UPSTREAM_VERSION})."
+            CAVEAT="Ships ahead of the upstream stable it mirrors. SemVer orders it below ${PKG_VERSION%%-*}, which supersedes it when upstream cuts that release. Install with --prerelease."
+            PRERELEASE_FLAG=(--prerelease)
+          else
+            HEADLINE="Stable release of DeBlasis.GhosttyVt ${PKG_VERSION}, built from upstream ghostty-org/ghostty@${UPSTREAM_COMMIT} (Ghostty ${UPSTREAM_VERSION})."
+            CAVEAT=""
+            PRERELEASE_FLAG=()
+          fi
           NOTES=$(printf '%s\n' \
-            "Stable release of DeBlasis.GhosttyVt ${PKG_VERSION}, built from upstream ghostty-org/ghostty@${UPSTREAM_COMMIT} (Ghostty ${UPSTREAM_VERSION})." \
+            "$HEADLINE" \
+            "" \
+            "$CAVEAT" \
             "" \
             "📦 https://www.nuget.org/packages/DeBlasis.GhosttyVt/${PKG_VERSION}" \
             "" \
             "---")
           gh release create "v${PKG_VERSION}" \
             --title "v${PKG_VERSION}" \
+            "${PRERELEASE_FLAG[@]}" \
             --generate-notes \
             --notes "$NOTES"
 

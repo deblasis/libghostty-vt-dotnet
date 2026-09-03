@@ -88,6 +88,20 @@ jobs:
   # asks the question that actually has a right answer: are the symbols we
   # P/Invoke still there? That is precisely the failure that cost 20 test
   # failures when the pin went stale.
+  # The release guards decide what may be published to nuget.org, and a
+  # nuget.org publish is irreversible -- a wrong version can only be unlisted,
+  # never replaced. Like the binding gates, they exist to REFUSE, so a guard
+  # that has silently lost the ability to refuse is indistinguishable from one
+  # that is passing. The self-test executes the workflow's real `run:` blocks
+  # rather than a copy, and asserts which refusal fired, not merely that one
+  # did.
+  release-guards:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Self-test the release version guards
+        run: bash build/selftest-release-guards.sh
+
   bindings-drift:
     runs-on: ubuntu-latest
     steps:
