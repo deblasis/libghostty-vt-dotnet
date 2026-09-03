@@ -12,8 +12,15 @@ This document is for maintainers. Day-to-day users should see the [README](READM
 
 ### Interim prereleases
 
-A tag may carry a prerelease suffix — `v1.4.0-rc.1` — to ship a validated
+A tag may carry an `-rc.<n>` suffix — `v1.4.0-rc.1` — to ship a validated
 binding surface **before** upstream cuts the release it mirrors.
+
+The label is deliberately restricted to `rc`, not an open alphabet. The daily
+sync publishes `<upstream>-ci.<timestamp>.<sha>` to the same package, and SemVer
+compares prerelease identifiers alphabetically: `alpha < beta < ci < dev < rc`.
+A `v1.3.2-beta.2` would therefore sort *below* every nightly already on
+nuget.org and never resolve for a `--prerelease` consumer — the opposite of the
+point — and it could not be withdrawn afterwards.
 
 This does not break the mirror; it extends it forward. The tag still names the
 upstream version the binding is *for*, and SemVer orders `1.4.0-rc.1` below

@@ -29,16 +29,24 @@ jobs:
 
       - name: Compute version and dry-run flag
         id: compute
+        env:
+          # Passed through the environment rather than interpolated into the
+          # script. A git ref may legally contain a backtick, so
+          # `TAG="${{ github.ref_name }}"` is a command-substitution site that
+          # runs BEFORE Guard 1 has looked at the tag at all. ci.yml already
+          # uses this pattern for the pinned commit.
+          EVENT_NAME: ${{ github.event_name }}
+          TAG: ${{ github.ref_name }}
+          RUN_ID: ${{ github.run_id }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             echo "is_dry_run=true" >> "$GITHUB_OUTPUT"
             # Disposable version so `dotnet pack` succeeds; never published.
-            echo "package_version=0.0.0-dryrun.${{ github.run_id }}" >> "$GITHUB_OUTPUT"
+            echo "package_version=0.0.0-dryrun.${RUN_ID}" >> "$GITHUB_OUTPUT"
             echo "base_version=dryrun" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          TAG="${{ github.ref_name }}"
           # Guard 1 — tag shape. Permits:
           #   v1.2.3        stable
           #   v1.2.3.4      packaging respin
@@ -49,8 +57,16 @@ jobs:
           # orders 1.4.0-rc.1 below 1.4.0, so the eventual stable supersedes it
           # without a version collision, and it sorts above every 1.3.2-ci.*
           # build in the daily stream.
-          if ! echo "$TAG" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?(-[0-9A-Za-z.-]+)?$'; then
-            echo "::error::Tag $TAG does not match v<X.Y.Z>, v<X.Y.Z.N>, or v<X.Y.Z-prerelease>"
+          #
+          # The label is deliberately ONLY `-rc.<n>`, not an open alphabet.
+          # The daily sync publishes `<upstream>-ci.<ts>.<sha>` to this same
+          # package, and SemVer compares prerelease identifiers alphabetically:
+          # alpha < beta < ci < dev < rc. A `v1.3.2-beta.2` would therefore sort
+          # BELOW every nightly already on nuget.org, so `--prerelease`
+          # consumers would never resolve to it -- the exact opposite of why
+          # this exists -- and nuget publishes cannot be withdrawn.
+          if ! echo "$TAG" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?(-rc\.[0-9]+)?$'; then
+            echo "::error::Tag $TAG does not match v<X.Y.Z>, v<X.Y.Z.N>, or v<X.Y.Z-rc.N>"
             exit 1
           fi
           VERSION="${TAG#v}"

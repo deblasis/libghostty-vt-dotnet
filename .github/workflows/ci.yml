@@ -88,6 +88,8 @@ jobs:
   # asks the question that actually has a right answer: are the symbols we
   # P/Invoke still there? That is precisely the failure that cost 20 test
   # failures when the pin went stale.
+
+  # ---------------------------------------------------------------------
   # The release guards decide what may be published to nuget.org, and a
   # nuget.org publish is irreversible -- a wrong version can only be unlisted,
   # never replaced. Like the binding gates, they exist to REFUSE, so a guard
