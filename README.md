@@ -79,6 +79,10 @@ The library ships as [`DeBlasis.GhosttyVt`](https://www.nuget.org/packages/DeBla
 | Linux x64 | `linux-x64` | `libghostty-vt.so` |
 | macOS ARM64 | `osx-arm64` | `libghostty-vt.dylib` |
 
+## Used in
+
+[wintty](https://wintty.io), a Windows terminal built on Ghostty, uses this library for its persistent session panes.
+
 ## Development
 
 ```powershell

@@ -70,6 +70,10 @@ Package versions track the upstream Ghostty version they were built against. Pre
 
 The `ghostty-upstream.json` file in the [repository](https://github.com/deblasis/libghostty-vt-dotnet) pins the exact upstream commit each release was cut from.
 
+## Used in
+
+[wintty](https://wintty.io), a Windows terminal built on Ghostty, uses this library for its persistent session panes.
+
 ## Links
 
 - **Source & issues:** <https://github.com/deblasis/libghostty-vt-dotnet>
