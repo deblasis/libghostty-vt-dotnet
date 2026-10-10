@@ -30,7 +30,7 @@ jobs:
       new_commit: ${{ steps.check.outputs.commit }}
       new_version: ${{ steps.check.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Check for upstream changes
         id: check
@@ -133,7 +133,7 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Version comes from the upstream commit's own build.zig.zon, so an
       # upstream Zig bump no longer silently breaks every sync (issue #43).
@@ -189,7 +189,7 @@ jobs:
     # <stdint.h>, ...) from glibc without pulling in the MSVC/Windows SDK.
     # The rsp file passes --target=x86_64-pc-linux-gnu to match.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Download Ghostty source
         uses: actions/download-artifact@v8
@@ -297,7 +297,7 @@ jobs:
       # a repo where NUGET_API_KEY is set. Empty (falsy) on scheduled runs.
       DRY_RUN: ${{ inputs.dry_run == true }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5

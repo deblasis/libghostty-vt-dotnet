@@ -25,7 +25,7 @@ jobs:
       is_dry_run: ${{ steps.compute.outputs.is_dry_run }}
       is_prerelease: ${{ steps.compute.outputs.is_prerelease }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Compute version and dry-run flag
         id: compute
@@ -193,7 +193,7 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Derived from the pinned commit being released, so the toolchain
       # tracks the pin automatically as the daily sync moves it (issue #43).
@@ -228,7 +228,7 @@ jobs:
     needs: [preflight, build-native]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -295,7 +295,7 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -322,7 +322,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
