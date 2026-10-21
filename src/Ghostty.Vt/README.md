@@ -57,7 +57,7 @@ foreach (var row in renderState.Rows)
 
 ## Raw ABI access
 
-The curated API above is a subset of libghostty-vt. `Ghostty.Vt.Raw` exposes the full generated C ABI: every exported function, struct, enum and constant.
+The curated API above is a subset of libghostty-vt. `Ghostty.Vt.Raw` exposes the full generated C ABI: all functions declared in the public C headers, plus the generated structs, enums and constants.
 
 ```csharp
 using Ghostty.Vt.Raw;

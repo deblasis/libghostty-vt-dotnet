@@ -14,8 +14,7 @@ public class PublicSurfaceTests
             .ToArray();
 
         var actual = typeof(Terminal).Assembly.GetExportedTypes()
-            .Where(type => type.Namespace?.StartsWith(
-                "Ghostty.Vt.Raw", StringComparison.Ordinal) != true)
+            .Where(type => type.Namespace != "Ghostty.Vt.Raw")
             .Select(type => type.FullName!)
             .OrderBy(name => name, StringComparer.Ordinal)
             .ToArray();

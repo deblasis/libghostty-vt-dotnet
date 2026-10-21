@@ -42,8 +42,7 @@ CLASS = re.compile(
     r"(?:sealed\s+)?(?:partial\s+)?class\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)"
 )
 TYPE = re.compile(
-    r"^\s*(?P<access>public|internal)\s+"
-    r"(?:static\s+|unsafe\s+|sealed\s+|partial\s+|readonly\s+)*"
+    r"^\s*(?P<mods>(?:(?:public|internal|static|unsafe|sealed|partial|readonly)\s+)*)"
     r"(?P<kind>struct|enum|class)\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)"
 )
 INTERNAL_HELPERS = {"NativeTypeNameAttribute", "NativeAnnotationAttribute"}
@@ -201,16 +200,24 @@ def main() -> None:
             fail(f"{COMPILED}:{line_number}: raw entry points must be public")
 
         type_match = TYPE.match(line)
-        if (
-            type_match
-            and type_match.group("access") != "public"
-            and type_match.group("name") not in INTERNAL_HELPERS
-        ):
-            fail(
-                f"{COMPILED}:{line_number}: generated type "
-                f"{type_match.group('name')} is {type_match.group('access')}; "
-                "raw types must be public"
-            )
+        if type_match:
+            modifiers = type_match.group("mods").split()
+            name = type_match.group("name")
+            if "public" not in modifiers and "internal" not in modifiers:
+                fail(
+                    f"{COMPILED}:{line_number}: generated type {name} has no "
+                    "access modifier; raw types must be explicitly public"
+                )
+            if "internal" in modifiers and name not in INTERNAL_HELPERS:
+                fail(
+                    f"{COMPILED}:{line_number}: generated type {name} is "
+                    "internal; raw types must be public"
+                )
+            if "public" in modifiers and name in INTERNAL_HELPERS:
+                fail(
+                    f"{COMPILED}:{line_number}: helper type {name} must stay "
+                    "internal"
+                )
 
     imports = [
         line

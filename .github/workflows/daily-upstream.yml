@@ -350,16 +350,13 @@ jobs:
           if-no-files-found: error
 
   publish:
-    # `regenerate-bindings` feeds the pinned binding reference now, so the pin
-    # move and the reference refresh land in one commit and keep `ci.yml`'s
-    # byte-identical gate green. A failed detector must still not stop the
-    # package from publishing (#46), so the job-level `if` runs on
-    # `!cancelled()` plus explicit check-upstream/build-native result checks.
-    #
-    # The pin move itself is held when the reference is unavailable. Moving the
-    # pin alone would leave main pointing at a stale reference and, because the
-    # next night sees `changed=false`, there would be no automatic retry. The
-    # package can still publish; the pin waits for a generator that works.
+    # `regenerate-bindings` feeds both the pinned reference and the public raw
+    # ABI layer. A failed generator must not ship a package whose raw
+    # signatures belong to the previous pin, so publishing and the pin move are
+    # held; the next nightly retries. Build/Test/Pack still run to validate the
+    # curated surface. The job-level `if` runs on `!cancelled()` plus explicit
+    # check-upstream/build-native result checks so this job can make that
+    # decision instead of being skipped.
     needs: [check-upstream, build-native, regenerate-bindings]
     if: |
       !cancelled() &&
@@ -497,7 +494,9 @@ jobs:
       - name: Publish to NuGet
         # dotnet nuget push automatically pushes the matching *.snupkg symbols
         # package from the same folder. --skip-duplicate makes retries safe.
-        if: env.NUGET_API_KEY != '' && env.DRY_RUN != 'true'
+        # The raw ABI layer is part of the package; a generator failure must
+        # not publish a package with signatures from the previous pin.
+        if: env.NUGET_API_KEY != '' && env.DRY_RUN != 'true' && needs.regenerate-bindings.result == 'success'
         run: |
           dotnet nuget push "artifacts/*.nupkg" \
             --api-key "$NUGET_API_KEY" \
@@ -546,10 +545,10 @@ jobs:
           git diff --cached --quiet || git commit -m "$MESSAGE"
           git push
 
-      - name: Hold pin (binding reference unavailable)
+      - name: Hold publish and pin (binding reference unavailable)
         if: env.NUGET_API_KEY != '' && env.DRY_RUN != 'true' && needs.regenerate-bindings.result != 'success'
         run: |
-          echo "::warning title=Binding reference::regenerate-bindings did not succeed; keeping the pin at the current commit so main stays consistent. The package was published; the next nightly retries the pin move."
+          echo "::warning title=Binding reference::regenerate-bindings did not succeed; publishing and the pin move are held so the package cannot ship stale raw signatures. The next nightly retries."
 
       - name: Create GitHub Release
         if: env.NUGET_API_KEY != '' && env.DRY_RUN != 'true' && needs.regenerate-bindings.result == 'success'
@@ -584,10 +583,10 @@ jobs:
     # place anyone actually looks — precisely how #46 went unnoticed.
     #
     # Known consequence of that choice, deliberately accepted: if
-    # `regenerate-bindings` fails while the package publishes, this files
-    # "Daily upstream sync is failing" on a run that published to NuGet but
-    # did not move the pin. The alert is correct that something needs
-    # attention; read the run before acting.
+    # `regenerate-bindings` fails, this files "Daily upstream sync is failing"
+    # on a run that built and tested but held publishing and the pin. The
+    # alert is correct that something needs attention; read the run before
+    # acting.
     needs: [check-upstream, regenerate-bindings, publish]
     if: failure()
     runs-on: ubuntu-latest
@@ -626,7 +625,7 @@ jobs:
             gh issue create --title "$TITLE" --body \
           "The daily upstream sync failed for upstream \`${COMMIT}\` — [run](${RUN_URL}).
 
-          The package may still have published; the pin is only moved when the generated binding reference is available.
+          Publishing and the pin move are held when the generated binding reference is unavailable, so the package cannot ship stale raw signatures.
 
           Further failures are added as comments here rather than as new issues.
           Close this once the sync is green again; if it breaks later, a fresh issue is opened."
