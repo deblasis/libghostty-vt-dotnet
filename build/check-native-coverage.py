@@ -42,7 +42,7 @@ CLASS = re.compile(
     r"(?:sealed\s+)?(?:partial\s+)?class\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)"
 )
 TYPE = re.compile(
-    r"^\s*(?P<mods>(?:(?:public|internal|static|unsafe|sealed|partial|readonly)\s+)*)"
+    r"^\s*(?P<mods>(?:(?:public|internal|static|unsafe|sealed|partial|readonly|ref)\s+)*)"
     r"(?P<kind>struct|enum|class)\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)"
 )
 INTERNAL_HELPERS = {"NativeTypeNameAttribute", "NativeAnnotationAttribute"}
@@ -118,8 +118,8 @@ def normalized_content(text: str, *, compiled: bool) -> list[str]:
             continue
         if stripped in {"{", "}"}:
             continue
-        # Access differs by design: the reference is public, the compiled layer
-        # is internal. Strip the modifier on both sides before comparing.
+        # Access modifiers are not part of the comparison; strip them on both
+        # sides so helper attributes can stay internal.
         stripped = re.sub(r"^(?:public|internal)\b", "", stripped).strip()
         if compiled:
             stripped = stripped.replace(
@@ -145,6 +145,20 @@ def main() -> None:
     if not EMITTER.exists():
         fail(f"missing required file: {EMITTER}")
 
+    raw_namespace_files = [
+        path.resolve()
+        for path in (REPO / "src").rglob("*.cs")
+        if re.search(
+            r"(?m)^namespace Ghostty\.Vt\.Raw\b",
+            path.read_text(encoding="utf-8"),
+        )
+    ]
+    if raw_namespace_files != [COMPILED.resolve()]:
+        fail(
+            "the Ghostty.Vt.Raw namespace must be declared only by the "
+            f"generated layer; found {sorted(str(p) for p in raw_namespace_files)}"
+        )
+
     expected = extern_declarations(reference, "reference")
     actual = extern_declarations(compiled, "compiled")
     if not expected:
@@ -156,13 +170,13 @@ def main() -> None:
             name for name in set(expected) & set(actual) if expected[name] != actual[name]
         )
         for name in missing:
-            print(f"  missing from compiled layer: {name}", file=sys.stderr)
+            print(f"  missing from raw layer: {name}", file=sys.stderr)
         for name in extra:
             print(f"  not in generated reference: {name}", file=sys.stderr)
         for name in changed:
             print(f"  signature changed: {name}", file=sys.stderr)
         fail(
-            f"compiled layer does not match the reference "
+            f"raw layer does not match the reference "
             f"({len(actual)} vs {len(expected)} entry points)"
         )
 
@@ -185,7 +199,7 @@ def main() -> None:
         "NativeTypeNameAttribute",
         "NativeAnnotationAttribute",
     }:
-        fail(f"unexpected class set in compiled layer: {sorted(compiled_classes)}")
+        fail(f"unexpected class set in raw layer: {sorted(compiled_classes)}")
 
     text = read(COMPILED)
     if not re.search(
@@ -250,7 +264,7 @@ def main() -> None:
                 f"  content line count differs: {len(expected_lines)} vs {len(actual_lines)}",
                 file=sys.stderr,
             )
-        fail("compiled layer content differs from the reference beyond the documented rewrites")
+        fail("raw layer content differs from the reference beyond the documented rewrites")
 
     namespace_lines = [
         line.strip()
@@ -280,11 +294,11 @@ def main() -> None:
         )
         if regenerated.read_bytes() != COMPILED.read_bytes():
             fail(
-                "compiled layer is not reproducible from the reference; "
+                "raw layer is not reproducible from the reference; "
                 "run build/emit-compiled-native.py and commit the result"
             )
 
-    print(f"compiled native layer matches {len(expected)} generated entry points")
+    print(f"raw ABI layer matches {len(expected)} generated entry points")
 
 
 if __name__ == "__main__":

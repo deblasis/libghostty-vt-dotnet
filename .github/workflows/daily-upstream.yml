@@ -414,11 +414,12 @@ jobs:
       # LibraryImport).
       #
       # If the generator failed, this download is skipped and a later step
-      # holds the pin; the package still publishes. If the generator reports
-      # success but its artifact is missing or wrong, the validation step
-      # below fails closed before Build/NuGet: a successful job result is the
-      # claim that the reference is trustworthy, and a missing file is an
-      # infrastructure failure, not a reason to commit a stale reference.
+      # holds publishing and the pin; the package is not pushed. If the
+      # generator reports success but its artifact is missing or wrong, the
+      # validation step below fails closed before Build/NuGet: a successful
+      # job result is the claim that the reference is trustworthy, and a
+      # missing file is an infrastructure failure, not a reason to commit a
+      # stale reference.
       - name: Download regenerated binding reference
         if: needs.regenerate-bindings.result == 'success'
         uses: actions/download-artifact@v8
