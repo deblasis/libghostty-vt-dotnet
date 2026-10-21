@@ -22,12 +22,20 @@
 // the wrapper measured from the native null-terminated buffer.
 using Ghostty.Vt;
 using Ghostty.Vt.Enums;
+using Ghostty.Vt.Raw;
 using Xunit;
 
 namespace Ghostty.Vt.PackageConsumer.Tests;
 
 public class ParserTests
 {
+    [Fact]
+    public void RawAbiNamespace_IsExposedByThePackage()
+    {
+        Assert.True(typeof(GhosttyVtNative).IsPublic);
+        Assert.Equal("Ghostty.Vt.Raw", typeof(GhosttyVtNative).Namespace);
+    }
+
     [Fact]
     public void SgrParser_RedForeground_ExtractsRedForegroundAttribute()
     {

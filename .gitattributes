@@ -13,4 +13,4 @@ build/bindings-reference/*.cs -text
 # Generated ABI layer: the byte comparison in build/check-native-coverage.py
 # compares the committed file with fresh emitter output, so checkout must not
 # convert newlines.
-src/Ghostty.Vt/Native/Generated/*.cs -text
+src/Ghostty.Vt/Raw/*.cs -text

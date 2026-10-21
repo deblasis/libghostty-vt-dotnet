@@ -19,6 +19,7 @@ Use this library to parse VT output, inspect the terminal grid, build your own r
 | `Ghostty.Vt.GridRef` | Reference and compare grid positions |
 | `Ghostty.Vt.Focus` | Focus reporting |
 | `Ghostty.Vt.Paste` | Bracketed paste encoding |
+| `Ghostty.Vt.Raw` | Full generated C ABI, low-level and unsafe |
 
 ## Prerequisites
 
@@ -68,6 +69,18 @@ foreach (var row in renderState.Rows)
     // Read cell content, style, colors
 }
 ```
+
+## Raw ABI access
+
+The curated API above is a subset of libghostty-vt. `Ghostty.Vt.Raw` exposes the full generated C ABI: every exported function, struct, enum and constant.
+
+```csharp
+using Ghostty.Vt.Raw;
+
+var json = GhosttyVtNative.ghostty_type_json();
+```
+
+The raw layer returns pointers and leaves lifetimes to the caller. Prefer `Ghostty.Vt` unless you need a function it does not expose.
 
 ## NuGet
 

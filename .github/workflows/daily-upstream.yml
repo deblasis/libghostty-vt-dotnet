@@ -515,10 +515,10 @@ jobs:
           # compiles before a real nightly relies on it.
           python3 build/emit-compiled-native.py \
             build/bindings-reference/NativeMethods.pinned.cs \
-            src/Ghostty.Vt/Native/Generated/LibGhosttyVt.g.cs
+            src/Ghostty.Vt/Raw/GhosttyVtNative.g.cs
           python3 build/check-native-coverage.py
           dotnet build src/Ghostty.Vt/Ghostty.Vt.csproj --configuration Release
-          git diff --stat -- src/Ghostty.Vt/Native/Generated/LibGhosttyVt.g.cs
+          git diff --stat -- src/Ghostty.Vt/Raw/GhosttyVtNative.g.cs
 
       - name: Update ghostty-upstream.json
         if: env.NUGET_API_KEY != '' && env.DRY_RUN != 'true' && needs.regenerate-bindings.result == 'success'
@@ -533,7 +533,7 @@ jobs:
           # or does not match the reference is caught here, never on main.
           python3 build/emit-compiled-native.py \
             build/bindings-reference/NativeMethods.pinned.cs \
-            src/Ghostty.Vt/Native/Generated/LibGhosttyVt.g.cs
+            src/Ghostty.Vt/Raw/GhosttyVtNative.g.cs
           python3 build/check-native-coverage.py
           dotnet build Ghostty.Vt.sln --configuration Release
           cp "$(find runtimes -name 'libghostty-vt.so' -print -quit)" \
@@ -556,7 +556,7 @@ jobs:
           MESSAGE="chore: update upstream to ${{ needs.check-upstream.outputs.new_commit }}"
           if ! git diff --quiet -- build/bindings-reference/NativeMethods.pinned.cs; then
             git add build/bindings-reference/NativeMethods.pinned.cs
-            git add src/Ghostty.Vt/Native/Generated/LibGhosttyVt.g.cs
+            git add src/Ghostty.Vt/Raw/GhosttyVtNative.g.cs
             MESSAGE="$MESSAGE and refresh pinned binding reference"
             echo "Including the regenerated pinned binding reference and compiled layer."
           else

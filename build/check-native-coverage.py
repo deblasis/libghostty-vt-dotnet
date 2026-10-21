@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""Check that the compiled native layer matches the generated reference.
+"""Check that the raw ABI layer matches the generated reference.
 
-The reference is the generator's full output at the pin. The compiled layer is
-derived from it and ships inside Ghostty.Vt. This check makes four claims:
+The reference is the generator's full output at the pin. The raw layer is
+derived from it and ships inside Ghostty.Vt as Ghostty.Vt.Raw. This check
+makes four claims:
 
 1. every generated entry point is present exactly once, with the same
    signature;
 2. the generated constants, class set and library name agree;
-3. no declaration leaked back to public visibility;
+3. the entry points and the containing class are public, and the file has the
+   expected namespace and header directives;
 4. the committed file is reproducible from the reference.
 
 Usage: build/check-native-coverage.py
@@ -24,7 +26,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 REFERENCE = REPO / "build" / "bindings-reference" / "NativeMethods.pinned.cs"
-COMPILED = REPO / "src" / "Ghostty.Vt" / "Native" / "Generated" / "LibGhosttyVt.g.cs"
+COMPILED = REPO / "src" / "Ghostty.Vt" / "Raw" / "GhosttyVtNative.g.cs"
 EMITTER = REPO / "build" / "emit-compiled-native.py"
 
 EXTERN = re.compile(
@@ -50,11 +52,6 @@ def read(path: Path) -> str:
     if not path.exists():
         fail(f"missing required file: {path}")
     return path.read_text(encoding="utf-8")
-
-
-def code_only(line: str) -> str:
-    line = re.sub(r"//.*", "", line)
-    return re.sub(r'"(?:\\.|[^"\\])*"', '""', line)
 
 
 def extern_declarations(text: str, label: str) -> dict[str, str]:
@@ -123,7 +120,7 @@ def normalized_content(text: str, *, compiled: bool) -> list[str]:
             stripped = stripped.replace(
                 'DllImport("ghostty-vt"', 'DllImport("libghostty-vt"'
             )
-            stripped = stripped.replace("class LibGhosttyVt", "class NativeMethods")
+            stripped = stripped.replace("class GhosttyVtNative", "class NativeMethods")
             stripped = stripped.replace(
                 "((ushort)(ansi ? 1 : 0) << 15)", "((ushort)(ansi) << 15)"
             )
@@ -178,20 +175,24 @@ def main() -> None:
     expected_classes = {"NativeMethods", "NativeTypeNameAttribute", "NativeAnnotationAttribute"}
     if reference_classes != expected_classes:
         fail(f"unexpected class set in reference: {sorted(reference_classes)}")
-    actual_classes = {
-        "LibGhosttyVt" if name == "LibGhosttyVt" else name for name in compiled_classes
-    }
-    if actual_classes != {
-        "LibGhosttyVt",
+    if compiled_classes != {
+        "GhosttyVtNative",
         "NativeTypeNameAttribute",
         "NativeAnnotationAttribute",
     }:
         fail(f"unexpected class set in compiled layer: {sorted(compiled_classes)}")
 
     text = read(COMPILED)
+    if not re.search(
+        r"(?m)^\s*public\s+static\s+unsafe\s+partial\s+class\s+GhosttyVtNative\b",
+        text,
+    ):
+        fail("the raw entry-point class must be public")
     for line_number, line in enumerate(text.splitlines(), 1):
-        if re.search(r"\bpublic\b", code_only(line)):
-            fail(f"{COMPILED}:{line_number}: public declaration in the internal layer")
+        if "static extern" in line and not line.lstrip().startswith(
+            "public static extern"
+        ):
+            fail(f"{COMPILED}:{line_number}: raw entry points must be public")
 
     imports = [
         line
@@ -231,7 +232,7 @@ def main() -> None:
         for line in compiled.splitlines()
         if line.startswith("namespace ")
     ]
-    if namespace_lines != ["namespace Ghostty.Vt.Native.Generated;"]:
+    if namespace_lines != ["namespace Ghostty.Vt.Raw;"]:
         fail(f"unexpected output namespace: {namespace_lines}")
 
     header_usings = [
@@ -247,7 +248,7 @@ def main() -> None:
         fail(f"unexpected header using directives: {header_usings}")
 
     with tempfile.TemporaryDirectory() as tmp:
-        regenerated = Path(tmp) / "LibGhosttyVt.g.cs"
+        regenerated = Path(tmp) / "GhosttyVtNative.g.cs"
         subprocess.run(
             [sys.executable, str(EMITTER), str(REFERENCE), str(regenerated)],
             check=True,
