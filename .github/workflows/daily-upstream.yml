@@ -282,12 +282,19 @@ jobs:
           if-no-files-found: error
 
   publish:
-    # `regenerate-bindings` is deliberately NOT a dependency any more. It no
-    # longer feeds anything into this job, and now that it can fail for real
-    # (#46) a dependency would let a broken detector block publishing. Its
-    # failure still turns the whole run red, which is the visibility that
-    # `continue-on-error: true` was destroying.
-    needs: [check-upstream, build-native]
+    # `regenerate-bindings` feeds the pinned binding reference now, so the pin
+    # move and the reference refresh can land in one commit and keep `ci.yml`'s
+    # byte-identical gate green. It must still not be able to block publishing,
+    # for the #46 reason: a broken generator is a detector failure, not a
+    # reason to stop shipping the nightly. The job-level `if` therefore runs on
+    # `!cancelled()` plus explicit result checks, and the reference update
+    # degrades to a warning when the generator failed. A plain `needs:` would
+    # skip this job on a generator failure; this does not.
+    needs: [check-upstream, build-native, regenerate-bindings]
+    if: |
+      !cancelled() &&
+      needs.check-upstream.result == 'success' &&
+      needs.build-native.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write   # commit updated ghostty-upstream.json + create release
@@ -330,17 +337,24 @@ jobs:
           name: native-osx-arm64
           path: runtimes/osx-arm64/native
 
-      # NOTE: this job used to download the `regenerated-bindings` artifact
-      # over src/Ghostty.Vt/Native/NativeMethods.cs before building, so the
-      # nightly would have built, tested, packed and published machine-
-      # generated bindings in place of the hand-maintained ones. That never
-      # actually happened only because the generator had never once run (#46)
-      # and the artifact never existed — `continue-on-error: true` swallowed
-      # the download failure. Repairing the generator would have made that
-      # step live, so it is removed: the regenerated file stays an artifact
-      # for a human to review and land deliberately. ClangSharp emits
-      # DllImport while the committed file uses LibraryImport, so adopting
-      # its output wholesale is not a refactor, it is a rewrite.
+      # The generator output is what `ci.yml` compares the pinned reference
+      # against. Download it when the generator succeeded; the commit step
+      # below writes it to build/bindings-reference/NativeMethods.pinned.cs in
+      # the same commit as the pin move, so the strict gate sees a consistent
+      # tree immediately. This is NOT the hand-maintained NativeMethods.cs:
+      # that file stays untouched and still needs a human to adopt new API
+      # surface, for the reasons the old note here gave (ClangSharp emits
+      # DllImport while the committed file uses LibraryImport).
+      #
+      # A missing artifact must not stop publishing. The job-level `if` runs
+      # even when `regenerate-bindings` failed; the commit step then moves the
+      # pin alone and emits a warning that the reference is stale.
+      - name: Download regenerated binding reference
+        if: needs.regenerate-bindings.result == 'success'
+        uses: actions/download-artifact@v8
+        with:
+          name: regenerated-bindings
+          path: ${{ runner.temp }}/regenerated-bindings
 
       - name: Build
         run: dotnet build Ghostty.Vt.sln --configuration Release
@@ -401,6 +415,18 @@ jobs:
         run: |
           echo "::notice title=Dry run::Publish, pin update and release were skipped (dry_run=true)."
 
+      # Exercise the reference-update path without committing. This proves the
+      # artifact name/path and the copy target work before a real nightly
+      # relies on them; the package was already built above, so changing the
+      # reference here cannot affect the artifact under test.
+      - name: Verify regenerated reference (dry run)
+        if: env.DRY_RUN == 'true' && needs.regenerate-bindings.result == 'success'
+        run: |
+          cp "${{ runner.temp }}/regenerated-bindings/NativeMethods.cs" \
+            build/bindings-reference/NativeMethods.pinned.cs
+          echo "::notice title=Reference refresh::Would update build/bindings-reference/NativeMethods.pinned.cs; no commit in dry run."
+          git diff --stat -- build/bindings-reference/NativeMethods.pinned.cs
+
       - name: Update ghostty-upstream.json
         if: env.NUGET_API_KEY != '' && env.DRY_RUN != 'true'
         run: |
@@ -416,8 +442,20 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          MESSAGE="chore: update upstream to ${{ needs.check-upstream.outputs.new_commit }}"
+          if [ "${{ needs.regenerate-bindings.result }}" = "success" ]; then
+            cp "${{ runner.temp }}/regenerated-bindings/NativeMethods.cs" \
+              build/bindings-reference/NativeMethods.pinned.cs
+            git add build/bindings-reference/NativeMethods.pinned.cs
+            MESSAGE="$MESSAGE and refresh pinned binding reference"
+            echo "Including the regenerated pinned binding reference."
+          else
+            echo "::warning title=Binding reference::regenerate-bindings did not succeed; moving the pin without refreshing build/bindings-reference/NativeMethods.pinned.cs. ci.yml's byte-identical gate will stay red until it is refreshed."
+          fi
+
           git add ghostty-upstream.json
-          git diff --cached --quiet || git commit -m "chore: update upstream to ${{ needs.check-upstream.outputs.new_commit }}"
+          git diff --cached --quiet || git commit -m "$MESSAGE"
           git push
 
       - name: Create GitHub Release
