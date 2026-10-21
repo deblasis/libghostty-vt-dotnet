@@ -207,6 +207,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Verify compiled native bindings
+        run: python3 build/check-native-coverage.py
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:

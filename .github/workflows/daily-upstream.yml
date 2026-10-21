@@ -510,6 +510,13 @@ jobs:
           echo "::notice title=Reference refresh::Would update build/bindings-reference/NativeMethods.pinned.cs; no commit in dry run."
           git diff --stat -- build/bindings-reference/NativeMethods.pinned.cs
 
+          # The compiled layer is derived from the reference, so refresh it in
+          # the same pass and show what would move with the pin.
+          python3 build/emit-compiled-native.py \
+            build/bindings-reference/NativeMethods.pinned.cs \
+            src/Ghostty.Vt/Native/Generated/LibGhosttyVt.g.cs
+          git diff --stat -- src/Ghostty.Vt/Native/Generated/LibGhosttyVt.g.cs
+
       - name: Update ghostty-upstream.json
         if: env.NUGET_API_KEY != '' && env.DRY_RUN != 'true' && needs.regenerate-bindings.result == 'success'
         run: |
@@ -517,6 +524,14 @@ jobs:
             "${{ runner.temp }}/regenerated-bindings" \
             "${{ needs.check-upstream.outputs.new_commit }}" \
             --stage
+
+          # The compiled layer is derived from the reference. Build it before
+          # the pin moves so a generator change that does not compile is caught
+          # here and never lands on main.
+          python3 build/emit-compiled-native.py \
+            build/bindings-reference/NativeMethods.pinned.cs \
+            src/Ghostty.Vt/Native/Generated/LibGhosttyVt.g.cs
+          dotnet build src/Ghostty.Vt/Ghostty.Vt.csproj --configuration Release
 
           cat > ghostty-upstream.json << EOF
           {
@@ -534,8 +549,9 @@ jobs:
           MESSAGE="chore: update upstream to ${{ needs.check-upstream.outputs.new_commit }}"
           if ! git diff --quiet -- build/bindings-reference/NativeMethods.pinned.cs; then
             git add build/bindings-reference/NativeMethods.pinned.cs
+            git add src/Ghostty.Vt/Native/Generated/LibGhosttyVt.g.cs
             MESSAGE="$MESSAGE and refresh pinned binding reference"
-            echo "Including the regenerated pinned binding reference."
+            echo "Including the regenerated pinned binding reference and compiled layer."
           else
             echo "The regenerated reference is unchanged; moving the pin only."
           fi
