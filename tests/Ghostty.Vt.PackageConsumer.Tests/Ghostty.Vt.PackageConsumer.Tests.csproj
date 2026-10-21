@@ -14,6 +14,7 @@
     <TargetFramework>net9.0</TargetFramework>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 
     <!--
       Isolate restore from the global NuGet cache so that two consecutive
