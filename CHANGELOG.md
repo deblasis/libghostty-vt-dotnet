@@ -67,6 +67,11 @@ them are corrections: the previous values did not describe any libghostty API.
   `RenderStateData` to 20 (`Cursor`, `Colors`).
 - Interim prerelease support in the release workflow, with
   `build/selftest-release-guards.sh` covering it.
+- **Full C ABI under `Ghostty.Vt.Raw`.** `GhosttyVtNative` exposes the 205
+  entry points declared in the public headers plus the generated structs,
+  enums and constants. The curated `Ghostty.Vt` API is unchanged. The raw
+  layer is regenerated with the upstream pin and gated for signatures,
+  constants, library, content, public visibility and reproducibility.
 
 ### Fixed
 
@@ -87,7 +92,12 @@ them are corrections: the previous values did not describe any libghostty API.
 ### Known issues
 
 - `ghostty_snapshot_*` (terminal snapshot encode/decode, added upstream
-  2026-08-03) is not yet bound.
+  2026-08-03) is available through `Ghostty.Vt.Raw` but is not wrapped in the
+  curated API.
+- The raw `Ghostty.Vt.Raw` layer uses `DllImport`, returns pointers and leaves
+  lifetimes to the caller. The curated API remains the AOT-friendly surface.
+- The generated raw layer does not carry per-function XML docs; function-level
+  documentation lives in the public C headers.
 - Several hand-transcribed constants elsewhere in the binding still describe no
   libghostty API — see
   [#50](https://github.com/deblasis/libghostty-vt-dotnet/issues/50).
