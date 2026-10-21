@@ -47,8 +47,11 @@ def main() -> None:
         for i, line in enumerate(lines)
         if line.strip() == f"namespace {NAMESPACE}"
     ]
-    if not namespace_lines:
-        fail(f"{reference} has no 'namespace {NAMESPACE}'")
+    if len(namespace_lines) != 3:
+        fail(
+            f"expected 3 '{NAMESPACE}' blocks in {reference}, "
+            f"found {len(namespace_lines)}"
+        )
 
     text = "\n".join(lines)
     class_matches = re.findall(r"\bclass NativeMethods\b", text)
@@ -129,6 +132,12 @@ def main() -> None:
 
     if re.search(r"(?m)^\s*public ", text):
         fail("public declarations remain after the access rewrite")
+
+    output_namespaces = [
+        line.strip() for line in text.splitlines() if line.startswith("namespace ")
+    ]
+    if output_namespaces != [f"namespace {NAMESPACE}.Generated;"]:
+        fail(f"unexpected output namespace: {output_namespaces}")
 
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("w", encoding="utf-8", newline="\n") as handle:

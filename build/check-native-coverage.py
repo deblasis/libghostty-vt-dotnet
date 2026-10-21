@@ -99,15 +99,19 @@ def class_names(text: str, label: str) -> set[str]:
     return names
 
 
-def normalized_content(text: str, *, compiled: bool) -> Counter[str]:
-    lines: Counter[str] = Counter()
+def normalized_content(text: str, *, compiled: bool) -> list[str]:
+    lines: list[str] = []
     for line in text.splitlines():
         stripped = line.strip()
         if not stripped:
             continue
         if stripped.startswith("//"):
             continue
-        if stripped.startswith("using ") or stripped.startswith("namespace "):
+        # Skip only top-level directives. An indented `using` inside a method
+        # is content and must be compared.
+        if line == line.lstrip() and (
+            stripped.startswith("using ") or stripped.startswith("namespace ")
+        ):
             continue
         if stripped in {"{", "}"}:
             continue
@@ -128,7 +132,7 @@ def normalized_content(text: str, *, compiled: bool) -> Counter[str]:
             stripped = stripped.replace(
                 "return (ushort)(mode & 0x7FFF);", "return mode & 0x7FFF;"
             )
-        lines[stripped] += 1
+        lines.append(stripped)
     return lines
 
 
@@ -203,16 +207,31 @@ def main() -> None:
         if "CallingConvention.Cdecl" not in line or "ExactSpelling = true" not in line:
             fail(f"DllImport is missing Cdecl/ExactSpelling: {line.strip()}")
 
-    if normalized_content(reference, compiled=False) != normalized_content(
-        compiled, compiled=True
-    ):
-        expected_lines = normalized_content(reference, compiled=False)
-        actual_lines = normalized_content(compiled, compiled=True)
-        for line in sorted((expected_lines - actual_lines).elements())[:20]:
-            print(f"  missing content: {line}", file=sys.stderr)
-        for line in sorted((actual_lines - expected_lines).elements())[:20]:
-            print(f"  extra content: {line}", file=sys.stderr)
+    expected_lines = normalized_content(reference, compiled=False)
+    actual_lines = normalized_content(compiled, compiled=True)
+    if expected_lines != actual_lines:
+        for index, (expected_line, actual_line) in enumerate(
+            zip(expected_lines, actual_lines)
+        ):
+            if expected_line != actual_line:
+                print(f"  first difference at content line {index + 1}:", file=sys.stderr)
+                print(f"    reference: {expected_line}", file=sys.stderr)
+                print(f"    compiled:  {actual_line}", file=sys.stderr)
+                break
+        if len(expected_lines) != len(actual_lines):
+            print(
+                f"  content line count differs: {len(expected_lines)} vs {len(actual_lines)}",
+                file=sys.stderr,
+            )
         fail("compiled layer content differs from the reference beyond the documented rewrites")
+
+    namespace_lines = [
+        line.strip()
+        for line in compiled.splitlines()
+        if line.startswith("namespace ")
+    ]
+    if namespace_lines != ["namespace Ghostty.Vt.Native.Generated;"]:
+        fail(f"unexpected output namespace: {namespace_lines}")
 
     with tempfile.TemporaryDirectory() as tmp:
         regenerated = Path(tmp) / "LibGhosttyVt.g.cs"
