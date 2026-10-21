@@ -191,9 +191,9 @@ jobs:
       # A manual dry run must not mutate the public issue tracker.
       DRY_RUN: ${{ inputs.dry_run == true }}
     # Drift detector: regenerates the P/Invoke surface from the NEW upstream
-    # headers and publishes the result as an artifact for whoever lands the
-    # bump. `ci.yml` holds the strict counterpart — regenerate against the
-    # *pinned* commit and fail on any difference.
+    # headers. `ci.yml` holds the strict counterpart — regenerate against the
+    # *pinned* commit and fail on any difference. When this succeeds, publish
+    # consumes the artifact and refreshes the pinned reference with the pin.
     #
     # `continue-on-error: true` used to sit here and hid a generator that had
     # never once started (#46): every run reported success while producing
