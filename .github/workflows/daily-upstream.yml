@@ -492,6 +492,18 @@ jobs:
             --output artifacts \
             -p:Version=${{ steps.version.outputs.package_version }}
 
+      # Consume the just-packed nupkg exactly as a client would. The
+      # project reads DeBlasis.GhosttyVt from artifacts/ only, so a missing
+      # runtime, a broken raw namespace or a bad package layout fails here
+      # before the push.
+      - name: Validate packed package
+        run: |
+          rm -rf tests/Ghostty.Vt.PackageConsumer.Tests/packages \
+                 tests/Ghostty.Vt.PackageConsumer.Tests/bin \
+                 tests/Ghostty.Vt.PackageConsumer.Tests/obj
+          dotnet test tests/Ghostty.Vt.PackageConsumer.Tests/Ghostty.Vt.PackageConsumer.Tests.csproj \
+            --configuration Release
+
       - name: Publish to NuGet
         # dotnet nuget push automatically pushes the matching *.snupkg symbols
         # package from the same folder. --skip-duplicate makes retries safe.
