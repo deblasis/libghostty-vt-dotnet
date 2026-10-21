@@ -52,6 +52,10 @@ namespace Ghostty.Vt.Native
     {
     }
 
+    public partial struct GhosttyRenderStateImageIteratorImpl
+    {
+    }
+
     public partial struct GhosttySearchImpl
     {
     }
@@ -1634,6 +1638,8 @@ namespace Ghostty.Vt.Native
         GHOSTTY_RENDER_STATE_DATA_COLORS = 19,
         GHOSTTY_RENDER_STATE_DATA_OVERSCAN = 20,
         GHOSTTY_RENDER_STATE_DATA_OVERSCAN_REQUEST = 21,
+        GHOSTTY_RENDER_STATE_DATA_IMAGE_ITERATOR = 22,
+        GHOSTTY_RENDER_STATE_DATA_IMAGE_PLACEMENTS_GENERATION = 23,
         GHOSTTY_RENDER_STATE_DATA_MAX_VALUE = 2147483647,
     }
 
@@ -1643,6 +1649,57 @@ namespace Ghostty.Vt.Native
         GHOSTTY_RENDER_STATE_OPTION_DIRTY = 0,
         GHOSTTY_RENDER_STATE_OPTION_OVERSCAN = 1,
         GHOSTTY_RENDER_STATE_OPTION_MAX_VALUE = 2147483647,
+    }
+
+    [NativeTypeName("unsigned int")]
+    public enum GhosttyImageProtocol : uint
+    {
+        GHOSTTY_IMAGE_PROTOCOL_KITTY = 0,
+        GHOSTTY_IMAGE_PROTOCOL_MAX_VALUE = 2147483647,
+    }
+
+    [NativeTypeName("unsigned int")]
+    public enum GhosttyRenderStateImageLayer : uint
+    {
+        GHOSTTY_RENDER_STATE_IMAGE_LAYER_BELOW_BACKGROUND = 0,
+        GHOSTTY_RENDER_STATE_IMAGE_LAYER_BELOW_TEXT = 1,
+        GHOSTTY_RENDER_STATE_IMAGE_LAYER_ABOVE_TEXT = 2,
+        GHOSTTY_RENDER_STATE_IMAGE_LAYER_MAX_VALUE = 2147483647,
+    }
+
+    [NativeTypeName("unsigned int")]
+    public enum GhosttyRenderStateKittyPlacementKind : uint
+    {
+        GHOSTTY_RENDER_STATE_KITTY_PLACEMENT_KIND_VIRTUAL = 0,
+        GHOSTTY_RENDER_STATE_KITTY_PLACEMENT_KIND_RELATIVE = 1,
+        GHOSTTY_RENDER_STATE_KITTY_PLACEMENT_KIND_FIXED = 2,
+        GHOSTTY_RENDER_STATE_KITTY_PLACEMENT_KIND_MAX_VALUE = 2147483647,
+    }
+
+    [NativeTypeName("unsigned int")]
+    public enum GhosttyRenderStateImageData : uint
+    {
+        GHOSTTY_RENDER_STATE_IMAGE_DATA_INVALID = 0,
+        GHOSTTY_RENDER_STATE_IMAGE_DATA_PROTOCOL = 1,
+        GHOSTTY_RENDER_STATE_IMAGE_DATA_IMAGE_ID = 2,
+        GHOSTTY_RENDER_STATE_IMAGE_DATA_IMAGE_GENERATION = 3,
+        GHOSTTY_RENDER_STATE_IMAGE_DATA_LAYER = 4,
+        GHOSTTY_RENDER_STATE_IMAGE_DATA_Z = 5,
+        GHOSTTY_RENDER_STATE_IMAGE_DATA_VIEWPORT_COL = 6,
+        GHOSTTY_RENDER_STATE_IMAGE_DATA_VIEWPORT_ROW = 7,
+        GHOSTTY_RENDER_STATE_IMAGE_DATA_GRID_COLS = 8,
+        GHOSTTY_RENDER_STATE_IMAGE_DATA_GRID_ROWS = 9,
+        GHOSTTY_RENDER_STATE_IMAGE_DATA_CELL_OFFSET_X = 10,
+        GHOSTTY_RENDER_STATE_IMAGE_DATA_CELL_OFFSET_Y = 11,
+        GHOSTTY_RENDER_STATE_IMAGE_DATA_PIXEL_WIDTH = 12,
+        GHOSTTY_RENDER_STATE_IMAGE_DATA_PIXEL_HEIGHT = 13,
+        GHOSTTY_RENDER_STATE_IMAGE_DATA_SOURCE_X = 14,
+        GHOSTTY_RENDER_STATE_IMAGE_DATA_SOURCE_Y = 15,
+        GHOSTTY_RENDER_STATE_IMAGE_DATA_SOURCE_WIDTH = 16,
+        GHOSTTY_RENDER_STATE_IMAGE_DATA_SOURCE_HEIGHT = 17,
+        GHOSTTY_RENDER_STATE_IMAGE_DATA_KITTY_PLACEMENT_ID = 18,
+        GHOSTTY_RENDER_STATE_IMAGE_DATA_KITTY_KIND = 19,
+        GHOSTTY_RENDER_STATE_IMAGE_DATA_MAX_VALUE = 2147483647,
     }
 
     [NativeTypeName("unsigned int")]
@@ -2627,6 +2684,9 @@ namespace Ghostty.Vt.Native
         public static extern GhosttyResult ghostty_kitty_graphics_get([NativeTypeName("GhosttyKittyGraphics")] nint graphics, GhosttyKittyGraphicsData data, void* @out);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern GhosttyResult ghostty_kitty_graphics_animation_tick([NativeTypeName("GhosttyKittyGraphics")] nint graphics, [NativeTypeName("uint64_t")] nuint now_ms, [NativeTypeName("uint64_t *")] nuint* next_ms);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         [return: NativeTypeName("GhosttyKittyGraphicsImage")]
         public static extern nint ghostty_kitty_graphics_image([NativeTypeName("GhosttyKittyGraphics")] nint graphics, [NativeTypeName("uint32_t")] uint image_id);
 
@@ -2810,6 +2870,22 @@ namespace Ghostty.Vt.Native
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         public static extern void ghostty_render_state_row_cells_free([NativeTypeName("GhosttyRenderStateRowCells")] nint cells);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern GhosttyResult ghostty_render_state_image_iterator_new([NativeTypeName("const GhosttyAllocator *")] GhosttyAllocator* allocator, [NativeTypeName("GhosttyRenderStateImageIterator *")] GhosttyRenderStateImageIteratorImpl** out_iterator);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern void ghostty_render_state_image_iterator_free([NativeTypeName("GhosttyRenderStateImageIterator")] GhosttyRenderStateImageIteratorImpl* iterator);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        [return: NativeTypeName("_Bool")]
+        public static extern byte ghostty_render_state_image_iterator_next([NativeTypeName("GhosttyRenderStateImageIterator")] GhosttyRenderStateImageIteratorImpl* iterator);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern GhosttyResult ghostty_render_state_image_get([NativeTypeName("GhosttyRenderStateImageIterator")] GhosttyRenderStateImageIteratorImpl* iterator, GhosttyRenderStateImageData data, void* @out);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern GhosttyResult ghostty_render_state_image_get_multi([NativeTypeName("GhosttyRenderStateImageIterator")] GhosttyRenderStateImageIteratorImpl* iterator, [NativeTypeName("size_t")] nuint count, [NativeTypeName("const GhosttyRenderStateImageData *")] GhosttyRenderStateImageData* keys, void** values, [NativeTypeName("size_t *")] nuint* out_written);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         public static extern void ghostty_tracked_grid_ref_free([NativeTypeName("GhosttyTrackedGridRef")] GhosttyTrackedGridRefImpl* @ref);
