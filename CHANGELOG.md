@@ -52,7 +52,11 @@ them are corrections: the previous values did not describe any libghostty API.
   `OscCommandData` gained the three unknown-sequence selectors and moved to
   `Ghostty.Vt.Enums`. `OscCommandType.Unknown` (27) is only produced when the
   unknown-sequence limit is enabled; the wrapper does not expose that option
-  yet, so the API returns `Invalid` for unimplemented sequences.
+  yet, so the API returns `Invalid` for unimplemented sequences. The
+  `*_MAX_VALUE` sentinels are not exposed, consistent with the other enums.
+  This is source-breaking for `OscCommandType` (enum constants are inlined,
+  but names change) and binary-breaking for `OscCommandData` (the type moved
+  to `Ghostty.Vt.Enums`).
 
 ### Added
 

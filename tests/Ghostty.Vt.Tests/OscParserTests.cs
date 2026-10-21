@@ -91,6 +91,50 @@ public class OscParserTests
     }
 
     [Fact]
+    public void FeedOscZero_CommandTypeIsChangeWindowTitle()
+    {
+        using var parser = new OscParser();
+        var data = "0;My Title"u8;
+        foreach (var b in data)
+            parser.Next(b);
+
+        Assert.Equal(OscCommandType.ChangeWindowTitle, parser.End());
+    }
+
+    [Fact]
+    public void FeedHierarchicalContext_CommandTypeIsHierarchicalContext()
+    {
+        using var parser = new OscParser();
+        var data = "3008;start=abc123"u8;
+        foreach (var b in data)
+            parser.Next(b);
+
+        Assert.Equal(OscCommandType.HierarchicalContext, parser.End());
+    }
+
+    [Fact]
+    public void FeedProgramStatus_CommandTypeIsProgramStatus()
+    {
+        using var parser = new OscParser();
+        var data = "7501;state=working"u8;
+        foreach (var b in data)
+            parser.Next(b);
+
+        Assert.Equal(OscCommandType.ProgramStatus, parser.End());
+    }
+
+    [Fact]
+    public void CommandTypeProperty_ReflectsLastEndedCommand()
+    {
+        using var parser = new OscParser();
+        foreach (var b in "133;A"u8)
+            parser.Next(b);
+
+        Assert.Equal(OscCommandType.SemanticPrompt, parser.End());
+        Assert.Equal(OscCommandType.SemanticPrompt, parser.CommandType);
+    }
+
+    [Fact]
     public void FeedUnimplementedSequence_CommandTypeIsInvalid()
     {
         using var parser = new OscParser();
@@ -138,6 +182,7 @@ public class OscParserTests
     [Fact]
     public void CommandTypeValues_MatchUpstreamAbi()
     {
+        Assert.Equal(29, Enum.GetValues<OscCommandType>().Length);
         Assert.Equal(0, (int)OscCommandType.Invalid);
         Assert.Equal(1, (int)OscCommandType.ChangeWindowTitle);
         Assert.Equal(2, (int)OscCommandType.ChangeWindowIcon);
@@ -172,6 +217,7 @@ public class OscParserTests
     [Fact]
     public void CommandDataValues_MatchUpstreamAbi()
     {
+        Assert.Equal(5, Enum.GetValues<OscCommandData>().Length);
         Assert.Equal(0, (int)OscCommandData.Invalid);
         Assert.Equal(1, (int)OscCommandData.ChangeWindowTitleStr);
         Assert.Equal(2, (int)OscCommandData.UnknownContent);
