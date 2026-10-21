@@ -101,6 +101,7 @@ def main() -> None:
 
     text = text.replace(f"namespace {NAMESPACE}.Generated;", f"namespace {NAMESPACE}.Generated;")
     text = text.replace("class NativeMethods", "class LibGhosttyVt")
+    text = text.replace('DllImport("libghostty-vt"', 'DllImport("ghostty-vt"')
     text = re.sub(r"(?m)^(\s*)public ", r"\1internal ", text)
 
     # ClangSharp emits these inline macro helpers with C-style bool casts that
