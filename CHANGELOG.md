@@ -49,8 +49,10 @@ them are corrections: the previous values did not describe any libghostty API.
   where upstream uses `INVALID = 0` with `UNKNOWN = 27`. `OscParser.End()` and
   `CommandType` now return the upstream names (`ChangeWindowTitle`,
   `ChangeWindowIcon`, `SemanticPrompt`, `ReportPwd`, `HyperlinkStart`, ...).
-  `OscCommandData` gained the four unknown-sequence selectors and moved to
-  `Ghostty.Vt.Enums`.
+  `OscCommandData` gained the three unknown-sequence selectors and moved to
+  `Ghostty.Vt.Enums`. `OscCommandType.Unknown` (27) is only produced when the
+  unknown-sequence limit is enabled; the wrapper does not expose that option
+  yet, so the API returns `Invalid` for unimplemented sequences.
 
 ### Added
 

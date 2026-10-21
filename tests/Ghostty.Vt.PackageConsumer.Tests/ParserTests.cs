@@ -53,6 +53,18 @@ public class ParserTests
     }
 
     [Fact]
+    public void OscCommandData_IsExposedFromTheEnumsNamespace()
+    {
+        // Guards the namespace move: consumers importing Ghostty.Vt.Enums
+        // must be able to name the data selectors the native API uses.
+        Assert.Equal(0, (int)OscCommandData.Invalid);
+        Assert.Equal(1, (int)OscCommandData.ChangeWindowTitleStr);
+        Assert.Equal(2, (int)OscCommandData.UnknownContent);
+        Assert.Equal(3, (int)OscCommandData.UnknownTruncated);
+        Assert.Equal(4, (int)OscCommandData.UnknownTerminator);
+    }
+
+    [Fact]
     public void OscParser_SetWindowTitle_ExtractsCommandNumberAndPayload()
     {
         // OSC 2 ; hello — "set window title to hello". OscParser is

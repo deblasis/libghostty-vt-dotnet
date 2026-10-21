@@ -69,6 +69,28 @@ public class OscParserTests
     }
 
     [Fact]
+    public void FeedClipboard_CommandTypeIsClipboardContents()
+    {
+        using var parser = new OscParser();
+        var data = "52;c;SGVsbG8="u8;
+        foreach (var b in data)
+            parser.Next(b);
+
+        Assert.Equal(OscCommandType.ClipboardContents, parser.End());
+    }
+
+    [Fact]
+    public void FeedHyperlinkEnd_CommandTypeIsHyperlinkEnd()
+    {
+        using var parser = new OscParser();
+        var data = "8;;"u8;
+        foreach (var b in data)
+            parser.Next(b);
+
+        Assert.Equal(OscCommandType.HyperlinkEnd, parser.End());
+    }
+
+    [Fact]
     public void FeedUnimplementedSequence_CommandTypeIsInvalid()
     {
         using var parser = new OscParser();
