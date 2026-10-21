@@ -43,6 +43,20 @@ them are corrections: the previous values did not describe any libghostty API.
 - **`Terminal.ModeGet` and `ModeSet` now throw `GhosttyException`** on an
   unrecognised mode. They previously discarded the native result code, so a get
   returned `false` and a set silently did nothing.
+- **`OscCommandType` and `OscCommandData` now mirror the upstream enums.**
+  The previous members were a guessed taxonomy: value `3` was `SetWindowIcon`
+  where `GhosttyOscCommandType` defines `SEMANTIC_PROMPT`, and `Unknown = 0`
+  where upstream uses `INVALID = 0` with `UNKNOWN = 27`. `OscParser.End()` and
+  `CommandType` now return the upstream names (`ChangeWindowTitle`,
+  `ChangeWindowIcon`, `SemanticPrompt`, `ReportPwd`, `HyperlinkStart`, ...).
+  `OscCommandData` gained the three unknown-sequence selectors and moved to
+  `Ghostty.Vt.Enums`. `OscCommandType.Unknown` (27) is only produced when the
+  unknown-sequence limit is enabled; the wrapper does not expose that option
+  yet, so the API returns `Invalid` for unimplemented sequences. The
+  `*_MAX_VALUE` sentinels are not exposed, consistent with the other enums.
+  This is source-breaking for `OscCommandType` (enum constants are inlined,
+  but names change) and binary-breaking for `OscCommandData` (the type moved
+  to `Ghostty.Vt.Enums`).
 
 ### Added
 
