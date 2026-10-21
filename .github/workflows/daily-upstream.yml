@@ -511,10 +511,13 @@ jobs:
           git diff --stat -- build/bindings-reference/NativeMethods.pinned.cs
 
           # The compiled layer is derived from the reference, so refresh it in
-          # the same pass and show what would move with the pin.
+          # the same pass, verify it against the reference, and prove it
+          # compiles before a real nightly relies on it.
           python3 build/emit-compiled-native.py \
             build/bindings-reference/NativeMethods.pinned.cs \
             src/Ghostty.Vt/Native/Generated/LibGhosttyVt.g.cs
+          python3 build/check-native-coverage.py
+          dotnet build src/Ghostty.Vt/Ghostty.Vt.csproj --configuration Release
           git diff --stat -- src/Ghostty.Vt/Native/Generated/LibGhosttyVt.g.cs
 
       - name: Update ghostty-upstream.json
@@ -525,13 +528,17 @@ jobs:
             "${{ needs.check-upstream.outputs.new_commit }}" \
             --stage
 
-          # The compiled layer is derived from the reference. Build it before
-          # the pin moves so a generator change that does not compile is caught
-          # here and never lands on main.
+          # The compiled layer is derived from the reference. Verify and test
+          # it before the pin moves so a generator change that does not compile
+          # or does not match the reference is caught here, never on main.
           python3 build/emit-compiled-native.py \
             build/bindings-reference/NativeMethods.pinned.cs \
             src/Ghostty.Vt/Native/Generated/LibGhosttyVt.g.cs
-          dotnet build src/Ghostty.Vt/Ghostty.Vt.csproj --configuration Release
+          python3 build/check-native-coverage.py
+          dotnet build Ghostty.Vt.sln --configuration Release
+          cp "$(find runtimes -name 'libghostty-vt.so' -print -quit)" \
+            tests/Ghostty.Vt.Tests/bin/Release/net9.0/libghostty-vt.so
+          dotnet test Ghostty.Vt.sln --no-build --configuration Release
 
           cat > ghostty-upstream.json << EOF
           {

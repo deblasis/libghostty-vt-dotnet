@@ -100,6 +100,13 @@ jobs:
   # that is passing. The self-test executes the workflow's real `run:` blocks
   # rather than a copy, and asserts which refusal fired, not merely that one
   # did.
+  native-coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify compiled native bindings
+        run: python3 build/check-native-coverage.py
+
   release-guards:
     runs-on: ubuntu-latest
     steps:
@@ -206,9 +213,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Verify compiled native bindings
-        run: python3 build/check-native-coverage.py
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5

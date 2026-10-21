@@ -50,6 +50,22 @@ def main() -> None:
     if not namespace_lines:
         fail(f"{reference} has no 'namespace {NAMESPACE}'")
 
+    text = "\n".join(lines)
+    class_matches = re.findall(r"\bclass NativeMethods\b", text)
+    if len(class_matches) != 1:
+        fail("expected exactly one 'class NativeMethods' in the reference")
+    dll_imports = text.count("DllImport(")
+    native_imports = text.count('DllImport("libghostty-vt"')
+    if dll_imports == 0 or native_imports != dll_imports:
+        fail("reference contains DllImport declarations without the expected library")
+    for rewritten in (
+        "((ushort)(ansi) << 15)",
+        "return ((mode >> 15) != 0) != 0;",
+        "return mode & 0x7FFF;",
+    ):
+        if text.count(rewritten) != 1:
+            fail(f"expected exactly one generated helper fragment: {rewritten!r}")
+
     blocks: list[tuple[int, int, int]] = []
     for ns in namespace_lines:
         open_line = ns + 1
@@ -99,8 +115,7 @@ def main() -> None:
     body = [line for line in body if line.strip()]
     text = "\n".join(header + body) + "\n"
 
-    text = text.replace(f"namespace {NAMESPACE}.Generated;", f"namespace {NAMESPACE}.Generated;")
-    text = text.replace("class NativeMethods", "class LibGhosttyVt")
+    text = re.sub(r"\bclass NativeMethods\b", "class LibGhosttyVt", text)
     text = text.replace('DllImport("libghostty-vt"', 'DllImport("ghostty-vt"')
     text = re.sub(r"(?m)^(\s*)public ", r"\1internal ", text)
 
@@ -112,8 +127,12 @@ def main() -> None:
     text = text.replace("return ((mode >> 15) != 0) != 0;", "return (mode >> 15) != 0;")
     text = text.replace("return mode & 0x7FFF;", "return (ushort)(mode & 0x7FFF);")
 
+    if re.search(r"(?m)^\s*public ", text):
+        fail("public declarations remain after the access rewrite")
+
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(text, encoding="utf-8")
+    with output.open("w", encoding="utf-8", newline="\n") as handle:
+        handle.write(text)
     print(f"wrote {output}")
 
 
