@@ -12,6 +12,9 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Ghostty.Vt\Ghostty.Vt.csproj" />
+    <Content Include="..\..\build\public-api.txt"
+             Link="public-api.txt"
+             CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="..\..\runtimes\win-x64\native\ghostty-vt.dll"

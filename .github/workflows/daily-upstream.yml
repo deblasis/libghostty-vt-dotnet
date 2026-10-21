@@ -436,6 +436,27 @@ jobs:
             "${{ runner.temp }}/regenerated-bindings" \
             "${{ needs.check-upstream.outputs.new_commit }}"
 
+      # Stage the new reference and derive the raw layer before anything is
+      # built or packed. The package must ship the raw signatures that match
+      # the native library it is built against, not the previous pin's.
+      - name: Stage regenerated reference and raw ABI layer
+        if: needs.regenerate-bindings.result == 'success'
+        run: |
+          bash build/validate-regenerated-reference.sh \
+            "${{ runner.temp }}/regenerated-bindings" \
+            "${{ needs.check-upstream.outputs.new_commit }}" \
+            --stage
+          python3 build/emit-compiled-native.py \
+            build/bindings-reference/NativeMethods.pinned.cs \
+            src/Ghostty.Vt/Raw/GhosttyVtNative.g.cs
+          python3 build/check-native-coverage.py
+          git diff --stat -- \
+            build/bindings-reference/NativeMethods.pinned.cs \
+            src/Ghostty.Vt/Raw/GhosttyVtNative.g.cs
+          if [ "${DRY_RUN:-}" = "true" ]; then
+            echo "::notice title=Reference refresh::Would update the pinned reference and raw ABI layer; no commit in dry run."
+          fi
+
       - name: Build
         run: dotnet build Ghostty.Vt.sln --configuration Release
 
@@ -495,51 +516,9 @@ jobs:
         run: |
           echo "::notice title=Dry run::Publish, pin update and release were skipped (dry_run=true)."
 
-      # Exercise the reference-update path without committing. This runs the
-      # same validation and copy code the production step uses, so the artifact
-      # layout, metadata binding and copy target are proved before a real
-      # nightly relies on them. The package was already built above, so
-      # changing the reference here cannot affect the artifact under test.
-      - name: Stage regenerated reference (dry run)
-        if: env.DRY_RUN == 'true' && needs.regenerate-bindings.result == 'success'
-        run: |
-          bash build/validate-regenerated-reference.sh \
-            "${{ runner.temp }}/regenerated-bindings" \
-            "${{ needs.check-upstream.outputs.new_commit }}" \
-            --stage
-          echo "::notice title=Reference refresh::Would update build/bindings-reference/NativeMethods.pinned.cs; no commit in dry run."
-          git diff --stat -- build/bindings-reference/NativeMethods.pinned.cs
-
-          # The compiled layer is derived from the reference, so refresh it in
-          # the same pass, verify it against the reference, and prove it
-          # compiles before a real nightly relies on it.
-          python3 build/emit-compiled-native.py \
-            build/bindings-reference/NativeMethods.pinned.cs \
-            src/Ghostty.Vt/Raw/GhosttyVtNative.g.cs
-          python3 build/check-native-coverage.py
-          dotnet build src/Ghostty.Vt/Ghostty.Vt.csproj --configuration Release
-          git diff --stat -- src/Ghostty.Vt/Raw/GhosttyVtNative.g.cs
-
       - name: Update ghostty-upstream.json
         if: env.NUGET_API_KEY != '' && env.DRY_RUN != 'true' && needs.regenerate-bindings.result == 'success'
         run: |
-          bash build/validate-regenerated-reference.sh \
-            "${{ runner.temp }}/regenerated-bindings" \
-            "${{ needs.check-upstream.outputs.new_commit }}" \
-            --stage
-
-          # The compiled layer is derived from the reference. Verify and test
-          # it before the pin moves so a generator change that does not compile
-          # or does not match the reference is caught here, never on main.
-          python3 build/emit-compiled-native.py \
-            build/bindings-reference/NativeMethods.pinned.cs \
-            src/Ghostty.Vt/Raw/GhosttyVtNative.g.cs
-          python3 build/check-native-coverage.py
-          dotnet build Ghostty.Vt.sln --configuration Release
-          cp "$(find runtimes -name 'libghostty-vt.so' -print -quit)" \
-            tests/Ghostty.Vt.Tests/bin/Release/net9.0/libghostty-vt.so
-          dotnet test Ghostty.Vt.sln --no-build --configuration Release
-
           cat > ghostty-upstream.json << EOF
           {
             "repo": "https://github.com/ghostty-org/ghostty.git",

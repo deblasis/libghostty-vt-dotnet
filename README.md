@@ -77,10 +77,13 @@ The curated API above is a subset of libghostty-vt. `Ghostty.Vt.Raw` exposes the
 ```csharp
 using Ghostty.Vt.Raw;
 
-var json = GhosttyVtNative.ghostty_type_json();
+unsafe
+{
+    var json = GhosttyVtNative.ghostty_type_json();
+}
 ```
 
-The raw layer returns pointers and leaves lifetimes to the caller. Prefer `Ghostty.Vt` unless you need a function it does not expose.
+Enable unsafe blocks in the consuming project. The raw layer returns pointers and leaves lifetimes to the caller. Several structs are sized: set their `size` field to `sizeof(T)` before passing them. The `GHOSTTY_INIT_SIZED` macros are not generated. Prefer `Ghostty.Vt` unless you need a function it does not expose.
 
 ## NuGet
 

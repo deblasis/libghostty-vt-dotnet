@@ -53,6 +53,22 @@ foreach (var row in renderState.Rows)
 | `Ghostty.Vt.GridRef` | Reference and compare grid positions |
 | `Ghostty.Vt.Focus` | Focus reporting |
 | `Ghostty.Vt.Paste` | Bracketed paste encoding |
+| `Ghostty.Vt.Raw` | Full generated C ABI, low-level and unsafe |
+
+## Raw ABI access
+
+The curated API above is a subset of libghostty-vt. `Ghostty.Vt.Raw` exposes the full generated C ABI: every exported function, struct, enum and constant.
+
+```csharp
+using Ghostty.Vt.Raw;
+
+unsafe
+{
+    var json = GhosttyVtNative.ghostty_type_json();
+}
+```
+
+Enable unsafe blocks in the consuming project. The raw layer returns pointers and leaves lifetimes to the caller. Several structs are sized: set their `size` field to `sizeof(T)` before passing them. The `GHOSTTY_INIT_SIZED` macros are not generated. Prefer `Ghostty.Vt` unless you need a function it does not expose.
 
 ## Supported platforms
 
@@ -62,7 +78,7 @@ foreach (var row in renderState.Rows)
 | Linux x64 (glibc 2.31+) | `linux-x64` | `libghostty-vt.so` |
 | macOS ARM64 | `osx-arm64` | `libghostty-vt.dylib` |
 
-Target framework: **net9.0**. AOT-compatible. P/Invoke via `LibraryImport` (source-generated).
+Target framework: **net9.0**. The curated API is AOT-compatible and uses `LibraryImport` (source-generated). The raw layer uses `DllImport` and is not the AOT-friendly surface.
 
 ## Versioning
 

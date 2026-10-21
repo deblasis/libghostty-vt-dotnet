@@ -41,6 +41,12 @@ CLASS = re.compile(
     r"^\s*(?:public|internal)\s+(?:static\s+)?(?:unsafe\s+)?"
     r"(?:sealed\s+)?(?:partial\s+)?class\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)"
 )
+TYPE = re.compile(
+    r"^\s*(?P<access>public|internal)\s+"
+    r"(?:static\s+|unsafe\s+|sealed\s+|partial\s+|readonly\s+)*"
+    r"(?P<kind>struct|enum|class)\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)"
+)
+INTERNAL_HELPERS = {"NativeTypeNameAttribute", "NativeAnnotationAttribute"}
 
 
 def fail(message: str) -> None:
@@ -193,6 +199,18 @@ def main() -> None:
             "public static extern"
         ):
             fail(f"{COMPILED}:{line_number}: raw entry points must be public")
+
+        type_match = TYPE.match(line)
+        if (
+            type_match
+            and type_match.group("access") != "public"
+            and type_match.group("name") not in INTERNAL_HELPERS
+        ):
+            fail(
+                f"{COMPILED}:{line_number}: generated type "
+                f"{type_match.group('name')} is {type_match.group('access')}; "
+                "raw types must be public"
+            )
 
     imports = [
         line
