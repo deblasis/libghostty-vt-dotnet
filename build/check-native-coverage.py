@@ -107,10 +107,11 @@ def normalized_content(text: str, *, compiled: bool) -> list[str]:
             continue
         if stripped.startswith("//"):
             continue
-        # Skip only top-level directives. An indented `using` inside a method
-        # is content and must be compared.
+        # Skip only pure top-level directives. A line that starts with `using`
+        # but carries code after the semicolon is content and must be compared.
         if line == line.lstrip() and (
-            stripped.startswith("using ") or stripped.startswith("namespace ")
+            re.fullmatch(r"using [^;]+;", stripped)
+            or re.fullmatch(r"namespace [A-Za-z0-9_.]+;?", stripped)
         ):
             continue
         if stripped in {"{", "}"}:
@@ -232,6 +233,18 @@ def main() -> None:
     ]
     if namespace_lines != ["namespace Ghostty.Vt.Native.Generated;"]:
         fail(f"unexpected output namespace: {namespace_lines}")
+
+    header_usings = [
+        line for line in compiled.splitlines() if line.startswith("using ")
+    ]
+    expected_usings = [
+        "using System;",
+        "using System.Diagnostics;",
+        "using System.Runtime.CompilerServices;",
+        "using System.Runtime.InteropServices;",
+    ]
+    if header_usings != expected_usings:
+        fail(f"unexpected header using directives: {header_usings}")
 
     with tempfile.TemporaryDirectory() as tmp:
         regenerated = Path(tmp) / "LibGhosttyVt.g.cs"
