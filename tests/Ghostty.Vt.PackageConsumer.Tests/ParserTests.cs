@@ -13,7 +13,7 @@
 //   2. OSC 2;hello produces command=2, payload="hello".
 //
 // On "command=2": the C# wrapper encodes OSC 2 (set window title) as
-// the enum member OscCommandType.SetWindowTitle. Asserting that value
+// the enum member OscCommandType.ChangeWindowTitle. Asserting that value
 // is how a consumer proves "OSC command number 2 was recognised" —
 // the numeric wire code isn't surfaced separately.
 //
@@ -66,9 +66,9 @@ public class ParserTests
         var cmdType = parser.End();
 
         // Command-number assertion: the C# wrapper encodes OSC 2 as
-        // OscCommandType.SetWindowTitle. Asserting that enum value is
+        // OscCommandType.ChangeWindowTitle. Asserting that enum value is
         // equivalent to "command number = 2" at the consumer surface.
-        Assert.Equal(OscCommandType.SetWindowTitle, cmdType);
+        Assert.Equal(OscCommandType.ChangeWindowTitle, cmdType);
 
         // Payload assertion: CommandData exposes the parsed title as a
         // GhosttyString. The wrapper measures the native null-terminated

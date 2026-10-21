@@ -43,6 +43,14 @@ them are corrections: the previous values did not describe any libghostty API.
 - **`Terminal.ModeGet` and `ModeSet` now throw `GhosttyException`** on an
   unrecognised mode. They previously discarded the native result code, so a get
   returned `false` and a set silently did nothing.
+- **`OscCommandType` and `OscCommandData` now mirror the upstream enums.**
+  The previous members were a guessed taxonomy: value `3` was `SetWindowIcon`
+  where `GhosttyOscCommandType` defines `SEMANTIC_PROMPT`, and `Unknown = 0`
+  where upstream uses `INVALID = 0` with `UNKNOWN = 27`. `OscParser.End()` and
+  `CommandType` now return the upstream names (`ChangeWindowTitle`,
+  `ChangeWindowIcon`, `SemanticPrompt`, `ReportPwd`, `HyperlinkStart`, ...).
+  `OscCommandData` gained the four unknown-sequence selectors and moved to
+  `Ghostty.Vt.Enums`.
 
 ### Added
 
