@@ -153,9 +153,17 @@ jobs:
           tar -xf ghostty-src.tar -C /tmp/ghostty
 
       - name: Build native libghostty-vt
+        # We only need the shared library for the requested target. On a macOS
+        # host Ghostty's `install` step additionally builds a universal
+        # libghostty-vt XCFramework (macOS x86_64 + arm64, plus iOS device and
+        # simulator slices) whenever xcodebuild is present, which it is on the
+        # GitHub runner. Zig 0.17.0 cannot compile those iOS slices at all:
+        # std/Io/Threaded.zig references `null_file.fd`, a field the iOS
+        # NullFile does not have, so the entire macOS leg dies building an
+        # artifact this project never ships. Skip it explicitly.
         run: |
           cd /tmp/ghostty
-          zig build install -Demit-lib-vt=true -Dtarget=${{ matrix.zig_target }} -Doptimize=ReleaseSafe
+          zig build install -Demit-lib-vt=true -Demit-xcframework=false -Dtarget=${{ matrix.zig_target }} -Doptimize=ReleaseSafe
           mkdir -p "${{ github.workspace }}/runtimes/${{ matrix.rid }}/native"
           cp "zig-out/${{ matrix.src_dir }}/${{ matrix.artifact }}" \
             "${{ github.workspace }}/runtimes/${{ matrix.rid }}/native/"

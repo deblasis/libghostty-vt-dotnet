@@ -74,7 +74,11 @@ build-native: clone-ghostty
     fi
     echo "Building libghostty-vt for {{ target }}..."
     cd "$dir" || { echo "ERROR: failed to cd into $dir"; exit 1; }
-    zig build install -Demit-lib-vt=true -Dtarget={{ target }} -Doptimize=ReleaseSafe
+    # -Demit-xcframework=false: on macOS, Ghostty otherwise also builds a
+    # universal/iOS XCFramework we never ship, and Zig 0.17.0 cannot compile
+    # the iOS slices (std/Io/Threaded.zig references a nonexistent
+    # `null_file.fd`). Only the requested dylib is needed here.
+    zig build install -Demit-lib-vt=true -Demit-xcframework=false -Dtarget={{ target }} -Doptimize=ReleaseSafe
     mkdir -p "{{ justfile_directory() }}/runtimes/{{ rid }}/native"
     cp "zig-out/{{ artifact_dir }}/{{ artifact }}" "{{ justfile_directory() }}/runtimes/{{ rid }}/native/{{ dotnet_artifact }}"
     echo "Copied {{ artifact }} → runtimes/{{ rid }}/native/{{ dotnet_artifact }}"
@@ -94,7 +98,11 @@ build-native-ref ref:
     echo "Cloning ghostty at ref '{{ ref }}' to $dir..."
     git clone --depth 1 --branch "{{ ref }}" https://github.com/ghostty-org/ghostty.git "$dir"
     cd "$dir"
-    zig build install -Demit-lib-vt=true -Dtarget={{ target }} -Doptimize=ReleaseSafe
+    # -Demit-xcframework=false: on macOS, Ghostty otherwise also builds a
+    # universal/iOS XCFramework we never ship, and Zig 0.17.0 cannot compile
+    # the iOS slices (std/Io/Threaded.zig references a nonexistent
+    # `null_file.fd`). Only the requested dylib is needed here.
+    zig build install -Demit-lib-vt=true -Demit-xcframework=false -Dtarget={{ target }} -Doptimize=ReleaseSafe
     mkdir -p "{{ justfile_directory() }}/runtimes/{{ rid }}/native"
     cp "zig-out/{{ artifact_dir }}/{{ artifact }}" "{{ justfile_directory() }}/runtimes/{{ rid }}/native/{{ dotnet_artifact }}"
     echo "Copied {{ artifact }} → runtimes/{{ rid }}/native/{{ dotnet_artifact }}"

@@ -57,9 +57,12 @@ jobs:
           git checkout FETCH_HEAD
 
       - name: Build native libghostty-vt
+        # No-op on Linux, but every native-build site carries the same flag:
+        # on a macOS host Ghostty would otherwise also build the Apple-only
+        # XCFramework, whose iOS slices Zig 0.17.0 cannot compile.
         run: |
           cd /tmp/ghostty
-          zig build install -Demit-lib-vt=true -Dtarget=x86_64-linux-gnu.2.31 -Doptimize=ReleaseSafe
+          zig build install -Demit-lib-vt=true -Demit-xcframework=false -Dtarget=x86_64-linux-gnu.2.31 -Doptimize=ReleaseSafe
           mkdir -p ${{ github.workspace }}/runtimes/linux-x64/native
           cp zig-out/lib/libghostty-vt.so ${{ github.workspace }}/runtimes/linux-x64/native/
 
