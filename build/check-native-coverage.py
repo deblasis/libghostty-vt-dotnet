@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""Check that the compiled native layer matches the generated reference.
+"""Check that the raw ABI layer matches the generated reference.
 
-The reference is the generator's full output at the pin. The compiled layer is
-derived from it and ships inside Ghostty.Vt. This check makes four claims:
+The reference is the generator's full output at the pin. The raw layer is
+derived from it and ships inside Ghostty.Vt as Ghostty.Vt.Raw. This check
+makes four claims:
 
 1. every generated entry point is present exactly once, with the same
    signature;
 2. the generated constants, class set and library name agree;
-3. no declaration leaked back to public visibility;
+3. the entry points and the containing class are public, and the file has the
+   expected namespace and header directives;
 4. the committed file is reproducible from the reference.
 
 Usage: build/check-native-coverage.py
@@ -24,7 +26,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 REFERENCE = REPO / "build" / "bindings-reference" / "NativeMethods.pinned.cs"
-COMPILED = REPO / "src" / "Ghostty.Vt" / "Native" / "Generated" / "LibGhosttyVt.g.cs"
+COMPILED = REPO / "src" / "Ghostty.Vt" / "Raw" / "GhosttyVtNative.g.cs"
 EMITTER = REPO / "build" / "emit-compiled-native.py"
 
 EXTERN = re.compile(
@@ -39,6 +41,11 @@ CLASS = re.compile(
     r"^\s*(?:public|internal)\s+(?:static\s+)?(?:unsafe\s+)?"
     r"(?:sealed\s+)?(?:partial\s+)?class\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)"
 )
+TYPE = re.compile(
+    r"^\s*(?P<mods>(?:(?:public|internal|static|unsafe|sealed|partial|readonly|ref)\s+)*)"
+    r"(?P<kind>struct|enum|class)\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)"
+)
+INTERNAL_HELPERS = {"NativeTypeNameAttribute", "NativeAnnotationAttribute"}
 
 
 def fail(message: str) -> None:
@@ -50,11 +57,6 @@ def read(path: Path) -> str:
     if not path.exists():
         fail(f"missing required file: {path}")
     return path.read_text(encoding="utf-8")
-
-
-def code_only(line: str) -> str:
-    line = re.sub(r"//.*", "", line)
-    return re.sub(r'"(?:\\.|[^"\\])*"', '""', line)
 
 
 def extern_declarations(text: str, label: str) -> dict[str, str]:
@@ -116,14 +118,14 @@ def normalized_content(text: str, *, compiled: bool) -> list[str]:
             continue
         if stripped in {"{", "}"}:
             continue
-        # Access differs by design: the reference is public, the compiled layer
-        # is internal. Strip the modifier on both sides before comparing.
+        # Access modifiers are not part of the comparison; strip them on both
+        # sides so helper attributes can stay internal.
         stripped = re.sub(r"^(?:public|internal)\b", "", stripped).strip()
         if compiled:
             stripped = stripped.replace(
                 'DllImport("ghostty-vt"', 'DllImport("libghostty-vt"'
             )
-            stripped = stripped.replace("class LibGhosttyVt", "class NativeMethods")
+            stripped = stripped.replace("class GhosttyVtNative", "class NativeMethods")
             stripped = stripped.replace(
                 "((ushort)(ansi ? 1 : 0) << 15)", "((ushort)(ansi) << 15)"
             )
@@ -143,6 +145,20 @@ def main() -> None:
     if not EMITTER.exists():
         fail(f"missing required file: {EMITTER}")
 
+    raw_namespace_files = [
+        path.resolve()
+        for path in (REPO / "src").rglob("*.cs")
+        if re.search(
+            r"(?m)^namespace Ghostty\.Vt\.Raw\b",
+            path.read_text(encoding="utf-8"),
+        )
+    ]
+    if raw_namespace_files != [COMPILED.resolve()]:
+        fail(
+            "the Ghostty.Vt.Raw namespace must be declared only by the "
+            f"generated layer; found {sorted(str(p) for p in raw_namespace_files)}"
+        )
+
     expected = extern_declarations(reference, "reference")
     actual = extern_declarations(compiled, "compiled")
     if not expected:
@@ -154,13 +170,13 @@ def main() -> None:
             name for name in set(expected) & set(actual) if expected[name] != actual[name]
         )
         for name in missing:
-            print(f"  missing from compiled layer: {name}", file=sys.stderr)
+            print(f"  missing from raw layer: {name}", file=sys.stderr)
         for name in extra:
             print(f"  not in generated reference: {name}", file=sys.stderr)
         for name in changed:
             print(f"  signature changed: {name}", file=sys.stderr)
         fail(
-            f"compiled layer does not match the reference "
+            f"raw layer does not match the reference "
             f"({len(actual)} vs {len(expected)} entry points)"
         )
 
@@ -178,20 +194,44 @@ def main() -> None:
     expected_classes = {"NativeMethods", "NativeTypeNameAttribute", "NativeAnnotationAttribute"}
     if reference_classes != expected_classes:
         fail(f"unexpected class set in reference: {sorted(reference_classes)}")
-    actual_classes = {
-        "LibGhosttyVt" if name == "LibGhosttyVt" else name for name in compiled_classes
-    }
-    if actual_classes != {
-        "LibGhosttyVt",
+    if compiled_classes != {
+        "GhosttyVtNative",
         "NativeTypeNameAttribute",
         "NativeAnnotationAttribute",
     }:
-        fail(f"unexpected class set in compiled layer: {sorted(compiled_classes)}")
+        fail(f"unexpected class set in raw layer: {sorted(compiled_classes)}")
 
     text = read(COMPILED)
+    if not re.search(
+        r"(?m)^\s*public\s+static\s+unsafe\s+partial\s+class\s+GhosttyVtNative\b",
+        text,
+    ):
+        fail("the raw entry-point class must be public")
     for line_number, line in enumerate(text.splitlines(), 1):
-        if re.search(r"\bpublic\b", code_only(line)):
-            fail(f"{COMPILED}:{line_number}: public declaration in the internal layer")
+        if "static extern" in line and not line.lstrip().startswith(
+            "public static extern"
+        ):
+            fail(f"{COMPILED}:{line_number}: raw entry points must be public")
+
+        type_match = TYPE.match(line)
+        if type_match:
+            modifiers = type_match.group("mods").split()
+            name = type_match.group("name")
+            if "public" not in modifiers and "internal" not in modifiers:
+                fail(
+                    f"{COMPILED}:{line_number}: generated type {name} has no "
+                    "access modifier; raw types must be explicitly public"
+                )
+            if "internal" in modifiers and name not in INTERNAL_HELPERS:
+                fail(
+                    f"{COMPILED}:{line_number}: generated type {name} is "
+                    "internal; raw types must be public"
+                )
+            if "public" in modifiers and name in INTERNAL_HELPERS:
+                fail(
+                    f"{COMPILED}:{line_number}: helper type {name} must stay "
+                    "internal"
+                )
 
     imports = [
         line
@@ -224,14 +264,14 @@ def main() -> None:
                 f"  content line count differs: {len(expected_lines)} vs {len(actual_lines)}",
                 file=sys.stderr,
             )
-        fail("compiled layer content differs from the reference beyond the documented rewrites")
+        fail("raw layer content differs from the reference beyond the documented rewrites")
 
     namespace_lines = [
         line.strip()
         for line in compiled.splitlines()
         if line.startswith("namespace ")
     ]
-    if namespace_lines != ["namespace Ghostty.Vt.Native.Generated;"]:
+    if namespace_lines != ["namespace Ghostty.Vt.Raw;"]:
         fail(f"unexpected output namespace: {namespace_lines}")
 
     header_usings = [
@@ -247,18 +287,18 @@ def main() -> None:
         fail(f"unexpected header using directives: {header_usings}")
 
     with tempfile.TemporaryDirectory() as tmp:
-        regenerated = Path(tmp) / "LibGhosttyVt.g.cs"
+        regenerated = Path(tmp) / "GhosttyVtNative.g.cs"
         subprocess.run(
             [sys.executable, str(EMITTER), str(REFERENCE), str(regenerated)],
             check=True,
         )
         if regenerated.read_bytes() != COMPILED.read_bytes():
             fail(
-                "compiled layer is not reproducible from the reference; "
+                "raw layer is not reproducible from the reference; "
                 "run build/emit-compiled-native.py and commit the result"
             )
 
-    print(f"compiled native layer matches {len(expected)} generated entry points")
+    print(f"raw ABI layer matches {len(expected)} generated entry points")
 
 
 if __name__ == "__main__":

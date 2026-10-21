@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Turn the generated P/Invoke reference into a compilable internal layer.
+"""Turn the generated P/Invoke reference into a compilable raw API layer.
 
 ClangSharp writes several namespace blocks into one file. The first namespace
 is left open until the end of the file, so the later blocks are nested
@@ -7,9 +7,8 @@ declarations with the same name and the `using` directives that start them
 land after members. The reference is usable as a diff target but not as source.
 
 This script collapses the redundant namespace wrappers into one file-scoped
-namespace, hoists the late `using` directives, and rewrites the namespace,
-class name and access so the result can be compiled as an internal layer next
-to the hand-written facade.
+namespace, hoists the late `using` directives, and rewrites the namespace and
+class name so the result can be compiled as the public raw API.
 
 Usage: build/emit-compiled-native.py <reference.cs> <output.cs>
 """
@@ -21,6 +20,8 @@ import sys
 from pathlib import Path
 
 NAMESPACE = "Ghostty.Vt.Native"
+OUTPUT_NAMESPACE = "Ghostty.Vt.Raw"
+OUTPUT_CLASS = "GhosttyVtNative"
 
 
 def fail(message: str) -> None:
@@ -95,7 +96,7 @@ def main() -> None:
         if index:
             remove.add(ns)
         else:
-            lines[ns] = f"namespace {NAMESPACE}.Generated;"
+            lines[ns] = f"namespace {OUTPUT_NAMESPACE};"
 
     # The late directives cannot stay after members in a file-scoped namespace.
     remove.update(
@@ -118,9 +119,8 @@ def main() -> None:
     body = [line for line in body if line.strip()]
     text = "\n".join(header + body) + "\n"
 
-    text = re.sub(r"\bclass NativeMethods\b", "class LibGhosttyVt", text)
+    text = re.sub(r"\bclass NativeMethods\b", f"class {OUTPUT_CLASS}", text)
     text = text.replace('DllImport("libghostty-vt"', 'DllImport("ghostty-vt"')
-    text = re.sub(r"(?m)^(\s*)public ", r"\1internal ", text)
 
     # ClangSharp emits these inline macro helpers with C-style bool casts that
     # C# rejects. The values are correct; express the casts explicitly.
@@ -130,13 +130,16 @@ def main() -> None:
     text = text.replace("return ((mode >> 15) != 0) != 0;", "return (mode >> 15) != 0;")
     text = text.replace("return mode & 0x7FFF;", "return (ushort)(mode & 0x7FFF);")
 
-    if re.search(r"(?m)^\s*public ", text):
-        fail("public declarations remain after the access rewrite")
+    if not re.search(
+        rf"(?m)^\s*public\s+static\s+unsafe\s+partial\s+class\s+{OUTPUT_CLASS}\b",
+        text,
+    ):
+        fail(f"the raw entry-point class {OUTPUT_CLASS} must be public")
 
     output_namespaces = [
         line.strip() for line in text.splitlines() if line.startswith("namespace ")
     ]
-    if output_namespaces != [f"namespace {NAMESPACE}.Generated;"]:
+    if output_namespaces != [f"namespace {OUTPUT_NAMESPACE};"]:
         fail(f"unexpected output namespace: {output_namespaces}")
 
     output.parent.mkdir(parents=True, exist_ok=True)
