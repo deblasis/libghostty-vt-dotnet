@@ -211,9 +211,13 @@ jobs:
           git checkout FETCH_HEAD
 
       - name: Build native libghostty-vt
+        # `-Demit-xcframework=false`: on a macOS host Ghostty otherwise builds
+        # a libghostty-vt XCFramework (macOS universal + iOS device/simulator)
+        # alongside the dylib. We ship none of those slices, and Zig 0.17.0
+        # cannot compile the iOS ones (see the same flag in daily-upstream.yml).
         run: |
           cd ghostty-src
-          zig build install -Demit-lib-vt=true -Dtarget="${{ matrix.zig_target }}" -Doptimize=ReleaseSafe
+          zig build install -Demit-lib-vt=true -Demit-xcframework=false -Dtarget="${{ matrix.zig_target }}" -Doptimize=ReleaseSafe
           mkdir -p "${{ github.workspace }}/runtimes/${{ matrix.rid }}/native"
           cp "zig-out/${{ matrix.src_dir }}/${{ matrix.artifact }}" \
             "${{ github.workspace }}/runtimes/${{ matrix.rid }}/native/"
