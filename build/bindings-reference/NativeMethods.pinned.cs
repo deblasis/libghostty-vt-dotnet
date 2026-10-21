@@ -706,12 +706,74 @@ namespace Ghostty.Vt.Native
     }
 
     [NativeTypeName("unsigned int")]
+    public enum GhosttyOscCommandType : uint
+    {
+        GHOSTTY_OSC_COMMAND_INVALID = 0,
+        GHOSTTY_OSC_COMMAND_CHANGE_WINDOW_TITLE = 1,
+        GHOSTTY_OSC_COMMAND_CHANGE_WINDOW_ICON = 2,
+        GHOSTTY_OSC_COMMAND_SEMANTIC_PROMPT = 3,
+        GHOSTTY_OSC_COMMAND_CLIPBOARD_CONTENTS = 4,
+        GHOSTTY_OSC_COMMAND_REPORT_PWD = 5,
+        GHOSTTY_OSC_COMMAND_MOUSE_SHAPE = 6,
+        GHOSTTY_OSC_COMMAND_COLOR_OPERATION = 7,
+        GHOSTTY_OSC_COMMAND_KITTY_COLOR_PROTOCOL = 8,
+        GHOSTTY_OSC_COMMAND_SHOW_DESKTOP_NOTIFICATION = 9,
+        GHOSTTY_OSC_COMMAND_HYPERLINK_START = 10,
+        GHOSTTY_OSC_COMMAND_HYPERLINK_END = 11,
+        GHOSTTY_OSC_COMMAND_CONEMU_SLEEP = 12,
+        GHOSTTY_OSC_COMMAND_CONEMU_SHOW_MESSAGE_BOX = 13,
+        GHOSTTY_OSC_COMMAND_CONEMU_CHANGE_TAB_TITLE = 14,
+        GHOSTTY_OSC_COMMAND_CONEMU_PROGRESS_REPORT = 15,
+        GHOSTTY_OSC_COMMAND_CONEMU_WAIT_INPUT = 16,
+        GHOSTTY_OSC_COMMAND_CONEMU_GUIMACRO = 17,
+        GHOSTTY_OSC_COMMAND_CONEMU_RUN_PROCESS = 18,
+        GHOSTTY_OSC_COMMAND_CONEMU_OUTPUT_ENVIRONMENT_VARIABLE = 19,
+        GHOSTTY_OSC_COMMAND_CONEMU_XTERM_EMULATION = 20,
+        GHOSTTY_OSC_COMMAND_CONEMU_COMMENT = 21,
+        GHOSTTY_OSC_COMMAND_KITTY_TEXT_SIZING = 22,
+        GHOSTTY_OSC_COMMAND_KITTY_CLIPBOARD_PROTOCOL = 23,
+        GHOSTTY_OSC_COMMAND_KITTY_DND_PROTOCOL = 24,
+        GHOSTTY_OSC_COMMAND_HIERARCHICAL_CONTEXT = 25,
+        GHOSTTY_OSC_COMMAND_KITTY_DESKTOP_NOTIFICATION = 26,
+        GHOSTTY_OSC_COMMAND_UNKNOWN = 27,
+        GHOSTTY_OSC_COMMAND_PROGRAM_STATUS = 28,
+        GHOSTTY_OSC_COMMAND_TYPE_MAX_VALUE = 2147483647,
+    }
+
+    [NativeTypeName("unsigned int")]
+    public enum GhosttyOscTerminator : uint
+    {
+        GHOSTTY_OSC_TERMINATOR_ST = 0,
+        GHOSTTY_OSC_TERMINATOR_BEL = 1,
+        GHOSTTY_OSC_TERMINATOR_MAX_VALUE = 2147483647,
+    }
+
+    [NativeTypeName("unsigned int")]
+    public enum GhosttyOscOption : uint
+    {
+        GHOSTTY_OSC_OPT_UNKNOWN_MAX_BYTES = 0,
+        GHOSTTY_OSC_OPT_MAX_VALUE = 2147483647,
+    }
+
+    [NativeTypeName("unsigned int")]
+    public enum GhosttyOscCommandData : uint
+    {
+        GHOSTTY_OSC_DATA_INVALID = 0,
+        GHOSTTY_OSC_DATA_CHANGE_WINDOW_TITLE_STR = 1,
+        GHOSTTY_OSC_DATA_UNKNOWN_CONTENT = 2,
+        GHOSTTY_OSC_DATA_UNKNOWN_TRUNCATED = 3,
+        GHOSTTY_OSC_DATA_UNKNOWN_TERMINATOR = 4,
+        GHOSTTY_OSC_DATA_MAX_VALUE = 2147483647,
+    }
+
+    [NativeTypeName("unsigned int")]
     public enum GhosttySizeReportStyle : uint
     {
         GHOSTTY_SIZE_REPORT_MODE_2048 = 0,
         GHOSTTY_SIZE_REPORT_CSI_14_T = 1,
         GHOSTTY_SIZE_REPORT_CSI_16_T = 2,
         GHOSTTY_SIZE_REPORT_CSI_18_T = 3,
+        GHOSTTY_SIZE_REPORT_CSI_19_T = 4,
         GHOSTTY_SIZE_REPORT_STYLE_MAX_VALUE = 2147483647,
     }
 
@@ -873,6 +935,7 @@ namespace Ghostty.Vt.Native
         GHOSTTY_SCROLL_VIEWPORT_BOTTOM,
         GHOSTTY_SCROLL_VIEWPORT_DELTA,
         GHOSTTY_SCROLL_VIEWPORT_ROW,
+        GHOSTTY_SCROLL_VIEWPORT_DELTA_PROMPT,
         GHOSTTY_SCROLL_VIEWPORT_MAX_VALUE = 2147483647,
     }
 
@@ -886,6 +949,10 @@ namespace Ghostty.Vt.Native
         [FieldOffset(0)]
         [NativeTypeName("size_t")]
         public nuint row;
+
+        [FieldOffset(0)]
+        [NativeTypeName("intptr_t")]
+        public nint delta_prompt;
 
         [FieldOffset(0)]
         [NativeTypeName("uint64_t[2]")]
@@ -935,10 +1002,56 @@ namespace Ghostty.Vt.Native
         public nuint len;
     }
 
+    public partial struct GhosttyTerminalMemoryUsage
+    {
+        [NativeTypeName("size_t")]
+        public nuint size;
+
+        [NativeTypeName("_Bool")]
+        public byte compression_supported;
+
+        [NativeTypeName("uint64_t")]
+        public nuint primary_pages;
+
+        [NativeTypeName("uint64_t")]
+        public nuint primary_virtual_bytes;
+
+        [NativeTypeName("uint64_t")]
+        public nuint primary_resident_bytes;
+
+        [NativeTypeName("uint64_t")]
+        public nuint primary_compressed_pages;
+
+        [NativeTypeName("uint64_t")]
+        public nuint primary_compressed_bytes;
+
+        [NativeTypeName("uint64_t")]
+        public nuint primary_image_bytes;
+
+        [NativeTypeName("uint64_t")]
+        public nuint alternate_pages;
+
+        [NativeTypeName("uint64_t")]
+        public nuint alternate_virtual_bytes;
+
+        [NativeTypeName("uint64_t")]
+        public nuint alternate_resident_bytes;
+
+        [NativeTypeName("uint64_t")]
+        public nuint alternate_compressed_pages;
+
+        [NativeTypeName("uint64_t")]
+        public nuint alternate_compressed_bytes;
+
+        [NativeTypeName("uint64_t")]
+        public nuint alternate_image_bytes;
+    }
+
     [NativeTypeName("unsigned int")]
     public enum GhosttyTerminalUnknownSequenceTag : uint
     {
         GHOSTTY_TERMINAL_UNKNOWN_SEQUENCE_APC = 0,
+        GHOSTTY_TERMINAL_UNKNOWN_SEQUENCE_OSC = 1,
         GHOSTTY_TERMINAL_UNKNOWN_SEQUENCE_MAX_VALUE = 2147483647,
     }
 
@@ -950,11 +1063,24 @@ namespace Ghostty.Vt.Native
         public GhosttyString content;
     }
 
+    public partial struct GhosttyTerminalUnknownOscSequence
+    {
+        [NativeTypeName("_Bool")]
+        public byte truncated;
+
+        public GhosttyString content;
+
+        public GhosttyOscTerminator terminator;
+    }
+
     [StructLayout(LayoutKind.Explicit)]
     public partial struct GhosttyTerminalUnknownSequenceValue
     {
         [FieldOffset(0)]
         public GhosttyTerminalUnknownStringSequence apc;
+
+        [FieldOffset(0)]
+        public GhosttyTerminalUnknownOscSequence osc;
 
         [FieldOffset(0)]
         [NativeTypeName("uint64_t[16]")]
@@ -1138,6 +1264,130 @@ namespace Ghostty.Vt.Native
         public sbyte progress;
     }
 
+    [NativeTypeName("unsigned int")]
+    public enum GhosttyProgramStatusState : uint
+    {
+        GHOSTTY_PROGRAM_STATUS_STATE_IDLE = 0,
+        GHOSTTY_PROGRAM_STATUS_STATE_WORKING = 1,
+        GHOSTTY_PROGRAM_STATUS_STATE_DONE = 2,
+        GHOSTTY_PROGRAM_STATUS_STATE_BLOCKED = 3,
+        GHOSTTY_PROGRAM_STATUS_STATE_ERROR = 4,
+        GHOSTTY_PROGRAM_STATUS_STATE_CLEAR = 5,
+        GHOSTTY_PROGRAM_STATUS_STATE_MAX_VALUE = 2147483647,
+    }
+
+    [NativeTypeName("unsigned int")]
+    public enum GhosttyProgramStatusKind : uint
+    {
+        GHOSTTY_PROGRAM_STATUS_KIND_NONE = 0,
+        GHOSTTY_PROGRAM_STATUS_KIND_PERMISSION = 1,
+        GHOSTTY_PROGRAM_STATUS_KIND_QUESTION = 2,
+        GHOSTTY_PROGRAM_STATUS_KIND_AUTH = 3,
+        GHOSTTY_PROGRAM_STATUS_KIND_MAX_VALUE = 2147483647,
+    }
+
+    public partial struct GhosttyTerminalProgramStatus
+    {
+        [NativeTypeName("size_t")]
+        public nuint size;
+
+        public GhosttyProgramStatusState state;
+
+        public GhosttyProgramStatusKind kind;
+
+        [NativeTypeName("int8_t")]
+        public sbyte progress;
+
+        public GhosttyString id;
+
+        public GhosttyString app;
+
+        public GhosttyString title;
+
+        public GhosttyString message;
+    }
+
+    [NativeTypeName("unsigned int")]
+    public enum GhosttySemanticPromptKind : uint
+    {
+        GHOSTTY_SEMANTIC_PROMPT_INVALID = 0,
+        GHOSTTY_SEMANTIC_PROMPT_PROMPT_START = 1,
+        GHOSTTY_SEMANTIC_PROMPT_INPUT_START = 2,
+        GHOSTTY_SEMANTIC_PROMPT_OUTPUT_START = 3,
+        GHOSTTY_SEMANTIC_PROMPT_COMMAND_END = 4,
+        GHOSTTY_SEMANTIC_PROMPT_MAX_VALUE = 2147483647,
+    }
+
+    [NativeTypeName("unsigned int")]
+    public enum GhosttySemanticPromptPromptKind : uint
+    {
+        GHOSTTY_SEMANTIC_PROMPT_PROMPT_PRIMARY = 0,
+        GHOSTTY_SEMANTIC_PROMPT_PROMPT_RIGHT = 1,
+        GHOSTTY_SEMANTIC_PROMPT_PROMPT_CONTINUATION = 2,
+        GHOSTTY_SEMANTIC_PROMPT_PROMPT_SECONDARY = 3,
+        GHOSTTY_SEMANTIC_PROMPT_PROMPT_MAX_VALUE = 2147483647,
+    }
+
+    public partial struct GhosttyTerminalSemanticPrompt
+    {
+        [NativeTypeName("size_t")]
+        public nuint size;
+
+        public GhosttySemanticPromptKind kind;
+
+        public GhosttySemanticPromptPromptKind prompt_kind;
+
+        [NativeTypeName("_Bool")]
+        public byte has_exit_code;
+
+        [NativeTypeName("int32_t")]
+        public int exit_code;
+
+        public GhosttyString command;
+
+        public GhosttyString error;
+    }
+
+    [NativeTypeName("unsigned int")]
+    public enum GhosttyTerminalResizeWindowTag : uint
+    {
+        GHOSTTY_TERMINAL_RESIZE_WINDOW_GRID = 0,
+        GHOSTTY_TERMINAL_RESIZE_WINDOW_MAX_VALUE = 2147483647,
+    }
+
+    public partial struct GhosttyTerminalResizeWindowGrid
+    {
+        [NativeTypeName("uint16_t")]
+        public ushort rows;
+
+        [NativeTypeName("uint16_t")]
+        public ushort columns;
+    }
+
+    [StructLayout(LayoutKind.Explicit)]
+    public partial struct GhosttyTerminalResizeWindowValue
+    {
+        [FieldOffset(0)]
+        public GhosttyTerminalResizeWindowGrid grid;
+
+        [FieldOffset(0)]
+        [NativeTypeName("uint64_t[2]")]
+        public __padding_e__FixedBuffer _padding;
+
+        [InlineArray(2)]
+        public partial struct __padding_e__FixedBuffer
+        {
+            public nuint e0;
+        }
+    }
+
+    public partial struct GhosttyTerminalResizeWindow
+    {
+        public GhosttyTerminalResizeWindowTag tag;
+
+        public GhosttyTerminalResizeWindowValue value;
+    }
+
     public partial struct GhosttyTerminalModeConfig
     {
         [NativeTypeName("GhosttyMode")]
@@ -1190,6 +1440,14 @@ namespace Ghostty.Vt.Native
         GHOSTTY_TERMINAL_OPT_TERMINFO_NAME = 37,
         GHOSTTY_TERMINAL_OPT_CLIPBOARD_READ = 38,
         GHOSTTY_TERMINAL_OPT_CLIPBOARD_WRITE_MAX_BYTES = 39,
+        GHOSTTY_TERMINAL_OPT_RESIZE_PULL_SCROLLBACK = 40,
+        GHOSTTY_TERMINAL_OPT_RENDER_HOLD = 41,
+        GHOSTTY_TERMINAL_OPT_SEMANTIC_PROMPT = 42,
+        GHOSTTY_TERMINAL_OPT_RESET = 43,
+        GHOSTTY_TERMINAL_OPT_XT_CHECKSUM_REPORT = 44,
+        GHOSTTY_TERMINAL_OPT_XT_CHECKSUM_EXTENSION = 45,
+        GHOSTTY_TERMINAL_OPT_PROGRAM_STATUS = 46,
+        GHOSTTY_TERMINAL_OPT_RESIZE_WINDOW = 47,
         GHOSTTY_TERMINAL_OPT_MAX_VALUE = 2147483647,
     }
 
@@ -1237,6 +1495,8 @@ namespace Ghostty.Vt.Native
         GHOSTTY_TERMINAL_DATA_VT_GROUND = 38,
         GHOSTTY_TERMINAL_DATA_CURSOR_AT_PROMPT = 39,
         GHOSTTY_TERMINAL_DATA_CLIPBOARD_WRITE_MAX_BYTES = 40,
+        GHOSTTY_TERMINAL_DATA_MOUSE_SHAPE = 41,
+        GHOSTTY_TERMINAL_DATA_MEMORY_USAGE = 42,
         GHOSTTY_TERMINAL_DATA_MAX_VALUE = 2147483647,
     }
 
@@ -1328,6 +1588,27 @@ namespace Ghostty.Vt.Native
         GHOSTTY_RENDER_STATE_CURSOR_VISUAL_STYLE_MAX_VALUE = 2147483647,
     }
 
+    public partial struct GhosttyRenderStateOverscan
+    {
+        [NativeTypeName("uint16_t")]
+        public ushort above;
+
+        [NativeTypeName("uint16_t")]
+        public ushort below;
+    }
+
+    public partial struct GhosttyRenderStateRowId
+    {
+        [NativeTypeName("uint64_t[2]")]
+        public _bits_e__FixedBuffer bits;
+
+        [InlineArray(2)]
+        public partial struct _bits_e__FixedBuffer
+        {
+            public nuint e0;
+        }
+    }
+
     [NativeTypeName("unsigned int")]
     public enum GhosttyRenderStateData : uint
     {
@@ -1351,6 +1632,8 @@ namespace Ghostty.Vt.Native
         GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_WIDE_TAIL = 17,
         GHOSTTY_RENDER_STATE_DATA_CURSOR = 18,
         GHOSTTY_RENDER_STATE_DATA_COLORS = 19,
+        GHOSTTY_RENDER_STATE_DATA_OVERSCAN = 20,
+        GHOSTTY_RENDER_STATE_DATA_OVERSCAN_REQUEST = 21,
         GHOSTTY_RENDER_STATE_DATA_MAX_VALUE = 2147483647,
     }
 
@@ -1358,6 +1641,7 @@ namespace Ghostty.Vt.Native
     public enum GhosttyRenderStateOption : uint
     {
         GHOSTTY_RENDER_STATE_OPTION_DIRTY = 0,
+        GHOSTTY_RENDER_STATE_OPTION_OVERSCAN = 1,
         GHOSTTY_RENDER_STATE_OPTION_MAX_VALUE = 2147483647,
     }
 
@@ -1370,6 +1654,8 @@ namespace Ghostty.Vt.Native
         GHOSTTY_RENDER_STATE_ROW_DATA_CELLS = 3,
         GHOSTTY_RENDER_STATE_ROW_DATA_SELECTION = 4,
         GHOSTTY_RENDER_STATE_ROW_DATA_CELLS_RAW = 5,
+        GHOSTTY_RENDER_STATE_ROW_DATA_VIEWPORT_Y = 6,
+        GHOSTTY_RENDER_STATE_ROW_DATA_ID = 7,
         GHOSTTY_RENDER_STATE_ROW_DATA_MAX_VALUE = 2147483647,
     }
 
@@ -1459,47 +1745,6 @@ namespace Ghostty.Vt.Native
         GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_HAS_STYLING = 8,
         GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_UTF8 = 9,
         GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_MAX_VALUE = 2147483647,
-    }
-
-    [NativeTypeName("unsigned int")]
-    public enum GhosttyOscCommandType : uint
-    {
-        GHOSTTY_OSC_COMMAND_INVALID = 0,
-        GHOSTTY_OSC_COMMAND_CHANGE_WINDOW_TITLE = 1,
-        GHOSTTY_OSC_COMMAND_CHANGE_WINDOW_ICON = 2,
-        GHOSTTY_OSC_COMMAND_SEMANTIC_PROMPT = 3,
-        GHOSTTY_OSC_COMMAND_CLIPBOARD_CONTENTS = 4,
-        GHOSTTY_OSC_COMMAND_REPORT_PWD = 5,
-        GHOSTTY_OSC_COMMAND_MOUSE_SHAPE = 6,
-        GHOSTTY_OSC_COMMAND_COLOR_OPERATION = 7,
-        GHOSTTY_OSC_COMMAND_KITTY_COLOR_PROTOCOL = 8,
-        GHOSTTY_OSC_COMMAND_SHOW_DESKTOP_NOTIFICATION = 9,
-        GHOSTTY_OSC_COMMAND_HYPERLINK_START = 10,
-        GHOSTTY_OSC_COMMAND_HYPERLINK_END = 11,
-        GHOSTTY_OSC_COMMAND_CONEMU_SLEEP = 12,
-        GHOSTTY_OSC_COMMAND_CONEMU_SHOW_MESSAGE_BOX = 13,
-        GHOSTTY_OSC_COMMAND_CONEMU_CHANGE_TAB_TITLE = 14,
-        GHOSTTY_OSC_COMMAND_CONEMU_PROGRESS_REPORT = 15,
-        GHOSTTY_OSC_COMMAND_CONEMU_WAIT_INPUT = 16,
-        GHOSTTY_OSC_COMMAND_CONEMU_GUIMACRO = 17,
-        GHOSTTY_OSC_COMMAND_CONEMU_RUN_PROCESS = 18,
-        GHOSTTY_OSC_COMMAND_CONEMU_OUTPUT_ENVIRONMENT_VARIABLE = 19,
-        GHOSTTY_OSC_COMMAND_CONEMU_XTERM_EMULATION = 20,
-        GHOSTTY_OSC_COMMAND_CONEMU_COMMENT = 21,
-        GHOSTTY_OSC_COMMAND_KITTY_TEXT_SIZING = 22,
-        GHOSTTY_OSC_COMMAND_KITTY_CLIPBOARD_PROTOCOL = 23,
-        GHOSTTY_OSC_COMMAND_KITTY_DND_PROTOCOL = 24,
-        GHOSTTY_OSC_COMMAND_CONTEXT_SIGNAL = 25,
-        GHOSTTY_OSC_COMMAND_KITTY_DESKTOP_NOTIFICATION = 26,
-        GHOSTTY_OSC_COMMAND_TYPE_MAX_VALUE = 2147483647,
-    }
-
-    [NativeTypeName("unsigned int")]
-    public enum GhosttyOscCommandData : uint
-    {
-        GHOSTTY_OSC_DATA_INVALID = 0,
-        GHOSTTY_OSC_DATA_CHANGE_WINDOW_TITLE_STR = 1,
-        GHOSTTY_OSC_DATA_MAX_VALUE = 2147483647,
     }
 
     [NativeTypeName("unsigned int")]
@@ -1994,6 +2239,46 @@ namespace Ghostty.Vt.Native
     }
 
     [NativeTypeName("unsigned int")]
+    public enum GhosttyMouseShape : uint
+    {
+        GHOSTTY_MOUSE_SHAPE_DEFAULT = 0,
+        GHOSTTY_MOUSE_SHAPE_CONTEXT_MENU = 1,
+        GHOSTTY_MOUSE_SHAPE_HELP = 2,
+        GHOSTTY_MOUSE_SHAPE_POINTER = 3,
+        GHOSTTY_MOUSE_SHAPE_PROGRESS = 4,
+        GHOSTTY_MOUSE_SHAPE_WAIT = 5,
+        GHOSTTY_MOUSE_SHAPE_CELL = 6,
+        GHOSTTY_MOUSE_SHAPE_CROSSHAIR = 7,
+        GHOSTTY_MOUSE_SHAPE_TEXT = 8,
+        GHOSTTY_MOUSE_SHAPE_VERTICAL_TEXT = 9,
+        GHOSTTY_MOUSE_SHAPE_ALIAS = 10,
+        GHOSTTY_MOUSE_SHAPE_COPY = 11,
+        GHOSTTY_MOUSE_SHAPE_MOVE = 12,
+        GHOSTTY_MOUSE_SHAPE_NO_DROP = 13,
+        GHOSTTY_MOUSE_SHAPE_NOT_ALLOWED = 14,
+        GHOSTTY_MOUSE_SHAPE_GRAB = 15,
+        GHOSTTY_MOUSE_SHAPE_GRABBING = 16,
+        GHOSTTY_MOUSE_SHAPE_ALL_SCROLL = 17,
+        GHOSTTY_MOUSE_SHAPE_COL_RESIZE = 18,
+        GHOSTTY_MOUSE_SHAPE_ROW_RESIZE = 19,
+        GHOSTTY_MOUSE_SHAPE_N_RESIZE = 20,
+        GHOSTTY_MOUSE_SHAPE_E_RESIZE = 21,
+        GHOSTTY_MOUSE_SHAPE_S_RESIZE = 22,
+        GHOSTTY_MOUSE_SHAPE_W_RESIZE = 23,
+        GHOSTTY_MOUSE_SHAPE_NE_RESIZE = 24,
+        GHOSTTY_MOUSE_SHAPE_NW_RESIZE = 25,
+        GHOSTTY_MOUSE_SHAPE_SE_RESIZE = 26,
+        GHOSTTY_MOUSE_SHAPE_SW_RESIZE = 27,
+        GHOSTTY_MOUSE_SHAPE_EW_RESIZE = 28,
+        GHOSTTY_MOUSE_SHAPE_NS_RESIZE = 29,
+        GHOSTTY_MOUSE_SHAPE_NESW_RESIZE = 30,
+        GHOSTTY_MOUSE_SHAPE_NWSE_RESIZE = 31,
+        GHOSTTY_MOUSE_SHAPE_ZOOM_IN = 32,
+        GHOSTTY_MOUSE_SHAPE_ZOOM_OUT = 33,
+        GHOSTTY_MOUSE_SHAPE_MAX_VALUE = 2147483647,
+    }
+
+    [NativeTypeName("unsigned int")]
     public enum GhosttyPasteSource : uint
     {
         GHOSTTY_PASTE_SOURCE_CLIPBOARD = 0,
@@ -2068,6 +2353,7 @@ namespace Ghostty.Vt.Native
     {
         GHOSTTY_SNAPSHOT_DECODER_OPT_MAX_CONTINUATION_BYTES = 0,
         GHOSTTY_SNAPSHOT_DECODER_OPT_RETAIN_CONTINUATION = 1,
+        GHOSTTY_SNAPSHOT_DECODER_OPT_COMPRESS_HISTORY = 2,
         GHOSTTY_SNAPSHOT_DECODER_OPT_MAX_VALUE = 2147483647,
     }
 
@@ -2083,6 +2369,7 @@ namespace Ghostty.Vt.Native
         GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_ROWS = 6,
         GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_REMAINING = 7,
         GHOSTTY_SNAPSHOT_DECODER_DATA_RETAIN_CONTINUATION = 8,
+        GHOSTTY_SNAPSHOT_DECODER_DATA_COMPRESS_HISTORY = 9,
         GHOSTTY_SNAPSHOT_DECODER_DATA_MAX_VALUE = 2147483647,
     }
 using System;
@@ -2308,6 +2595,32 @@ namespace Ghostty.Vt.Native
         public static extern GhosttyResult ghostty_mode_report_encode([NativeTypeName("GhosttyMode")] ushort mode, GhosttyModeReportState state, [NativeTypeName("char *")] sbyte* buf, [NativeTypeName("size_t")] nuint buf_len, [NativeTypeName("size_t *")] nuint* out_written);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern GhosttyResult ghostty_osc_new([NativeTypeName("const GhosttyAllocator *")] GhosttyAllocator* allocator, [NativeTypeName("GhosttyOscParser *")] nint* parser);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern void ghostty_osc_free([NativeTypeName("GhosttyOscParser")] nint parser);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern void ghostty_osc_reset([NativeTypeName("GhosttyOscParser")] nint parser);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern GhosttyResult ghostty_osc_set([NativeTypeName("GhosttyOscParser")] nint parser, GhosttyOscOption option, [NativeTypeName("const void *")] void* value);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern void ghostty_osc_next([NativeTypeName("GhosttyOscParser")] nint parser, [NativeTypeName("uint8_t")] byte @byte);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        [return: NativeTypeName("GhosttyOscCommand")]
+        public static extern GhosttyOscCommandImpl* ghostty_osc_end([NativeTypeName("GhosttyOscParser")] nint parser, [NativeTypeName("uint8_t")] byte terminator);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern GhosttyOscCommandType ghostty_osc_command_type([NativeTypeName("GhosttyOscCommand")] GhosttyOscCommandImpl* command);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        [return: NativeTypeName("_Bool")]
+        public static extern byte ghostty_osc_command_data([NativeTypeName("GhosttyOscCommand")] GhosttyOscCommandImpl* command, GhosttyOscCommandData data, void* @out);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         public static extern GhosttyResult ghostty_size_report_encode(GhosttySizeReportStyle style, GhosttySizeReportSize size, [NativeTypeName("char *")] sbyte* buf, [NativeTypeName("size_t")] nuint buf_len, [NativeTypeName("size_t *")] nuint* out_written);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
@@ -2513,29 +2826,6 @@ namespace Ghostty.Vt.Native
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         public static extern GhosttyResult ghostty_tracked_grid_ref_snapshot([NativeTypeName("GhosttyTrackedGridRef")] GhosttyTrackedGridRefImpl* @ref, GhosttyGridRef* out_ref);
-
-        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        public static extern GhosttyResult ghostty_osc_new([NativeTypeName("const GhosttyAllocator *")] GhosttyAllocator* allocator, [NativeTypeName("GhosttyOscParser *")] nint* parser);
-
-        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        public static extern void ghostty_osc_free([NativeTypeName("GhosttyOscParser")] nint parser);
-
-        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        public static extern void ghostty_osc_reset([NativeTypeName("GhosttyOscParser")] nint parser);
-
-        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        public static extern void ghostty_osc_next([NativeTypeName("GhosttyOscParser")] nint parser, [NativeTypeName("uint8_t")] byte @byte);
-
-        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        [return: NativeTypeName("GhosttyOscCommand")]
-        public static extern GhosttyOscCommandImpl* ghostty_osc_end([NativeTypeName("GhosttyOscParser")] nint parser, [NativeTypeName("uint8_t")] byte terminator);
-
-        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        public static extern GhosttyOscCommandType ghostty_osc_command_type([NativeTypeName("GhosttyOscCommand")] GhosttyOscCommandImpl* command);
-
-        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        [return: NativeTypeName("_Bool")]
-        public static extern byte ghostty_osc_command_data([NativeTypeName("GhosttyOscCommand")] GhosttyOscCommandImpl* command, GhosttyOscCommandData data, void* @out);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         public static extern GhosttyResult ghostty_sgr_new([NativeTypeName("const GhosttyAllocator *")] GhosttyAllocator* allocator, [NativeTypeName("GhosttySgrParser *")] nint* parser);
