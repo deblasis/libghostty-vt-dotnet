@@ -83,6 +83,7 @@ PY
 
 extract preflight "Compute version" "$TMP/compute.sh" || exit 1
 extract preflight "Guard 2"         "$TMP/guard2.sh"  || exit 1
+extract preflight "Resolve upstream pin" "$TMP/pin.sh" || exit 1
 extract_daily() {
   python3 - "$DAILY" "publish" "Compute version" "$TMP/daily-compute.sh" <<'PY'
 import sys, io, yaml
@@ -194,6 +195,36 @@ check_refusal "non-plain version.json refused"        $? "plain canonical"
 run_compute "not-a-tag" workflow_dispatch 1.4.0
 check "workflow_dispatch takes the dry-run branch" 0 $?
 [ "$(out_val is_dry_run)" = "true" ] && ok "workflow_dispatch sets is_dry_run=true" || bad "workflow_dispatch sets is_dry_run=true"
+
+echo "== upstream pin =="
+
+run_pin() { # run_pin <is_dry_run> <pinned_commit> <dry_run_commit>
+  mkdir -p "$TMP/pin-work"
+  printf '{"commit":"%s"}\n' "$2" > "$TMP/pin-work/ghostty-upstream.json"
+  : > "$TMP/out-pin.env"
+  LAST_LOG="$TMP/last.log"; : > "$LAST_LOG"
+  ( cd "$TMP/pin-work" && GITHUB_OUTPUT="$TMP/out-pin.env" \
+      IS_DRY_RUN="$1" DRY_RUN_COMMIT="$3" \
+      bash --noprofile --norc -e "$TMP/pin.sh" ) >"$LAST_LOG" 2>&1
+  return $?
+}
+
+out_pin_val() { grep -E "^$1=" "$TMP/out-pin.env" | tail -1 | cut -d= -f2-; }
+
+run_pin false 0123456789abcdef0123456789abcdef01234567 ""
+check "full pin SHA accepted" 0 $?
+[ "$(out_pin_val upstream_commit)" = "0123456789abcdef0123456789abcdef01234567" ] && ok "pin SHA emitted" || bad "pin SHA emitted"
+
+run_pin false deadbeef ""
+check_refusal "short pin SHA refused" $? "40-hex"
+run_pin false '$(touch /tmp/pin-decoy)' ""
+check_refusal "shell payload in pin refused" $? "40-hex"
+
+run_pin true ignored 0123456789abcdef0123456789abcdef01234567
+check "dry-run commit accepted" 0 $?
+[ "$(out_pin_val upstream_commit)" = "0123456789abcdef0123456789abcdef01234567" ] && ok "dry-run commit emitted" || bad "dry-run commit emitted"
+run_pin true ignored not-a-sha
+check_refusal "invalid dry-run commit refused" $? "40-hex"
 
 # ---------------------------------------------------------------------------
 # Guard 2 — record the upstream version at the pinned commit.
@@ -436,6 +467,15 @@ assert pre['steps'][0]['with']['fetch-depth'] == 0
 for name in ('Guard 3', 'Guard 5'):
     step = next(s for s in pre['steps'] if name in s.get('name', ''))
     assert "is_dry_run == 'false'" in step['if'], name
+assert any('Guard 4' in s.get('name', '') for s in pre['steps'])
+
+compute_step = next(s for s in pre['steps'] if s.get('name') == 'Compute version and dry-run flag')
+assert 'echo "Package version:' in compute_step['run']
+assert 'echo "Base version:' in compute_step['run']
+pin_step = next(s for s in pre['steps'] if s.get('name') == 'Resolve upstream pin')
+assert 'echo "Upstream commit:' in pin_step['run']
+guard2_step = next(s for s in pre['steps'] if 'Guard 2' in s.get('name', ''))
+assert 'echo "Upstream version:' in guard2_step['run']
 
 pack = next(s for s in release['jobs']['pack']['steps'] if s.get('name') == 'Pack')
 assert pack['env']['PKG_VERSION'] == '${{ needs.preflight.outputs.package_version }}'
