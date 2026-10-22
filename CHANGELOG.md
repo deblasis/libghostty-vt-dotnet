@@ -23,7 +23,8 @@ the package version does not mirror the upstream version.
 - Added a member-level public API baseline hash. Any public type or member
   change now fails the test suite until the baseline is deliberately updated.
 - The raw layer now uses source-generated `LibraryImport` with explicit Cdecl
-  calling conventions, making the native surface AOT-compatible.
+  calling conventions, making the native surface AOT-compatible. A NativeAOT
+  publish-and-run smoke app is part of CI.
 
 ## 1.4.0 (2026-10-22)
 
