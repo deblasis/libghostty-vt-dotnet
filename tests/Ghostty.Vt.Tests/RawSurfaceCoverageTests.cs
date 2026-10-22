@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Text;
+using Ghostty.Vt.Native;
 using Ghostty.Vt.Raw;
 using RawKey = Ghostty.Vt.Raw.GhosttyKey;
 using Xunit;
@@ -309,5 +310,24 @@ public unsafe partial class RawSurfaceCoverageTests
                 null, GhosttySysLogLevel.GHOSTTY_SYS_LOG_LEVEL_INFO,
                 s, (nuint)scope.Length, m, (nuint)message.Length);
         }
+    }
+}
+
+public unsafe partial class RawSurfaceCoverageTests
+{
+    [Fact]
+    public void NativeStructLayoutsMatchTheRawLayer()
+    {
+        Assert.Equal(sizeof(GhosttyPoint), sizeof(GhosttyPointNative));
+        Assert.Equal(sizeof(GhosttyGridRef), sizeof(GhosttyGridRefNative));
+        Assert.Equal(sizeof(GhosttyPointCoordinate), sizeof(GhosttyPointCoordinateNative));
+        Assert.Equal(sizeof(GhosttyTerminalScrollViewport), sizeof(GhosttyTerminalScrollViewportNative));
+        Assert.Equal(sizeof(GhosttyMousePosition), sizeof(GhosttyMousePositionNative));
+        Assert.Equal(sizeof(GhosttySizeReportSize), sizeof(GhosttySizeReportSizeNative));
+        Assert.Equal(sizeof(Ghostty.Vt.Raw.GhosttyString), sizeof(GhosttyStringNative));
+        Assert.Equal(sizeof(GhosttySelection), sizeof(GhosttySelectionNative));
+        Assert.Equal(sizeof(GhosttyColorRgb), sizeof(GhosttyColorRgbNative));
+        Assert.Equal(sizeof(GhosttyKittyGraphicsPlacementRenderInfo), sizeof(GhosttyKittyPlacementRenderInfoNative));
+        Assert.Equal(sizeof(GhosttyTerminalModeConfig), sizeof(GhosttyTerminalModeConfigNative));
     }
 }

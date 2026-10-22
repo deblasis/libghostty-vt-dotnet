@@ -17,7 +17,7 @@ RAW = REPO / "src" / "Ghostty.Vt" / "Raw" / "GhosttyVtNative.g.cs"
 TESTS = REPO / "tests"
 
 EXTERN = re.compile(r"public static extern [^(]+\b(ghostty_[a-z0-9_]+)\(")
-IDENTIFIER = re.compile(r"\b(ghostty_[a-z0-9_]+)\b")
+CALL = re.compile(r"GhosttyVtNative\.(ghostty_[a-z0-9_]+)\s*\(")
 
 
 def fail(message: str) -> None:
@@ -32,7 +32,7 @@ if not raw_names:
 
 test_names: set[str] = set()
 for path in TESTS.rglob("*.cs"):
-    test_names.update(IDENTIFIER.findall(path.read_text(encoding="utf-8")))
+    test_names.update(CALL.findall(path.read_text(encoding="utf-8")))
 
 missing = sorted(raw_names - test_names)
 if missing:

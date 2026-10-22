@@ -48,18 +48,6 @@ internal struct GhosttyTerminalScrollViewportNative
     public nuint _padding1; // padding for the union
 }
 
-// Native struct matching GhosttyFormatterTerminalOptions (sized struct)
-[StructLayout(LayoutKind.Sequential)]
-internal struct GhosttyFormatterTerminalOptionsNative
-{
-    public nuint Size; // sizeof(GhosttyFormatterTerminalOptions)
-    public int Emit;   // GhosttyFormatterFormat enum
-    public byte Unwrap;
-    public byte Trim;
-    // GhosttyFormatterTerminalExtra extra — large struct, zero for now (all extras disabled)
-    // We set size to just cover the fields we use
-}
-
 // Native struct matching GhosttySizeReportSize: { uint16_t rows, uint16_t columns, uint32_t cell_width, uint32_t cell_height }
 [StructLayout(LayoutKind.Sequential)]
 internal struct GhosttySizeReportSizeNative
