@@ -574,16 +574,20 @@ public unsafe partial class RawSurfaceCoverageTests
                         GhosttyResult.GHOSTTY_SUCCESS,
                         GhosttyVtNative.ghostty_render_state_get(
                             state, GhosttyRenderStateData.GHOSTTY_RENDER_STATE_DATA_IMAGE_ITERATOR, &imageIterator));
-                    _ = GhosttyVtNative.ghostty_render_state_image_iterator_next(imageIterator);
+                    Assert.Equal((byte)0, GhosttyVtNative.ghostty_render_state_image_iterator_next(imageIterator));
                     GhosttyRenderStateImageData data = GhosttyRenderStateImageData.GHOSTTY_RENDER_STATE_IMAGE_DATA_PROTOCOL;
                     GhosttyImageProtocol protocol = default;
-                    Assert.True(Tolerated(GhosttyVtNative.ghostty_render_state_image_get(imageIterator, data, &protocol)));
+                    Assert.Equal(
+                        GhosttyResult.GHOSTTY_INVALID_VALUE,
+                        GhosttyVtNative.ghostty_render_state_image_get(imageIterator, data, &protocol));
                     var imageKeys = stackalloc GhosttyRenderStateImageData[1];
                     imageKeys[0] = data;
                     var imageValues = stackalloc void*[1];
                     imageValues[0] = &protocol;
-                    Assert.True(Tolerated(GhosttyVtNative.ghostty_render_state_image_get_multi(
-                        imageIterator, 1, imageKeys, imageValues, &written)));
+                    Assert.Equal(
+                        GhosttyResult.GHOSTTY_INVALID_VALUE,
+                        GhosttyVtNative.ghostty_render_state_image_get_multi(
+                            imageIterator, 1, imageKeys, imageValues, &written));
                 }
                 finally
                 {
@@ -610,6 +614,9 @@ public unsafe partial class RawSurfaceCoverageTests
         nint terminal = NewTerminal();
         try
         {
+            Assert.Equal(
+                GhosttyResult.GHOSTTY_SUCCESS,
+                GhosttyVtNative.ghostty_terminal_resize(terminal, 80, 24, 8, 16));
             Write(terminal, "hello");
             Write(terminal, "\x1b_Gf=24,s=1,v=1,a=T,i=1;/wAA\x1b\\");
             nint graphics = 0;
@@ -684,19 +691,30 @@ public unsafe partial class RawSurfaceCoverageTests
                     iterator, image, terminal, &rect)));
                 uint width = 0;
                 uint height = 0;
-                Assert.True(Tolerated(GhosttyVtNative.ghostty_kitty_graphics_placement_pixel_size(
-                    iterator, image, terminal, &width, &height)));
+                Assert.Equal(
+                    GhosttyResult.GHOSTTY_SUCCESS,
+                    GhosttyVtNative.ghostty_kitty_graphics_placement_pixel_size(
+                        iterator, image, terminal, &width, &height));
+                Assert.True(width > 0 && height > 0);
                 uint cols = 0;
                 uint rows = 0;
-                Assert.True(Tolerated(GhosttyVtNative.ghostty_kitty_graphics_placement_grid_size(
-                    iterator, image, terminal, &cols, &rows)));
+                Assert.Equal(
+                    GhosttyResult.GHOSTTY_SUCCESS,
+                    GhosttyVtNative.ghostty_kitty_graphics_placement_grid_size(
+                        iterator, image, terminal, &cols, &rows));
+                Assert.True(cols > 0 && rows > 0);
                 int col = 0;
                 int row = 0;
-                Assert.True(Tolerated(GhosttyVtNative.ghostty_kitty_graphics_placement_viewport_pos(
-                    iterator, image, terminal, &col, &row)));
+                Assert.Equal(
+                    GhosttyResult.GHOSTTY_SUCCESS,
+                    GhosttyVtNative.ghostty_kitty_graphics_placement_viewport_pos(
+                        iterator, image, terminal, &col, &row));
                 uint sx = 0, sy = 0, sw = 0, sh = 0;
-                Assert.True(Tolerated(GhosttyVtNative.ghostty_kitty_graphics_placement_source_rect(
-                    iterator, image, &sx, &sy, &sw, &sh)));
+                Assert.Equal(
+                    GhosttyResult.GHOSTTY_SUCCESS,
+                    GhosttyVtNative.ghostty_kitty_graphics_placement_source_rect(
+                        iterator, image, &sx, &sy, &sw, &sh));
+                Assert.True(sw > 0 && sh > 0);
                 GhosttyKittyGraphicsPlacementRenderInfo info;
                 Assert.True(Tolerated(GhosttyVtNative.ghostty_kitty_graphics_placement_render_info(
                     iterator, image, terminal, &info)));
