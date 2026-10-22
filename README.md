@@ -95,6 +95,10 @@ The library ships as [`DeBlasis.GhosttyVt`](https://www.nuget.org/packages/DeBla
 | Linux x64 | `linux-x64` | `libghostty-vt.so` |
 | macOS ARM64 | `osx-arm64` | `libghostty-vt.dylib` |
 
+## Versioning
+
+Package versions use independent SemVer. `version.json` is the source of truth. Every build pins the upstream Ghostty commit in [`ghostty-upstream.json`](https://github.com/deblasis/libghostty-vt-dotnet/blob/main/ghostty-upstream.json); release notes name the upstream version and commit. Nightly builds use `<version>-ci.<timestamp>.<sha>`, release candidates use `<version>-rc.<n>`, and stable releases use `<version>`.
+
 ## Used in
 
 [wintty](https://wintty.io), a Windows terminal built on Ghostty, uses this library for its persistent session panes.

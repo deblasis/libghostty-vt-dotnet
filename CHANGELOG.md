@@ -2,12 +2,11 @@
 
 All notable changes to `DeBlasis.GhosttyVt`.
 
-Versioning follows the strict-mirror rule in [RELEASING.md](RELEASING.md): a
-package version names the upstream Ghostty version it binds. Interim
-prereleases (`X.Y.Z-rc.N`) may ship ahead of that upstream release; see
-[RELEASING.md](RELEASING.md#interim-prereleases).
+Versioning follows independent SemVer. `version.json` is the source of truth.
+Upstream tracking is recorded in `ghostty-upstream.json` and the release notes;
+the package version does not mirror the upstream version.
 
-## Unreleased
+## 1.4.0 (2026-10-22)
 
 Vendored upstream moved from `c41c6b81` (2026-07-07, Ghostty `1.3.2-dev`) to
 `349f0260` (2026-09-02, Ghostty `1.3.2-dev`). The daily sync had been unable to

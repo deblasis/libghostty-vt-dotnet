@@ -476,11 +476,14 @@ jobs:
       - name: Compute version
         id: version
         run: |
-          VERSION_BASE="${{ needs.check-upstream.outputs.new_version }}"
+          VERSION_BASE=$(jq -r '.version // empty' version.json)
+          if ! echo "$VERSION_BASE" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::version.json must contain a plain X.Y.Z version; got '$VERSION_BASE'"
+            exit 1
+          fi
           COMMIT="${{ needs.check-upstream.outputs.new_commit }}"
           SHORT="${COMMIT:0:8}"
           TIMESTAMP=$(date -u +%Y%m%d%H%M)
-          VERSION_BASE="${VERSION_BASE%-dev}"
           PACKAGE_VERSION="${VERSION_BASE}-ci.${TIMESTAMP}.${SHORT}"
           echo "package_version=$PACKAGE_VERSION" >> "$GITHUB_OUTPUT"
           echo "Package version: $PACKAGE_VERSION"
