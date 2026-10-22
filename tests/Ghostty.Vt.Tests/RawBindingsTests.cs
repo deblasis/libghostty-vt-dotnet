@@ -18,11 +18,27 @@ public class RawBindingsTests
     }
 
     [Fact]
+    public void RawLayer_UsesSourceGeneratedLibraryImport()
+    {
+        var methods = typeof(GhosttyVtNative)
+            .GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
+            .Where(method => method.GetCustomAttribute<LibraryImportAttribute>() is not null)
+            .ToList();
+
+        Assert.Equal(205, methods.Count);
+        Assert.All(methods, method =>
+        {
+            Assert.NotNull(method.GetCustomAttribute<UnmanagedCallConvAttribute>());
+        });
+    }
+
+    [Fact]
     public void RawLayer_HasUniqueImports()
     {
         var names = typeof(GhosttyVtNative)
             .GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
-            .Where(method => method.GetCustomAttribute<DllImportAttribute>() is not null)
+            .Where(method => method.GetCustomAttribute<DllImportAttribute>() is not null
+                || method.GetCustomAttribute<LibraryImportAttribute>() is not null)
             .Select(method => method.Name)
             .ToList();
 

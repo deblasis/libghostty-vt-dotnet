@@ -30,7 +30,7 @@ COMPILED = REPO / "src" / "Ghostty.Vt" / "Raw" / "GhosttyVtNative.g.cs"
 EMITTER = REPO / "build" / "emit-compiled-native.py"
 
 EXTERN = re.compile(
-    r"^\s*(?:public|internal)\s+static\s+extern\s+(?P<ret>.+?)\s+"
+    r"^\s*(?:public|internal)\s+static\s+(?:extern|partial)\s+(?P<ret>.+?)\s+"
     r"(?P<name>ghostty_[a-z0-9_]+)\((?P<params>.*)\);\s*$"
 )
 CONSTANT = re.compile(
@@ -62,11 +62,11 @@ def read(path: Path) -> str:
 def extern_declarations(text: str, label: str) -> dict[str, str]:
     declarations: dict[str, str] = {}
     for line_number, line in enumerate(text.splitlines(), 1):
-        if "static extern" not in line:
+        if "ghostty_" not in line or "static " not in line:
             continue
         match = EXTERN.match(line)
         if not match:
-            fail(f"{label}:{line_number}: could not parse extern declaration")
+            continue
         name = match.group("name")
         signature = " ".join(
             f"{match.group('ret')} {name}({match.group('params')})".split()
@@ -123,8 +123,13 @@ def normalized_content(text: str, *, compiled: bool) -> list[str]:
         stripped = re.sub(r"^(?:public|internal)\b", "", stripped).strip()
         if compiled:
             stripped = stripped.replace(
-                'DllImport("ghostty-vt"', 'DllImport("libghostty-vt"'
+                '[LibraryImport("ghostty-vt")]',
+                '[DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]',
             )
+            stripped = stripped.replace(
+                "[UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]", ""
+            )
+            stripped = stripped.replace("static partial ", "static extern ")
             stripped = stripped.replace("class GhosttyVtNative", "class NativeMethods")
             stripped = stripped.replace(
                 "((ushort)(ansi ? 1 : 0) << 15)", "((ushort)(ansi) << 15)"
@@ -135,6 +140,8 @@ def normalized_content(text: str, *, compiled: bool) -> list[str]:
             stripped = stripped.replace(
                 "return (ushort)(mode & 0x7FFF);", "return mode & 0x7FFF;"
             )
+        if not stripped:
+            continue
         lines.append(stripped)
     return lines
 
@@ -236,17 +243,18 @@ def main() -> None:
     imports = [
         line
         for line in text.splitlines()
-        if "DllImport(" in line
+        if "LibraryImport(" in line
     ]
     if len(imports) != len(actual):
         fail(
-            f"expected {len(actual)} DllImport attributes, found {len(imports)}"
+            f"expected {len(actual)} LibraryImport attributes, found {len(imports)}"
         )
-    for line in imports:
-        if 'DllImport("ghostty-vt"' not in line:
-            fail(f"unexpected DllImport library: {line.strip()}")
-        if "CallingConvention.Cdecl" not in line or "ExactSpelling = true" not in line:
-            fail(f"DllImport is missing Cdecl/ExactSpelling: {line.strip()}")
+    for index, line in enumerate(imports):
+        if '[LibraryImport("ghostty-vt")]' not in line:
+            fail(f"unexpected LibraryImport library: {line.strip()}")
+        following = text.splitlines()[text.splitlines().index(line) + 1]
+        if "UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })" not in following:
+            fail(f"LibraryImport is missing the Cdecl unmanaged convention: {line.strip()}")
 
     expected_lines = normalized_content(reference, compiled=False)
     actual_lines = normalized_content(compiled, compiled=True)
