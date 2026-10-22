@@ -347,6 +347,36 @@ run_upstream '.{
 check "nested version decoy is ignored" 0 $?
 [ "$(cat "$TMP/last.log")" = "1.3.2-dev" ] && ok "top-level version wins over a nested field" || bad "top-level version wins over a nested field"
 
+ZON_CHAR=$(cat <<'EOF'
+.{
+    .foo = .{
+        .x = '}',
+        .version = "9.9.9",
+    },
+    .version = "1.3.2-dev",
+}
+EOF
+)
+run_upstream "$ZON_CHAR"
+check "brace in a char literal does not shift depth" 0 $?
+[ "$(cat "$TMP/last.log")" = "1.3.2-dev" ] && ok "char literal decoy ignored" || bad "char literal decoy ignored"
+
+ZON_MULTILINE=$(cat <<'EOF'
+.{
+    .paths = .{
+        \\}
+    },
+    .dependencies = .{
+        .version = "9.9.9",
+    },
+    .version = "1.3.2-dev",
+}
+EOF
+)
+run_upstream "$ZON_MULTILINE"
+check "multiline string content does not shift depth" 0 $?
+[ "$(cat "$TMP/last.log")" = "1.3.2-dev" ] && ok "multiline string decoy ignored" || bad "multiline string decoy ignored"
+
 echo "== NuGet ordering =="
 
 mkdir -p "$TMP/nuget"
@@ -570,8 +600,16 @@ git -C "$TMP/pin-repo" init -q
 git -C "$TMP/pin-repo" config user.name selftest
 git -C "$TMP/pin-repo" config user.email selftest@example.invalid
 printf '{"repo":"https://github.com/ghostty-org/ghostty.git","commit":"0000000000000000000000000000000000000000"}\n' > "$TMP/pin-repo/ghostty-upstream.json"
-git -C "$TMP/pin-repo" add ghostty-upstream.json
+mkdir -p "$TMP/pin-repo/build/bindings-reference" "$TMP/pin-repo/src/Ghostty.Vt/Raw"
+printf 'old\n' > "$TMP/pin-repo/build/bindings-reference/NativeMethods.pinned.cs"
+printf 'old\n' > "$TMP/pin-repo/src/Ghostty.Vt/Raw/GhosttyVtNative.g.cs"
+git -C "$TMP/pin-repo" add ghostty-upstream.json \
+  build/bindings-reference/NativeMethods.pinned.cs \
+  src/Ghostty.Vt/Raw/GhosttyVtNative.g.cs
 git -C "$TMP/pin-repo" commit -q -m initial
+printf 'new\n' > "$TMP/pin-repo/build/bindings-reference/NativeMethods.pinned.cs"
+printf 'new\n' > "$TMP/pin-repo/src/Ghostty.Vt/Raw/GhosttyVtNative.g.cs"
+PREV_HEAD=$(git -C "$TMP/pin-repo" rev-parse HEAD)
 
 out_pin_prepare() { grep -E "^$1=" "$TMP/out-pin-prepare.env" | tail -1 | cut -d= -f2-; }
 run_prepare_pin() { # run_prepare_pin <version>
@@ -588,6 +626,9 @@ check "pin commit prepared" 0 $?
 [ ! -e "$TMP/pin-inject" ] && ok "pin version is not shell-expanded" || bad "pin version is not shell-expanded"
 [ "$(jq -r '.upstreamVersion' "$TMP/pin-repo/ghostty-upstream.json")" = "$PAYLOAD" ]   && ok "pin version is stored literally" || bad "pin version is stored literally"
 [ "$(out_pin_prepare pin_commit)" = "$(git -C "$TMP/pin-repo" rev-parse HEAD)" ]   && ok "pin commit SHA emitted" || bad "pin commit SHA emitted"
+[ "$(git -C "$TMP/pin-repo" rev-parse HEAD)" != "$PREV_HEAD" ]   && ok "pin commit advances HEAD" || bad "pin commit advances HEAD"
+[ "$(git -C "$TMP/pin-repo" show HEAD:ghostty-upstream.json | jq -r '.upstreamVersion')" = "$PAYLOAD" ]   && ok "new pin is in the commit" || bad "new pin is in the commit"
+git -C "$TMP/pin-repo" cat-file -e HEAD:build/bindings-reference/NativeMethods.pinned.cs   && git -C "$TMP/pin-repo" cat-file -e HEAD:src/Ghostty.Vt/Raw/GhosttyVtNative.g.cs   && ok "reference and raw layer are in the commit" || bad "reference and raw layer are in the commit"
 
 echo "== upstream check =="
 
@@ -731,8 +772,18 @@ assert '--base "$BASE_VERSION"' in recheck_release['run']
 tag_target = next(s for s in release['jobs']['publish']['steps'] if s.get('name') == 'Verify tag target')
 assert '^{commit}' in tag_target['run']
 assert 'TARGET_SHA' in tag_target['env']
+assert 'if [ "$TAG_SHA" != "$TARGET_SHA" ]' in tag_target['run']
+assert 'has moved' in tag_target['run']
+assert 'git fetch --tags --force' in tag_target['run']
 unpublished = next(s for s in release['jobs']['publish']['steps'] if s.get('name') == 'Verify version is unpublished')
 assert 'HTTP' in unpublished['run'] and '404' in unpublished['run']
+for name in ('Re-check published version ordering', 'Verify tag target', 'Verify version is unpublished'):
+    step = next(s for s in release['jobs']['publish']['steps'] if s.get('name') == name)
+    assert 'if' not in step, name
+release_publish_names = [s.get('name') for s in release['jobs']['publish']['steps']]
+assert release_publish_names.index('Re-check published version ordering') < release_publish_names.index('Verify tag target')
+assert release_publish_names.index('Verify tag target') < release_publish_names.index('Verify version is unpublished')
+assert release_publish_names.index('Verify version is unpublished') < release_publish_names.index('Publish to NuGet')
 
 notes = next(s for s in release['jobs']['publish']['steps'] if s.get('name') == 'Create GitHub Release')
 assert notes['env']['PKG_VERSION'] == '${{ needs.preflight.outputs.package_version }}'
@@ -745,17 +796,22 @@ assert '${{' not in notes['run']
 pub = daily['jobs']['publish']
 assert 'NUGET_API_KEY' not in pub.get('env', {})
 key_step = next(s for s in pub['steps'] if s.get('id') == 'nuget')
-assert "github.ref == 'refs/heads/main'" in key_step['if']
+assert key_step['if'] == "github.ref == 'refs/heads/main'"
 for name in ('Prepare pin update', 'Publish to NuGet', 'Push pin update', 'Create GitHub Release'):
     step = next(s for s in pub['steps'] if s.get('name') == name)
     assert "github.ref == 'refs/heads/main'" in step['if'], name
+    assert '||' not in step['if'], name
 for name in ('Publish to NuGet', 'Push pin update', 'Create GitHub Release'):
     step = next(s for s in pub['steps'] if s.get('name') == name)
     assert 'GITHUB_REF' in step['run'], name
 recheck = next(s for s in pub['steps'] if s.get('name') == 'Re-check nightly ordering')
 assert 'check-nuget-version.py nightly' in recheck['run']
 assert 'BASE="${PKG_VERSION%%-ci.*}"' in recheck['run']
+assert '--version "$BASE"' in recheck['run']
 assert '|| true' not in recheck['run']
+pub_names = [s.get('name') for s in pub['steps']]
+assert pub_names.index('Re-check nightly ordering') < pub_names.index('Publish to NuGet')
+assert '--version "$VERSION_BASE"' in next(s for s in pub['steps'] if s.get('name') == 'Compute version')['run']
 
 check_upstream = next(s for s in daily['jobs']['check-upstream']['steps'] if s.get('name') == 'Check for upstream changes')
 assert 'read-upstream-version.py' in check_upstream['run']

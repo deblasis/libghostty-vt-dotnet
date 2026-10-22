@@ -53,6 +53,28 @@ def read_version(text: str) -> str | None:
             index = len(text) if newline < 0 else newline
             continue
 
+        # Zig multiline string lines begin with `\\` and run to the newline.
+        # Their contents are data, not manifest structure.
+        if char == "\\" and index + 1 < len(text) and text[index + 1] == "\\":
+            newline = text.find("\n", index)
+            index = len(text) if newline < 0 else newline
+            continue
+
+        # A character literal may contain a brace, quote, or backslash. Skip it
+        # so it cannot shift the brace depth.
+        if char == "'":
+            index += 1
+            while index < len(text):
+                current = text[index]
+                if current == "\\":
+                    index += 2
+                    continue
+                if current == "'":
+                    index += 1
+                    break
+                index += 1
+            continue
+
         if char == "{":
             depth += 1
             index += 1
