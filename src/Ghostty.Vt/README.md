@@ -84,7 +84,7 @@ Target framework: **net9.0**. The curated API is AOT-compatible and uses `Librar
 
 Package versions use independent SemVer. They do not mirror the upstream Ghostty version. The upstream commit each build uses is pinned in [`ghostty-upstream.json`](https://github.com/deblasis/libghostty-vt-dotnet/blob/main/ghostty-upstream.json); release notes name the upstream version and commit.
 
-Nightly builds use `<version>-ci.<timestamp>.<sha>`, release candidates use `<version>-rc.<n>`, and stable releases use `<version>`.
+Nightly builds use `<version>-ci.<timestamp>.g<sha>`, release candidates use `<version>-rc.<n>`, and stable releases use `<version>`.
 
 ## Used in
 

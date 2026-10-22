@@ -35,8 +35,19 @@ jobs:
       - name: Check for upstream changes
         id: check
         run: |
-          CURRENT=$(jq -r '.commit' ghostty-upstream.json)
+          CURRENT=$(jq -er '.commit | select(type == "string")' ghostty-upstream.json 2>/dev/null) || {
+            echo "::error::Could not read a string commit from ghostty-upstream.json"
+            exit 1
+          }
+          if ! [[ "$CURRENT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Pinned upstream commit is not a full 40-hex SHA: '$CURRENT'"
+            exit 1
+          fi
           LATEST=$(git ls-remote https://github.com/ghostty-org/ghostty.git HEAD | awk '{print $1}')
+          if ! [[ "$LATEST" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Could not resolve upstream HEAD to a full 40-hex SHA: '$LATEST'"
+            exit 1
+          fi
 
           if [ "$CURRENT" = "$LATEST" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -45,12 +56,13 @@ jobs:
           fi
 
           echo "changed=true" >> "$GITHUB_OUTPUT"
-          echo "commit=$LATEST" >> "$GITHUB_OUTPUT"
+          printf 'commit=%s\n' "$LATEST" >> "$GITHUB_OUTPUT"
 
-          # Fetch build.zig.zon directly to read the upstream version (Zig ZON syntax: .version = "x.y.z")
+          # The reader rejects comments, nested decoys, and malformed values
+          # before this output reaches a shell or a release note.
           VERSION=$(curl -sSfL "https://raw.githubusercontent.com/ghostty-org/ghostty/${LATEST}/build.zig.zon" \
-            | grep -oP '(?<=\.version = ")[^"]+' | head -1)
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+            | bash build/read-upstream-version.sh)
+          printf 'version=%s\n' "$VERSION" >> "$GITHUB_OUTPUT"
 
           echo "New upstream: $LATEST (version $VERSION)"
 
@@ -60,11 +72,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Clone Ghostty at new commit
+        env:
+          UPSTREAM_COMMIT: ${{ needs.check-upstream.outputs.new_commit }}
         run: |
           git init ghostty-src
           cd ghostty-src
           git remote add origin https://github.com/ghostty-org/ghostty.git
-          git fetch --depth 1 origin ${{ needs.check-upstream.outputs.new_commit }}
+          git fetch --depth 1 origin "$UPSTREAM_COMMIT"
           git checkout FETCH_HEAD
 
       # Windows runners cannot create symlinks during extraction without
@@ -368,11 +382,6 @@ jobs:
       # No `issues: write` — failure reporting moved to the notify-failure
       # job, which is the only one that also fires when build-native fails.
     env:
-      # Secret gate: the publish / commit-update / release steps are skipped
-      # when NUGET_API_KEY is absent. Earlier steps (build, test, pack) still
-      # run so the daily workflow remains useful as a validation pipeline
-      # while the final publishing destination is still being decided.
-      NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
       # A manual `workflow_dispatch` with dry_run=true exercises the whole
       # pipeline (build / test / pack) without publishing, moving the pin, or
       # cutting a release — the only safe way to validate a workflow change on
@@ -380,6 +389,20 @@ jobs:
       DRY_RUN: ${{ inputs.dry_run == true }}
     steps:
       - uses: actions/checkout@v4
+
+      # The key is exposed only to this check and to the push step. Keeping it
+      # out of the job environment means build, pack, pin, and release steps
+      # cannot read it if any of their inputs are compromised.
+      - name: Check NuGet key
+        id: nuget
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          if [ -n "$NUGET_API_KEY" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -475,25 +498,38 @@ jobs:
 
       - name: Compute version
         id: version
+        env:
+          NEW_COMMIT: ${{ needs.check-upstream.outputs.new_commit }}
         run: |
-          VERSION_BASE=$(jq -r '.version // empty' version.json)
-          if ! echo "$VERSION_BASE" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "::error::version.json must contain a plain X.Y.Z version; got '$VERSION_BASE'"
+          VERSION_BASE=$(bash build/read-package-version.sh)
+          if ! [[ "$NEW_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Upstream commit is not a full 40-hex SHA: '$NEW_COMMIT'"
             exit 1
           fi
-          COMMIT="${{ needs.check-upstream.outputs.new_commit }}"
-          SHORT="${COMMIT:0:8}"
+          SHORT="g${NEW_COMMIT:0:8}"
           TIMESTAMP=$(date -u +%Y%m%d%H%M)
           PACKAGE_VERSION="${VERSION_BASE}-ci.${TIMESTAMP}.${SHORT}"
+          python3 build/check-nuget-version.py nightly --version "$VERSION_BASE"
           echo "package_version=$PACKAGE_VERSION" >> "$GITHUB_OUTPUT"
           echo "Package version: $PACKAGE_VERSION"
+          echo "Upstream commit: $NEW_COMMIT"
 
       - name: Pack
+        env:
+          PKG_VERSION: ${{ steps.version.outputs.package_version }}
         run: |
           dotnet pack src/Ghostty.Vt/Ghostty.Vt.csproj \
             --configuration Release \
             --output artifacts \
-            -p:Version=${{ steps.version.outputs.package_version }}
+            -p:Version="$PKG_VERSION"
+
+      - name: Assert packed version
+        env:
+          PKG_VERSION: ${{ steps.version.outputs.package_version }}
+        run: |
+          bash build/assert-packed-version.sh \
+            "$(find artifacts -name '*.nupkg' -print -quit)" \
+            "$PKG_VERSION"
 
       # Consume the just-packed nupkg exactly as a client would. The
       # project reads DeBlasis.GhosttyVt from artifacts/ only, so a missing
@@ -507,47 +543,30 @@ jobs:
           dotnet test tests/Ghostty.Vt.PackageConsumer.Tests/Ghostty.Vt.PackageConsumer.Tests.csproj \
             --configuration Release
 
-      - name: Publish to NuGet
-        # dotnet nuget push automatically pushes the matching *.snupkg symbols
-        # package from the same folder. --skip-duplicate makes retries safe.
-        # The raw ABI layer is part of the package; a generator failure must
-        # not publish a package with signatures from the previous pin.
-        if: env.NUGET_API_KEY != '' && env.DRY_RUN != 'true' && needs.regenerate-bindings.result == 'success'
+      # Prepare the pin commit before the irreversible NuGet push. If this
+      # fails, nothing is published and main is unchanged. The push itself is
+      # after the publish so a failed push cannot leave main pointing at a
+      # package that was never published.
+      - name: Prepare pin update
+        id: pin_update
+        if: steps.nuget.outputs.present == 'true' && env.DRY_RUN != 'true' && needs.regenerate-bindings.result == 'success'
+        env:
+          NEW_COMMIT: ${{ needs.check-upstream.outputs.new_commit }}
+          NEW_VERSION: ${{ needs.check-upstream.outputs.new_version }}
         run: |
-          dotnet nuget push "artifacts/*.nupkg" \
-            --api-key "$NUGET_API_KEY" \
-            --source https://api.nuget.org/v3/index.json \
-            --skip-duplicate
-
-      - name: Skipped publish (no NUGET_API_KEY)
-        if: env.NUGET_API_KEY == ''
-        run: |
-          echo "::notice title=Publish skipped::NUGET_API_KEY is not set on this repo."
-          echo "The daily workflow built + tested + packed successfully, but publishing is"
-          echo "skipped until a destination is chosen and the corresponding secret is added."
-
-      - name: Skipped publish (dry run)
-        if: env.DRY_RUN == 'true'
-        run: |
-          echo "::notice title=Dry run::Publish, pin update and release were skipped (dry_run=true)."
-
-      - name: Update ghostty-upstream.json
-        if: env.NUGET_API_KEY != '' && env.DRY_RUN != 'true' && needs.regenerate-bindings.result == 'success'
-        run: |
-          cat > ghostty-upstream.json << EOF
-          {
-            "repo": "https://github.com/ghostty-org/ghostty.git",
-            "branch": "main",
-            "commit": "${{ needs.check-upstream.outputs.new_commit }}",
-            "upstreamVersion": "${{ needs.check-upstream.outputs.new_version }}",
-            "lastUpdated": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          }
-          EOF
+          jq -n \
+            --arg repo "https://github.com/ghostty-org/ghostty.git" \
+            --arg branch "main" \
+            --arg commit "$NEW_COMMIT" \
+            --arg upstreamVersion "$NEW_VERSION" \
+            --arg lastUpdated "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{repo: $repo, branch: $branch, commit: $commit, upstreamVersion: $upstreamVersion, lastUpdated: $lastUpdated}' \
+            > ghostty-upstream.json
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          MESSAGE="chore: update upstream to ${{ needs.check-upstream.outputs.new_commit }}"
+          MESSAGE="chore: update upstream to ${NEW_COMMIT}"
           if ! git diff --quiet -- build/bindings-reference/NativeMethods.pinned.cs; then
             git add build/bindings-reference/NativeMethods.pinned.cs
             git add src/Ghostty.Vt/Raw/GhosttyVtNative.g.cs
@@ -559,21 +578,64 @@ jobs:
 
           git add ghostty-upstream.json
           git diff --cached --quiet || git commit -m "$MESSAGE"
-          git push
+          PIN_COMMIT=$(git rev-parse HEAD)
+          echo "pin_commit=$PIN_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "Prepared pin commit: $PIN_COMMIT"
+
+      - name: Publish to NuGet
+        # dotnet nuget push automatically pushes the matching *.snupkg symbols
+        # package from the same folder. --skip-duplicate makes retries safe.
+        # The raw ABI layer is part of the package; a generator failure must
+        # not publish a package with signatures from the previous pin.
+        if: steps.nuget.outputs.present == 'true' && env.DRY_RUN != 'true' && needs.regenerate-bindings.result == 'success'
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          dotnet nuget push "artifacts/*.nupkg" \
+            --api-key "$NUGET_API_KEY" \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate
+
+      - name: Skipped publish (no NUGET_API_KEY)
+        if: steps.nuget.outputs.present != 'true'
+        run: |
+          echo "::notice title=Publish skipped::NUGET_API_KEY is not set on this repo."
+          echo "The daily workflow built + tested + packed successfully, but publishing is"
+          echo "skipped until a destination is chosen and the corresponding secret is added."
+
+      - name: Skipped publish (dry run)
+        if: env.DRY_RUN == 'true'
+        run: |
+          echo "::notice title=Dry run::Publish, pin update and release were skipped (dry_run=true)."
+
+      - name: Push pin update
+        if: steps.nuget.outputs.present == 'true' && env.DRY_RUN != 'true' && needs.regenerate-bindings.result == 'success'
+        env:
+          PIN_COMMIT: ${{ steps.pin_update.outputs.pin_commit }}
+        run: |
+          git push origin "HEAD:main"
+          echo "Pushed pin commit: $PIN_COMMIT"
 
       - name: Hold publish and pin (binding reference unavailable)
-        if: env.NUGET_API_KEY != '' && env.DRY_RUN != 'true' && needs.regenerate-bindings.result != 'success'
+        if: steps.nuget.outputs.present == 'true' && env.DRY_RUN != 'true' && needs.regenerate-bindings.result != 'success'
         run: |
           echo "::warning title=Binding reference::regenerate-bindings did not succeed; publishing and the pin move are held so the package cannot ship stale raw signatures. The next nightly retries."
 
       - name: Create GitHub Release
-        if: env.NUGET_API_KEY != '' && env.DRY_RUN != 'true' && needs.regenerate-bindings.result == 'success'
+        if: steps.nuget.outputs.present == 'true' && env.DRY_RUN != 'true' && needs.regenerate-bindings.result == 'success'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PKG_VERSION: ${{ steps.version.outputs.package_version }}
+          UPSTREAM_COMMIT: ${{ needs.check-upstream.outputs.new_commit }}
+          UPSTREAM_VERSION: ${{ needs.check-upstream.outputs.new_version }}
+          PIN_COMMIT: ${{ steps.pin_update.outputs.pin_commit }}
         run: |
-          gh release create "v${{ steps.version.outputs.package_version }}" \
-            --title "v${{ steps.version.outputs.package_version }}" \
-            --notes "Automated daily build from ghostty-org/ghostty@${{ needs.check-upstream.outputs.new_commit }} (Ghostty ${{ needs.check-upstream.outputs.new_version }}). Package versions are independent of upstream."
+          gh release create "v${PKG_VERSION}" \
+            --title "v${PKG_VERSION}" \
+            --target "$PIN_COMMIT" \
+            --prerelease \
+            --latest=false \
+            --notes "Automated daily build from ghostty-org/ghostty@${UPSTREAM_COMMIT} (Ghostty ${UPSTREAM_VERSION}). Package versions are independent of upstream."
 
   # Failure reporting lives here, not inside `publish`.
   #

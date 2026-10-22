@@ -9,9 +9,9 @@ the package version does not mirror the upstream version.
 ## 1.4.0 (2026-10-22)
 
 Vendored upstream moved from `c41c6b81` (2026-07-07, Ghostty `1.3.2-dev`) to
-`349f0260` (2026-09-02, Ghostty `1.3.2-dev`). The daily sync had been unable to
-build since 2026-07-08, so this is roughly two months of upstream change landed
-as one reviewed step.
+`67edd20a` (2026-10-21, Ghostty `1.3.2-dev`). The daily sync had been unable to
+build since 2026-07-08, so this is roughly three months of upstream change
+landed as one reviewed step.
 
 ### Breaking
 
@@ -64,8 +64,13 @@ them are corrections: the previous values did not describe any libghostty API.
   struct into a post-construction `ghostty_terminal_set`.
 - `TerminalData` extended to 41 members, `TerminalOption` to 40,
   `RenderStateData` to 20 (`Cursor`, `Colors`).
-- Interim prerelease support in the release workflow, with
-  `build/selftest-release-guards.sh` covering it.
+- **Independent package versioning.** `version.json` is the package version
+  source; the upstream Ghostty pin remains in `ghostty-upstream.json` and is
+  named in the release notes. Nightlies use `<version>-ci.<timestamp>.g<sha>`,
+  release candidates use `<version>-rc.<n>`, and stable releases use
+  `<version>`. The release guards enforce canonical tags, `version.json`
+  matching, NuGet ordering, packed-version equality, and tag ancestry, with
+  `build/selftest-release-guards.sh` covering the refusal paths.
 - **Full C ABI under `Ghostty.Vt.Raw`.** `GhosttyVtNative` exposes the 205
   entry points declared in the public headers plus the generated structs,
   enums and constants. The curated `Ghostty.Vt` API is unchanged. The raw

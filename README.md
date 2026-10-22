@@ -97,7 +97,7 @@ The library ships as [`DeBlasis.GhosttyVt`](https://www.nuget.org/packages/DeBla
 
 ## Versioning
 
-Package versions use independent SemVer. `version.json` is the source of truth. Every build pins the upstream Ghostty commit in [`ghostty-upstream.json`](https://github.com/deblasis/libghostty-vt-dotnet/blob/main/ghostty-upstream.json); release notes name the upstream version and commit. Nightly builds use `<version>-ci.<timestamp>.<sha>`, release candidates use `<version>-rc.<n>`, and stable releases use `<version>`.
+Package versions use independent SemVer. `version.json` is the source of truth. Every build pins the upstream Ghostty commit in [`ghostty-upstream.json`](https://github.com/deblasis/libghostty-vt-dotnet/blob/main/ghostty-upstream.json); release notes name the upstream version and commit. Nightly builds use `<version>-ci.<timestamp>.g<sha>`, release candidates use `<version>-rc.<n>`, and stable releases use `<version>`.
 
 ## Used in
 
