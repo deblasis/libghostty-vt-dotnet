@@ -628,7 +628,8 @@ check "pin commit prepared" 0 $?
 [ "$(out_pin_prepare pin_commit)" = "$(git -C "$TMP/pin-repo" rev-parse HEAD)" ]   && ok "pin commit SHA emitted" || bad "pin commit SHA emitted"
 [ "$(git -C "$TMP/pin-repo" rev-parse HEAD)" != "$PREV_HEAD" ]   && ok "pin commit advances HEAD" || bad "pin commit advances HEAD"
 [ "$(git -C "$TMP/pin-repo" show HEAD:ghostty-upstream.json | jq -r '.upstreamVersion')" = "$PAYLOAD" ]   && ok "new pin is in the commit" || bad "new pin is in the commit"
-git -C "$TMP/pin-repo" cat-file -e HEAD:build/bindings-reference/NativeMethods.pinned.cs   && git -C "$TMP/pin-repo" cat-file -e HEAD:src/Ghostty.Vt/Raw/GhosttyVtNative.g.cs   && ok "reference and raw layer are in the commit" || bad "reference and raw layer are in the commit"
+[ "$(git -C "$TMP/pin-repo" show HEAD:build/bindings-reference/NativeMethods.pinned.cs)" = "new" ]   && ok "reference is refreshed in the commit" || bad "reference is refreshed in the commit"
+[ "$(git -C "$TMP/pin-repo" show HEAD:src/Ghostty.Vt/Raw/GhosttyVtNative.g.cs)" = "new" ]   && ok "raw layer is refreshed in the commit" || bad "raw layer is refreshed in the commit"
 
 echo "== upstream check =="
 
@@ -769,11 +770,13 @@ recheck_release = next(s for s in release['jobs']['publish']['steps'] if s.get('
 assert 'check-nuget-version.py release' in recheck_release['run']
 assert '--version "$PKG_VERSION"' in recheck_release['run']
 assert '--base "$BASE_VERSION"' in recheck_release['run']
+assert '|| true' not in recheck_release['run']
 tag_target = next(s for s in release['jobs']['publish']['steps'] if s.get('name') == 'Verify tag target')
 assert '^{commit}' in tag_target['run']
 assert 'TARGET_SHA' in tag_target['env']
 assert 'if [ "$TAG_SHA" != "$TARGET_SHA" ]' in tag_target['run']
 assert 'has moved' in tag_target['run']
+assert 'exit 1' in tag_target['run']
 assert 'git fetch --tags --force' in tag_target['run']
 unpublished = next(s for s in release['jobs']['publish']['steps'] if s.get('name') == 'Verify version is unpublished')
 assert 'HTTP' in unpublished['run'] and '404' in unpublished['run']
@@ -784,6 +787,10 @@ release_publish_names = [s.get('name') for s in release['jobs']['publish']['step
 assert release_publish_names.index('Re-check published version ordering') < release_publish_names.index('Verify tag target')
 assert release_publish_names.index('Verify tag target') < release_publish_names.index('Verify version is unpublished')
 assert release_publish_names.index('Verify version is unpublished') < release_publish_names.index('Publish to NuGet')
+publish_release_step = next(s for s in release['jobs']['publish']['steps'] if s.get('name') == 'Publish to NuGet')
+assert 'if' not in publish_release_step
+release_notes_step = next(s for s in release['jobs']['publish']['steps'] if s.get('name') == 'Create GitHub Release')
+assert 'if' not in release_notes_step
 
 notes = next(s for s in release['jobs']['publish']['steps'] if s.get('name') == 'Create GitHub Release')
 assert notes['env']['PKG_VERSION'] == '${{ needs.preflight.outputs.package_version }}'
@@ -809,6 +816,10 @@ assert 'check-nuget-version.py nightly' in recheck['run']
 assert 'BASE="${PKG_VERSION%%-ci.*}"' in recheck['run']
 assert '--version "$BASE"' in recheck['run']
 assert '|| true' not in recheck['run']
+assert "github.ref == 'refs/heads/main'" in recheck['if']
+assert "steps.nuget.outputs.present == 'true'" in recheck['if']
+assert "env.DRY_RUN != 'true'" in recheck['if']
+assert "needs.regenerate-bindings.result == 'success'" in recheck['if']
 pub_names = [s.get('name') for s in pub['steps']]
 assert pub_names.index('Re-check nightly ordering') < pub_names.index('Publish to NuGet')
 assert '--version "$VERSION_BASE"' in next(s for s in pub['steps'] if s.get('name') == 'Compute version')['run']
