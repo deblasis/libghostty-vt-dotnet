@@ -320,15 +320,32 @@ public unsafe partial class RawSurfaceCoverageTests
         {
             Write(terminal, "abc");
             var text = "def"u8;
-            nuint consumed = 0;
+            GhosttyTerminalWriteStop stop = default;
+            stop.size = (nuint)sizeof(GhosttyTerminalWriteStop);
             fixed (byte* data = text)
             {
+                var result = GhosttyVtNative.ghostty_terminal_vt_write_until(
+                    terminal, data, (nuint)text.Length,
+                    (uint)GhosttyTerminalBoundary.GHOSTTY_TERMINAL_BOUNDARY_GROUND,
+                    &stop);
+                Assert.True(result is GhosttyResult.GHOSTTY_SUCCESS or GhosttyResult.GHOSTTY_NO_VALUE);
+            }
+            Assert.InRange(stop.consumed, (nuint)0, (nuint)text.Length);
+
+            var osc = "\x1b]0;title\x07"u8;
+            fixed (byte* data = osc)
+            {
+                stop = default;
+                stop.size = (nuint)sizeof(GhosttyTerminalWriteStop);
                 Assert.Equal(
                     GhosttyResult.GHOSTTY_SUCCESS,
-                    GhosttyVtNative.ghostty_terminal_vt_write_until_ground(
-                        terminal, data, (nuint)text.Length, &consumed));
+                    GhosttyVtNative.ghostty_terminal_vt_write_until(
+                        terminal, data, (nuint)osc.Length,
+                        (uint)GhosttyTerminalBoundary.GHOSTTY_TERMINAL_BOUNDARY_OSC_END,
+                        &stop));
+                Assert.NotEqual(0u, stop.reached & (uint)GhosttyTerminalBoundary.GHOSTTY_TERMINAL_BOUNDARY_OSC_END);
+                Assert.Equal(GhosttyTerminalStringKind.GHOSTTY_TERMINAL_STRING_KIND_OSC, stop.kind);
             }
-            Assert.InRange(consumed, (nuint)0, (nuint)text.Length);
 
             Span<byte> continuation = stackalloc byte[64];
             nuint continuationLen = 0;

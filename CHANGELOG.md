@@ -29,6 +29,9 @@ the package version does not mirror the upstream version.
 - The raw layer now uses source-generated `LibraryImport` with explicit Cdecl
   calling conventions, making the native surface AOT-compatible. A NativeAOT
   publish-and-run smoke app is part of CI.
+- Upstream pin moved to `f54340ad`. `ghostty_terminal_vt_write_until_ground`
+  was replaced by `ghostty_terminal_vt_write_until` with explicit boundary and
+  stop-result types; the raw layer and tests follow the new API.
 
 ## 1.4.0 (2026-10-22)
 
