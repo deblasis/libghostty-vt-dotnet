@@ -6,7 +6,7 @@ Versioning follows independent SemVer. `version.json` is the source of truth.
 Upstream tracking is recorded in `ghostty-upstream.json` and the release notes;
 the package version does not mirror the upstream version.
 
-## Unreleased
+## 1.4.1 (2026-10-22)
 
 - The curated `Ghostty.Vt` API now forwards to the generated raw ABI layer.
   The 94 hand-written P/Invoke declarations were removed; the public surface is
