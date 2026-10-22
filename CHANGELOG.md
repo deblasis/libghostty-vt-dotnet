@@ -12,7 +12,7 @@ the package version does not mirror the upstream version.
   The 94 hand-written P/Invoke declarations were removed; the public surface is
   unchanged. The formatter now passes `GhosttyFormatterTerminalOptions` by
   value, matching the pinned header.
-- Added raw-surface coverage for all 205 entry points. `253` tests pass, and
+- Added raw-surface coverage for all 205 entry points. `254` tests pass, and
   `build/check-raw-test-coverage.py` fails if a raw entry point has no test
   reference.
 - Corrected `OptimizeMode`, `RowSemanticPrompt`, `TerminalScreen`,
@@ -20,6 +20,8 @@ the package version does not mirror the upstream version.
   Old names remain as obsolete aliases where their meaning is preserved.
 - Replaced the remaining raw call-site data literals with the generated enum
   constants.
+- Added a member-level public API baseline hash. Any public type or member
+  change now fails the test suite until the baseline is deliberately updated.
 - The raw layer uses `DllImport`; the separate `LibraryImport`/AOT migration
   remains open.
 
