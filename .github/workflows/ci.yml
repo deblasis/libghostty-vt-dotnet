@@ -72,6 +72,29 @@ jobs:
           name: libghostty-vt-linux-x64
           path: runtimes/linux-x64/native/libghostty-vt.so
 
+  aot-smoke:
+    needs: build-native
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Download native artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: libghostty-vt-linux-x64
+          path: runtimes/linux-x64/native
+
+      - name: Publish NativeAOT smoke app
+        run: dotnet publish tests/Ghostty.Vt.AotSmoke/Ghostty.Vt.AotSmoke.csproj -c Release -r linux-x64 -p:PublishAot=true --self-contained
+
+      - name: Run NativeAOT smoke app
+        run: ./tests/Ghostty.Vt.AotSmoke/bin/Release/net9.0/linux-x64/publish/Ghostty.Vt.AotSmoke
+
   # The strict half of the drift detection added in #46. Two gates:
   #
   #   1. the generator runs against the pinned headers and emits a real
