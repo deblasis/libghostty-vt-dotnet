@@ -735,6 +735,7 @@ for name in ('Guard 3', 'Guard 5'):
     step = next(s for s in pre['steps'] if name in s.get('name', ''))
     assert "is_dry_run == 'false'" in step['if'], name
 assert any('Guard 4' in s.get('name', '') for s in pre['steps'])
+assert any(s.get('name') == 'Verify raw ABI test coverage' for s in pre['steps'])
 
 compute_step = next(s for s in pre['steps'] if s.get('name') == 'Compute version and dry-run flag')
 assert 'echo "Package version:' in compute_step['run']

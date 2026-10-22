@@ -121,7 +121,7 @@ run_gen "$TMP/good.sh" "$TMP/noheaders"; check "empty header tree must fail" 1 $
 
 echo "== symbol gate =="
 
-BINDINGS="$REPO/src/Ghostty.Vt/Native/NativeMethods.cs"
+BINDINGS="$REPO/build/bindings-reference/NativeMethods.pinned.cs"
 CHECK="$REPO/build/check-binding-symbols.sh"
 
 bash "$CHECK" "$BINDINGS" "$INCLUDE" >/dev/null 2>&1; check "real bindings vs their own headers" 0 $?
@@ -135,14 +135,14 @@ bash "$CHECK" "$BINDINGS" "$TMP/hdr" >/dev/null 2>&1; check "removed symbol repo
 
 # An EntryPoint= override hides a declaration from name-based extraction. It
 # must refuse to report, not quietly check one fewer symbol.
-sed 's/\[LibraryImport(LibraryName)\]\n/X/' "$BINDINGS" > "$TMP/ep.cs"
-python3 - "$BINDINGS" "$TMP/ep.cs" <<'PY' 2>/dev/null || cp "$BINDINGS" "$TMP/ep.cs"
-import re, sys
-src = open(sys.argv[1], encoding='utf-8').read()
-src = src.replace('[LibraryImport(LibraryName)]\n    internal static partial void ghostty_terminal_free(nint terminal);',
-                  '[LibraryImport(LibraryName, EntryPoint = "ghostty_terminal_free")]\n    internal static partial void TerminalFree(nint terminal);', 1)
-open(sys.argv[2], 'w', encoding='utf-8').write(src)
-PY
+cat > "$TMP/ep.cs" <<'EOF'
+using System.Runtime.InteropServices;
+internal static class X
+{
+    [DllImport("ghostty-vt", EntryPoint = "ghostty_terminal_free")]
+    public static extern void TerminalFree();
+}
+EOF
 bash "$CHECK" "$TMP/ep.cs" "$INCLUDE" >/dev/null 2>&1; check "EntryPoint= override must refuse to report" 2 $?
 
 printf 'internal static class X { }\n' > "$TMP/empty-bindings.cs"

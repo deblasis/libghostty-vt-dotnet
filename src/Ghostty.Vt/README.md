@@ -78,7 +78,7 @@ Enable unsafe blocks in the consuming project. The raw layer returns pointers an
 | Linux x64 (glibc 2.31+) | `linux-x64` | `libghostty-vt.so` |
 | macOS ARM64 | `osx-arm64` | `libghostty-vt.dylib` |
 
-Target framework: **net9.0**. The curated API is AOT-compatible and uses `LibraryImport` (source-generated). The raw layer uses `DllImport` and is not the AOT-friendly surface.
+Target framework: **net9.0**. The curated API forwards to the generated raw ABI layer; both use the generated `DllImport` surface. Source-generated `LibraryImport`/AOT migration remains tracked separately.
 
 ## Versioning
 

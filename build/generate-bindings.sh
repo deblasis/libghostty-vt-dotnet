@@ -57,7 +57,7 @@ echo "Traversing $traverse_count headers under $INCLUDE_ROOT"
 # CRITICAL: the output path is a checked-in file that `actions/checkout` has
 # already placed on disk. If the generator writes nothing — which is exactly
 # how #46 failed for months — then a bare `[ -f "$OUTPUT" ]` passes and any
-# count taken from it silently measures the hand-maintained bindings instead
+# count taken from it silently measures a stale output file instead
 # of generated output. That makes the gate report on a file the generator
 # never touched. Delete it first so "produced nothing" is distinguishable
 # from "produced something".

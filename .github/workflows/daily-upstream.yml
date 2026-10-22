@@ -258,7 +258,7 @@ jobs:
       # question was never asked.
       - name: Report entry points removed upstream
         run: |
-          git show HEAD:src/Ghostty.Vt/Native/NativeMethods.cs > "$RUNNER_TEMP/committed-bindings.cs"
+          git show HEAD:build/bindings-reference/NativeMethods.pinned.cs > "$RUNNER_TEMP/committed-bindings.cs"
           set +e
           bash build/check-binding-symbols.sh "$RUNNER_TEMP/committed-bindings.cs" ghostty-src/include/ghostty
           rc=$?
@@ -323,7 +323,7 @@ jobs:
           fi
 
           SIGNATURES=$(grep -E '^[+-].*static extern' "$RUNNER_TEMP/upstream.diff" | head -50 || true)
-          BODY=$(printf 'Upstream `%s` generates a different pinned binding reference — [run](%s).\n\nThe pinned reference is refreshed automatically with the pin. The hand-maintained `src/Ghostty.Vt/Native/NativeMethods.cs` still needs a human to adopt the new surface.\n\nSignature-level changes:\n\n```diff\n%s\n```\n' \
+          BODY=$(printf 'Upstream `%s` generates a different pinned binding reference — [run](%s).\n\nThe pinned reference and raw ABI layer are refreshed automatically with the pin. Review the signature delta below.\n\nSignature-level changes:\n\n```diff\n%s\n```\n' \
             "$COMMIT" "$RUN_URL" "$SIGNATURES")
 
           # Dry runs exercise the body construction but must not mutate the
@@ -432,10 +432,9 @@ jobs:
       # against. Download it when the generator succeeded; the commit step
       # below writes it to build/bindings-reference/NativeMethods.pinned.cs in
       # the same commit as the pin move, so the next `ci.yml` run sees a
-      # consistent tree. This is NOT the hand-maintained NativeMethods.cs:
-      # that file stays untouched and still needs a human to adopt new API
-      # surface (ClangSharp emits DllImport while the committed file uses
-      # LibraryImport).
+      # consistent tree. The committed reference and raw layer are updated
+      # automatically with the pin; the generated output is only a staging
+      # artifact.
       #
       # If the generator failed, this download is skipped and a later step
       # holds publishing and the pin; the package is not pushed. If the
@@ -472,6 +471,8 @@ jobs:
             build/bindings-reference/NativeMethods.pinned.cs \
             src/Ghostty.Vt/Raw/GhosttyVtNative.g.cs
           python3 build/check-native-coverage.py
+          python3 build/check-raw-test-coverage.py
+          python3 build/check-interop-location.py
           git diff --stat -- \
             build/bindings-reference/NativeMethods.pinned.cs \
             src/Ghostty.Vt/Raw/GhosttyVtNative.g.cs

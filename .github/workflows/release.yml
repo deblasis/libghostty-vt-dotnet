@@ -36,6 +36,11 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
 
+      - name: Verify raw ABI test coverage
+        run: |
+          python3 build/check-raw-test-coverage.py
+          python3 build/check-interop-location.py
+
       - name: Compute version and dry-run flag
         id: compute
         env:
