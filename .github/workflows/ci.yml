@@ -12,9 +12,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Build the *pinned* commit, not `main`. NativeMethods.cs is
-      # hand-maintained against the SHA in ghostty-upstream.json, so building
-      # main here tested a pairing this repo never ships: with the pin 57 days
+      # Build the *pinned* commit, not `main`. The native surface is pinned in
+      # ghostty-upstream.json, so building main here tested a pairing this repo
+      # never ships: with the pin 57 days
       # behind (issue #43), 20 of 197 tests failed with
       # EntryPointNotFoundException for symbols upstream had since renamed.
       #
@@ -81,16 +81,11 @@ jobs:
   #   2. every entry point the committed bindings declare still exists in
   #      those headers.
   #
-  # Note what is deliberately NOT here: a diff of the generated file against
-  # NativeMethods.cs. That comparison can never come back clean, because
-  # NativeMethods.cs is not generator output — it is a hand-maintained subset
-  # (97 of 183 exported functions) using LibraryImport and `internal`, while
-  # the generator emits DllImport, `public`, and everything it can see. The
-  # first successful generator run produced a 650-line diff that deleted the
-  # entire file. A check that can only ever fail is not a check, so gate 2
-  # asks the question that actually has a right answer: are the symbols we
-  # P/Invoke still there? That is precisely the failure that cost 20 test
-  # failures when the pin went stale.
+  # Gate 2 compares the generated output to the checked-in reference. The
+  # reference is the native surface, and the committed raw layer and curated
+  # forwarders are derived from it. Gate 3 asks the complementary question:
+  # are the symbols in that reference still present upstream? That is
+  # precisely the failure that cost 20 test failures when the pin went stale.
 
   # ---------------------------------------------------------------------
   # The release guards decide what may be published to nuget.org, and a
@@ -106,6 +101,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Verify compiled native bindings
         run: python3 build/check-native-coverage.py
+      - name: Verify every raw entry point is referenced by tests
+        run: python3 build/check-raw-test-coverage.py
 
   release-guards:
     runs-on: ubuntu-latest
@@ -155,10 +152,9 @@ jobs:
       # is #46 exactly, and the first fix for it reintroduced the same defect:
       # the emitted-count check measured the checked-in file `actions/checkout`
       # had left at the output path, so a generator that wrote nothing scored
-      # the hand-maintained bindings as its own output.
+      # a stale output file as its own output.
       #
-      # Runs before the real regeneration, because it reads the committed
-      # NativeMethods.cs that the regeneration step deletes.
+      # Runs before the real regeneration and reads the committed reference.
       - name: Self-test the binding gates
         run: bash build/selftest-binding-gates.sh ghostty-src/include/ghostty
 
@@ -170,7 +166,7 @@ jobs:
       # Gate 2 — the generated output must match the checked-in reference,
       # byte for byte.
       #
-      # Generator-output-vs-NativeMethods.cs can never be clean, but
+      # The generated output is compared against the checked-in reference;
       # generated-vs-generated is apples to apples and is byte-stable in
       # practice (verified SHA-256 identical across independent runs). This is
       # the only gate that can see a SIGNATURE change: when
@@ -187,13 +183,13 @@ jobs:
           head -c 20000 "$RUNNER_TEMP/reference.diff"
           exit 1
 
-      # Gate 3 — every entry point the committed bindings P/Invoke must still
-      # exist in the pinned headers. Read the committed file from git: the
-      # regeneration step has replaced the working copy. This catches
-      # removals; gate 2 catches signature changes. Neither subsumes the other.
+      # Gate 3 — every entry point in the committed reference must still exist
+      # in the pinned headers. The reference is the native surface; the raw
+      # layer is generated from it. This catches removals; gate 2 catches
+      # signature changes. Neither subsumes the other.
       - name: Check declared entry points still exist upstream
         run: |
-          git show HEAD:src/Ghostty.Vt/Native/NativeMethods.cs > "$RUNNER_TEMP/committed-bindings.cs"
+          git show HEAD:build/bindings-reference/NativeMethods.pinned.cs > "$RUNNER_TEMP/committed-bindings.cs"
           bash build/check-binding-symbols.sh "$RUNNER_TEMP/committed-bindings.cs" ghostty-src/include/ghostty
 
       # Uploaded on success as well as failure: on failure it is what you

@@ -6,6 +6,18 @@ Versioning follows independent SemVer. `version.json` is the source of truth.
 Upstream tracking is recorded in `ghostty-upstream.json` and the release notes;
 the package version does not mirror the upstream version.
 
+## Unreleased
+
+- The curated `Ghostty.Vt` API now forwards to the generated raw ABI layer.
+  The 94 hand-written P/Invoke declarations were removed; the public surface is
+  unchanged. The formatter now passes `GhosttyFormatterTerminalOptions` by
+  value, matching the pinned header.
+- Added raw-surface coverage for all 205 entry points. `249` tests pass, and
+  `build/check-raw-test-coverage.py` fails if a raw entry point has no test
+  reference.
+- The raw layer uses `DllImport`; the separate `LibraryImport`/AOT migration
+  remains open.
+
 ## 1.4.0 (2026-10-22)
 
 Vendored upstream moved from `c41c6b81` (2026-07-07, Ghostty `1.3.2-dev`) to
@@ -99,7 +111,7 @@ them are corrections: the previous values did not describe any libghostty API.
   2026-08-03) is available through `Ghostty.Vt.Raw` but is not wrapped in the
   curated API.
 - The raw `Ghostty.Vt.Raw` layer uses `DllImport`, returns pointers and leaves
-  lifetimes to the caller. The curated API remains the AOT-friendly surface.
+  lifetimes to the caller. The curated API forwards to this layer.
 - The generated raw layer does not carry per-function XML docs; function-level
   documentation lives in the public C headers.
 - Several hand-transcribed constants elsewhere in the binding still describe no
