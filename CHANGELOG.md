@@ -24,6 +24,8 @@ the package version does not mirror the upstream version.
   change now fails the test suite until the baseline is deliberately updated.
 - Added direct mapping tests for every `FormatterOptions` flag, including the
   `Extra*` options, `IncludeStyle`, `Unwrap`, and `Trim`.
+- Tightened raw-only kitty-placement assertions and asserted the empty
+  render-state image iterator behavior explicitly.
 - The raw layer now uses source-generated `LibraryImport` with explicit Cdecl
   calling conventions, making the native surface AOT-compatible. A NativeAOT
   publish-and-run smoke app is part of CI.
