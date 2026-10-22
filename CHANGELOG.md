@@ -12,7 +12,7 @@ the package version does not mirror the upstream version.
   The 94 hand-written P/Invoke declarations were removed; the public surface is
   unchanged. The formatter now passes `GhosttyFormatterTerminalOptions` by
   value, matching the pinned header.
-- Added raw-surface coverage for all 205 entry points. `255` tests pass, and
+- Added raw-surface coverage for all 205 entry points. `258` tests pass, and
   `build/check-raw-test-coverage.py` fails if a raw entry point has no test
   reference.
 - Corrected `OptimizeMode`, `RowSemanticPrompt`, `TerminalScreen`,
@@ -22,6 +22,8 @@ the package version does not mirror the upstream version.
   constants.
 - Added a member-level public API baseline hash. Any public type or member
   change now fails the test suite until the baseline is deliberately updated.
+- Added direct mapping tests for every `FormatterOptions` flag, including the
+  `Extra*` options, `IncludeStyle`, `Unwrap`, and `Trim`.
 - The raw layer now uses source-generated `LibraryImport` with explicit Cdecl
   calling conventions, making the native surface AOT-compatible. A NativeAOT
   publish-and-run smoke app is part of CI.
