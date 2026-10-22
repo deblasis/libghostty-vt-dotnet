@@ -1,4 +1,5 @@
 using Ghostty.Vt.Native;
+using Ghostty.Vt.Raw;
 using Ghostty.Vt.Types;
 
 namespace Ghostty.Vt;
@@ -179,7 +180,8 @@ public ref struct KittyGraphicsPlacementIterator
 
             // Bind the iterator to the kitty graphics storage so it can iterate placements.
             // GHOSTTY_KITTY_GRAPHICS_DATA_PLACEMENT_ITERATOR = 1
-            result = NativeMethods.ghostty_kitty_graphics_get(kittyHandle, 1, &iter);
+            result = NativeMethods.ghostty_kitty_graphics_get(
+                kittyHandle, (int)GhosttyKittyGraphicsData.GHOSTTY_KITTY_GRAPHICS_DATA_PLACEMENT_ITERATOR, &iter);
             GhosttyException.ThrowIfFailure(result);
 
             _iterator = iter;

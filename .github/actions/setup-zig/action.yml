@@ -1,0 +1,73 @@
+name: Setup Zig for Ghostty
+description: >
+  Installs the Zig toolchain that a given ghostty commit declares it needs,
+  read from `.minimum_zig_version` in that commit's build.zig.zon, instead of
+  a version hardcoded in the workflow. Upstream bumps its minimum Zig from
+  time to time; a hardcoded pin turns every such bump into a silent, total
+  build failure (see issue #43, which froze the upstream pin for 57 days).
+
+inputs:
+  ghostty-ref:
+    description: >
+      Ghostty git ref whose build.zig.zon declares the required Zig version.
+      Pass the exact commit SHA the job is going to build wherever one is
+      available, so the toolchain and the source always agree.
+    required: true
+
+outputs:
+  zig-version:
+    description: The Zig version that was resolved and installed.
+    value: ${{ steps.resolve.outputs.zig_version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve required Zig version from upstream build.zig.zon
+      id: resolve
+      shell: bash
+      # Via `env:`, never `${{ }}` inside the script. A `${{ }}` expression is
+      # substituted textually before bash parses the line, so a caller passing
+      # a ref that came from a file (see ci.yml, where on a fork
+      # `pull_request` ghostty-upstream.json is attacker-controlled) would get
+      # arbitrary command execution here.
+      env:
+        GHOSTTY_REF: ${{ inputs.ghostty-ref }}
+      run: |
+        set -euo pipefail
+
+        # Defence in depth: every caller validates its own ref, but this
+        # action is reusable, so it refuses anything that is not plausibly a
+        # git ref before interpolating it into a URL. `=~` matches against the
+        # whole string, so an embedded newline is rejected too.
+        if ! [[ "$GHOSTTY_REF" =~ ^[0-9A-Za-z._/-]+$ ]]; then
+          echo "::error::ghostty-ref is not a plausible git ref; refusing to use it"
+          exit 1
+        fi
+
+        URL="https://raw.githubusercontent.com/ghostty-org/ghostty/${GHOSTTY_REF}/build.zig.zon"
+
+        # raw.githubusercontent.com rate-limits per shared-runner IP, and this
+        # action runs on all three legs of a matrix at once.
+        if ! ZON=$(curl -sSfL --retry 5 --retry-delay 3 --retry-all-errors "$URL"); then
+          echo "::error::Could not fetch $URL"
+          exit 1
+        fi
+
+        # Deliberately sed, not `grep -oP`: this action also runs on the macOS
+        # and Windows runners, whose grep has no -P.
+        VERSION=$(printf '%s\n' "$ZON" \
+          | sed -n 's/.*\.minimum_zig_version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' \
+          | head -1)
+
+        if [ -z "$VERSION" ]; then
+          echo "::error::ghostty@${GHOSTTY_REF} build.zig.zon has no .minimum_zig_version; refusing to guess a toolchain"
+          exit 1
+        fi
+
+        echo "zig_version=$VERSION" >> "$GITHUB_OUTPUT"
+        echo "::notice title=Zig toolchain::ghostty@${GHOSTTY_REF} requires Zig $VERSION"
+
+    - name: Setup Zig
+      uses: mlugg/setup-zig@v2
+      with:
+        version: ${{ steps.resolve.outputs.zig_version }}

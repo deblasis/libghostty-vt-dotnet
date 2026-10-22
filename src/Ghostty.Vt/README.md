@@ -53,6 +53,22 @@ foreach (var row in renderState.Rows)
 | `Ghostty.Vt.GridRef` | Reference and compare grid positions |
 | `Ghostty.Vt.Focus` | Focus reporting |
 | `Ghostty.Vt.Paste` | Bracketed paste encoding |
+| `Ghostty.Vt.Raw` | Full generated C ABI, low-level and unsafe |
+
+## Raw ABI access
+
+The curated API above is a subset of libghostty-vt. `Ghostty.Vt.Raw` exposes the full generated C ABI: all functions declared in the public C headers, plus the generated structs, enums and constants. Function-level documentation lives in those headers.
+
+```csharp
+using Ghostty.Vt.Raw;
+
+unsafe
+{
+    var json = GhosttyVtNative.ghostty_type_json();
+}
+```
+
+Enable unsafe blocks in the consuming project. The raw layer returns pointers and leaves lifetimes to the caller. Several structs are sized: set their `size` field to `sizeof(T)` before passing them. The `GHOSTTY_INIT_SIZED` macros are not generated. Memory from `ghostty_alloc` must be released with `ghostty_free` and the same allocator, exactly once. Some raw names, such as `GhosttyString` and `GhosttyKey`, overlap with curated types; qualify them when mixing namespaces. Prefer `Ghostty.Vt` unless you need a function it does not expose.
 
 ## Supported platforms
 
@@ -62,13 +78,17 @@ foreach (var row in renderState.Rows)
 | Linux x64 (glibc 2.31+) | `linux-x64` | `libghostty-vt.so` |
 | macOS ARM64 | `osx-arm64` | `libghostty-vt.dylib` |
 
-Target framework: **net9.0**. AOT-compatible. P/Invoke via `LibraryImport` (source-generated).
+Target framework: **net9.0**. The curated API forwards to the generated raw ABI layer, which uses source-generated `LibraryImport` and an explicit Cdecl unmanaged calling convention. This is the AOT-compatible native surface.
 
 ## Versioning
 
-Package versions track the upstream Ghostty version they were built against. Pre-release builds (`*-ci.{timestamp}.{sha}`) are produced by a daily sync workflow that rebuilds against the latest `ghostty-org/ghostty@main`.
+Package versions use independent SemVer. They do not mirror the upstream Ghostty version. The upstream commit each build uses is pinned in [`ghostty-upstream.json`](https://github.com/deblasis/libghostty-vt-dotnet/blob/main/ghostty-upstream.json); release notes name the upstream version and commit.
 
-The `ghostty-upstream.json` file in the [repository](https://github.com/deblasis/libghostty-vt-dotnet) pins the exact upstream commit each release was cut from.
+Nightly builds use `<version>-ci.<timestamp>.g<sha>`, release candidates use `<version>-rc.<n>`, and stable releases use `<version>`.
+
+## Used in
+
+[wintty](https://wintty.io), a Windows terminal built on Ghostty, uses this library for its persistent session panes.
 
 ## Links
 

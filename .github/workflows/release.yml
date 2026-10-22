@@ -11,11 +11,16 @@ on:
         type: string
 
 concurrency:
-  group: release-${{ github.ref }}
+  # Serialize all release tags. Two tags running concurrently can pass
+  # preflight against the same registry and then race their pushes.
+  group: release
   cancel-in-progress: false
 
 jobs:
   preflight:
+    # Nightly tags (`v...-ci....`) are created by the daily workflow. They are
+    # not release tags and must not start the release pipeline.
+    if: github.event_name == 'workflow_dispatch' || !contains(github.ref_name, '-ci.')
     runs-on: ubuntu-latest
     outputs:
       package_version: ${{ steps.compute.outputs.package_version }}
@@ -23,51 +28,143 @@ jobs:
       upstream_commit: ${{ steps.pin.outputs.upstream_commit }}
       upstream_version: ${{ steps.verify.outputs.upstream_version }}
       is_dry_run: ${{ steps.compute.outputs.is_dry_run }}
+      is_prerelease: ${{ steps.compute.outputs.is_prerelease }}
+      is_respin: ${{ steps.compute.outputs.is_respin }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Verify raw ABI test coverage
+        run: |
+          python3 build/check-raw-test-coverage.py
+          python3 build/check-interop-location.py
 
       - name: Compute version and dry-run flag
         id: compute
+        env:
+          # Passed through the environment rather than interpolated into the
+          # script. A git ref may legally contain a backtick, so
+          # `TAG="${{ github.ref_name }}"` is a command-substitution site that
+          # runs BEFORE Guard 1 has looked at the tag at all.
+          EVENT_NAME: ${{ github.event_name }}
+          TAG: ${{ github.ref_name }}
+          RUN_ID: ${{ github.run_id }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             echo "is_dry_run=true" >> "$GITHUB_OUTPUT"
             # Disposable version so `dotnet pack` succeeds; never published.
-            echo "package_version=0.0.0-dryrun.${{ github.run_id }}" >> "$GITHUB_OUTPUT"
+            echo "package_version=0.0.0-dryrun.${RUN_ID}" >> "$GITHUB_OUTPUT"
             echo "base_version=dryrun" >> "$GITHUB_OUTPUT"
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "is_respin=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          TAG="${{ github.ref_name }}"
-          # Guard 1 — tag shape. Permits v1.2.3 and v1.2.3.4 (respin).
-          if ! echo "$TAG" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$'; then
-            echo "::error::Tag $TAG does not match v<X.Y.Z> or v<X.Y.Z.N>"
+          # Guard 1 - tag shape. Permits:
+          #   v1.2.3        stable
+          #   v1.2.3.4      packaging respin
+          #   v1.2.3-rc.1   release candidate
+          #
+          # The optional groups are mutually exclusive: `v1.2.3.4-rc.1` is not
+          # a valid shape. Numeric components are canonical, so the version the
+          # guard names is the version NuGet will store.
+          if ! [[ "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(\.(1|[1-9][0-9]*)|-rc\.(0|[1-9][0-9]*))?$ ]]; then
+            echo "::error::Tag $TAG does not match canonical v<X.Y.Z>, v<X.Y.Z.N>, or v<X.Y.Z-rc.N>"
             exit 1
           fi
           VERSION="${TAG#v}"
-          BASE=$(echo "$VERSION" | awk -F. '{printf "%s.%s.%s", $1, $2, $3}')
+          PRERELEASE=false
+          IS_RESPIN=false
+          BASE=""
+          if [[ "$VERSION" =~ ^((0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*))\.(1|[1-9][0-9]*)$ ]]; then
+            BASE="${BASH_REMATCH[1]}"
+            IS_RESPIN=true
+          elif [[ "$VERSION" =~ ^((0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*))-rc\.(0|[1-9][0-9]*)$ ]]; then
+            BASE="${BASH_REMATCH[1]}"
+            PRERELEASE=true
+          else
+            BASE="$VERSION"
+          fi
+          VERSION_FILE=$(bash build/read-package-version.sh)
+          if [ "$IS_RESPIN" = "true" ]; then
+            # A respin targets the latest published stable. It is allowed while
+            # version.json already points at the next release; Guard 3 verifies
+            # that this base is that latest stable.
+            if ! awk -v a="$BASE" -v b="$VERSION_FILE" 'BEGIN {
+              split(a, x, "."); split(b, y, ".");
+              for (i = 1; i <= 3; i++) {
+                if (x[i] + 0 < y[i] + 0) exit 0;
+                if (x[i] + 0 > y[i] + 0) exit 1;
+              }
+              exit 0;
+            }'; then
+              echo "::error::Respin base $BASE is ahead of version.json $VERSION_FILE"
+              exit 1
+            fi
+          elif [ "$BASE" != "$VERSION_FILE" ]; then
+            echo "::error::Tag base $BASE does not match version.json $VERSION_FILE"
+            exit 1
+          fi
           echo "is_dry_run=false" >> "$GITHUB_OUTPUT"
           echo "package_version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "base_version=$BASE" >> "$GITHUB_OUTPUT"
+          echo "is_prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
+          echo "is_respin=$IS_RESPIN" >> "$GITHUB_OUTPUT"
+          echo "Package version: $VERSION"
+          echo "Base version: $BASE"
+          echo "Respin: $IS_RESPIN"
 
       - name: Resolve upstream pin
         id: pin
+        env:
+          IS_DRY_RUN: ${{ steps.compute.outputs.is_dry_run }}
+          DRY_RUN_COMMIT: ${{ inputs.dry_run_commit }}
         run: |
-          if [ "${{ steps.compute.outputs.is_dry_run }}" = "true" ]; then
-            COMMIT="${{ inputs.dry_run_commit }}"
+          if [ "$IS_DRY_RUN" = "true" ]; then
+            COMMIT="$DRY_RUN_COMMIT"
           else
-            COMMIT=$(jq -r '.commit' ghostty-upstream.json)
+            COMMIT=$(jq -er '.commit | select(type == "string")' ghostty-upstream.json 2>/dev/null) || {
+              echo "::error::Could not read a string commit from ghostty-upstream.json"
+              exit 1
+            }
           fi
-          if [ -z "$COMMIT" ] || [ "$COMMIT" = "null" ]; then
-            echo "::error::Could not resolve upstream commit"
+          if ! [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Could not resolve a full 40-hex upstream commit: '$COMMIT'"
             exit 1
           fi
           echo "upstream_commit=$COMMIT" >> "$GITHUB_OUTPUT"
+          echo "Upstream commit: $COMMIT"
 
-      - name: Guard 3 — pinned SHA exists upstream
+      - name: Guard 2 - record the upstream version
+        id: verify
+        if: steps.compute.outputs.is_dry_run == 'false'
+        env:
+          COMMIT: ${{ steps.pin.outputs.upstream_commit }}
+        run: |
+          UPSTREAM=$(curl -sSfL "https://raw.githubusercontent.com/ghostty-org/ghostty/${COMMIT}/build.zig.zon" \
+            | python3 build/read-upstream-version.py)
+          # The package version is independent of the upstream version. This
+          # value is recorded for release notes and the GitHub release body.
+          printf 'upstream_version=%s\n' "$UPSTREAM" >> "$GITHUB_OUTPUT"
+          echo "Upstream version: $UPSTREAM"
+
+      - name: Guard 3 - published version ordering
+        if: steps.compute.outputs.is_dry_run == 'false'
+        env:
+          PKG_VERSION: ${{ steps.compute.outputs.package_version }}
+          BASE_VERSION: ${{ steps.compute.outputs.base_version }}
+        run: |
+          python3 build/check-nuget-version.py release \
+            --version "$PKG_VERSION" \
+            --base "$BASE_VERSION"
+
+      - name: Guard 4 - pinned SHA exists upstream
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMMIT: ${{ steps.pin.outputs.upstream_commit }}
         run: |
-          COMMIT="${{ steps.pin.outputs.upstream_commit }}"
           # `git ls-remote` only lists ref tips, so an intermediate commit
           # will not appear; fall back to the GitHub API which resolves any
           # reachable commit by SHA. Authenticated call uses the workflow's
@@ -81,36 +178,30 @@ jobs:
             exit 1
           fi
 
-      - name: Guard 2 — tag matches upstream build.zig.zon
-        id: verify
+      - name: Guard 5 - tag is on main
         if: steps.compute.outputs.is_dry_run == 'false'
+        env:
+          TAG: ${{ github.ref_name }}
         run: |
-          COMMIT="${{ steps.pin.outputs.upstream_commit }}"
-          BASE="${{ steps.compute.outputs.base_version }}"
-          UPSTREAM=$(curl -sSfL "https://raw.githubusercontent.com/ghostty-org/ghostty/${COMMIT}/build.zig.zon" \
-            | grep -oP '(?<=\.version = ")[^"]+' | head -1)
-          if [ -z "$UPSTREAM" ]; then
-            echo "::error::Could not parse .version from upstream build.zig.zon"
+          git fetch --no-tags origin main
+          git fetch --tags --force origin "refs/tags/${TAG}:refs/tags/${TAG}"
+          TAG_SHA=$(git rev-parse "refs/tags/${TAG}^{commit}")
+          if [ "$TAG_SHA" != "$GITHUB_SHA" ]; then
+            echo "::error::Tag $TAG has moved; it no longer names the commit this run validated"
             exit 1
           fi
-          case "$UPSTREAM" in
-            *-dev)
-              echo "::error::Upstream version $UPSTREAM is a -dev build; refusing to release"
-              exit 1
-              ;;
-          esac
-          if [ "$UPSTREAM" != "$BASE" ]; then
-            echo "::error::Tag base version $BASE does not match upstream $UPSTREAM"
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Tag $TAG points at a commit that is not on origin/main"
             exit 1
           fi
-          echo "upstream_version=$UPSTREAM" >> "$GITHUB_OUTPUT"
 
       - name: Dry run — record upstream version (informational)
         if: steps.compute.outputs.is_dry_run == 'true'
+        env:
+          COMMIT: ${{ steps.pin.outputs.upstream_commit }}
         run: |
-          COMMIT="${{ steps.pin.outputs.upstream_commit }}"
           UPSTREAM=$(curl -sSfL "https://raw.githubusercontent.com/ghostty-org/ghostty/${COMMIT}/build.zig.zon" \
-            | grep -oP '(?<=\.version = ")[^"]+' | head -1 || echo "unknown")
+            | python3 build/read-upstream-version.py || echo "unknown")
           echo "::notice::Dry run against upstream version $UPSTREAM (commit $COMMIT)"
 
   build-native:
@@ -140,24 +231,34 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup Zig
-        uses: mlugg/setup-zig@v2
         with:
-          version: '0.15.2'
+          ref: ${{ github.sha }}
+
+      # Derived from the pinned commit being released, so the toolchain
+      # tracks the pin automatically as the daily sync moves it (issue #43).
+      - name: Setup Zig
+        uses: ./.github/actions/setup-zig
+        with:
+          ghostty-ref: ${{ needs.preflight.outputs.upstream_commit }}
 
       - name: Clone Ghostty at pinned commit
+        env:
+          UPSTREAM_COMMIT: ${{ needs.preflight.outputs.upstream_commit }}
         run: |
           git init ghostty-src
           cd ghostty-src
           git remote add origin https://github.com/ghostty-org/ghostty.git
-          git fetch --depth 1 origin "${{ needs.preflight.outputs.upstream_commit }}"
+          git fetch --depth 1 origin "$UPSTREAM_COMMIT"
           git checkout FETCH_HEAD
 
       - name: Build native libghostty-vt
+        # `-Demit-xcframework=false`: on a macOS host Ghostty otherwise builds
+        # a libghostty-vt XCFramework (macOS universal + iOS device/simulator)
+        # alongside the dylib. We ship none of those slices, and Zig 0.17.0
+        # cannot compile the iOS ones (see the same flag in daily-upstream.yml).
         run: |
           cd ghostty-src
-          zig build install -Demit-lib-vt=true -Dtarget="${{ matrix.zig_target }}" -Doptimize=ReleaseSafe
+          zig build install -Demit-lib-vt=true -Demit-xcframework=false -Dtarget="${{ matrix.zig_target }}" -Doptimize=ReleaseSafe
           mkdir -p "${{ github.workspace }}/runtimes/${{ matrix.rid }}/native"
           cp "zig-out/${{ matrix.src_dir }}/${{ matrix.artifact }}" \
             "${{ github.workspace }}/runtimes/${{ matrix.rid }}/native/"
@@ -173,6 +274,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -216,11 +319,21 @@ jobs:
         run: dotnet test Ghostty.Vt.sln --no-build --configuration Release
 
       - name: Pack
+        env:
+          PKG_VERSION: ${{ needs.preflight.outputs.package_version }}
         run: |
           dotnet pack src/Ghostty.Vt/Ghostty.Vt.csproj \
             --configuration Release \
             --output artifacts \
-            -p:Version=${{ needs.preflight.outputs.package_version }}
+            -p:Version="$PKG_VERSION"
+
+      - name: Assert packed version
+        env:
+          PKG_VERSION: ${{ needs.preflight.outputs.package_version }}
+        run: |
+          bash build/assert-packed-version.sh \
+            "$(find artifacts -name '*.nupkg' -print -quit)" \
+            "$PKG_VERSION"
 
       - name: Upload package
         uses: actions/upload-artifact@v7
@@ -240,6 +353,8 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -267,6 +382,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -279,9 +396,46 @@ jobs:
           name: nuget-package
           path: artifacts
 
+      - name: Re-check published version ordering
+        env:
+          PKG_VERSION: ${{ needs.preflight.outputs.package_version }}
+          BASE_VERSION: ${{ needs.preflight.outputs.base_version }}
+        run: |
+          python3 build/check-nuget-version.py release \
+            --version "$PKG_VERSION" \
+            --base "$BASE_VERSION"
+
+      - name: Verify tag target
+        env:
+          TAG: ${{ github.ref_name }}
+          TARGET_SHA: ${{ github.sha }}
+        run: |
+          git fetch --tags --force origin "refs/tags/${TAG}:refs/tags/${TAG}"
+          TAG_SHA=$(git rev-parse "refs/tags/${TAG}^{commit}")
+          if [ "$TAG_SHA" != "$TARGET_SHA" ]; then
+            echo "::error::Tag $TAG has moved; refusing to publish against a different commit"
+            exit 1
+          fi
+
+      - name: Verify version is unpublished
+        env:
+          PKG_VERSION: ${{ needs.preflight.outputs.package_version }}
+        run: |
+          URL="https://api.nuget.org/v3-flatcontainer/deblasis.ghosttyvt/${PKG_VERSION}/deblasis.ghosttyvt.${PKG_VERSION}.nupkg"
+          HTTP=$(curl -s -o /dev/null -w '%{http_code}' "$URL")
+          if [ "$HTTP" = "200" ]; then
+            echo "::error::Version ${PKG_VERSION} is already published; refusing to create a second release."
+            exit 1
+          fi
+          if [ "$HTTP" != "404" ]; then
+            echo "::error::Could not confirm ${PKG_VERSION} is unpublished (HTTP $HTTP)."
+            exit 1
+          fi
+
       - name: Publish to NuGet
         # dotnet nuget push automatically pushes the matching *.snupkg symbols
-        # package from the same folder. --skip-duplicate makes retries safe.
+        # package from the same folder. --skip-duplicate is a race guard; the
+        # explicit check above refuses an already-published version first.
         env:
           NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
         run: |
@@ -296,15 +450,31 @@ jobs:
           PKG_VERSION: ${{ needs.preflight.outputs.package_version }}
           UPSTREAM_COMMIT: ${{ needs.preflight.outputs.upstream_commit }}
           UPSTREAM_VERSION: ${{ needs.preflight.outputs.upstream_version }}
+          IS_PRERELEASE: ${{ needs.preflight.outputs.is_prerelease }}
         run: |
+          if [ "$IS_PRERELEASE" = "true" ]; then
+            HEADLINE="Prerelease of DeBlasis.GhosttyVt ${PKG_VERSION}, built against Ghostty ${UPSTREAM_VERSION} at ghostty-org/ghostty@${UPSTREAM_COMMIT}."
+            CAVEAT="Package versions use independent SemVer; upstream tracking is recorded above. Install with --prerelease."
+            PRERELEASE_FLAG=(--prerelease)
+            LATEST_FLAG=(--latest=false)
+          else
+            HEADLINE="Stable release of DeBlasis.GhosttyVt ${PKG_VERSION}, built against Ghostty ${UPSTREAM_VERSION} at ghostty-org/ghostty@${UPSTREAM_COMMIT}."
+            CAVEAT="Package versions use independent SemVer; upstream tracking is recorded above."
+            PRERELEASE_FLAG=()
+            LATEST_FLAG=(--latest)
+          fi
           NOTES=$(printf '%s\n' \
-            "Stable release of DeBlasis.GhosttyVt ${PKG_VERSION}, built from upstream ghostty-org/ghostty@${UPSTREAM_COMMIT} (Ghostty ${UPSTREAM_VERSION})." \
+            "$HEADLINE" \
+            "" \
+            "$CAVEAT" \
             "" \
             "📦 https://www.nuget.org/packages/DeBlasis.GhosttyVt/${PKG_VERSION}" \
             "" \
             "---")
           gh release create "v${PKG_VERSION}" \
             --title "v${PKG_VERSION}" \
+            "${PRERELEASE_FLAG[@]}" \
+            "${LATEST_FLAG[@]}" \
             --generate-notes \
             --notes "$NOTES"
 

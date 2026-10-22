@@ -6,13 +6,11 @@ internal sealed class DelegatePinner : IDisposable
 {
     private readonly List<GCHandle> _pins = [];
 
-    public nint Pin(Delegate d)
+    public nint Pin<TDelegate>(TDelegate d) where TDelegate : Delegate
     {
         var gch = GCHandle.Alloc(d);
         _pins.Add(gch);
-#pragma warning disable IL3050 // Delegate marshalling is used at runtime, not AOT
         return Marshal.GetFunctionPointerForDelegate(d);
-#pragma warning restore IL3050
     }
 
     public void Dispose()

@@ -4,25 +4,44 @@ This document is for maintainers. Day-to-day users should see the [README](READM
 
 ## Versioning rule
 
-`DeBlasis.GhosttyVt` uses **strict mirror** versioning against upstream Ghostty:
+Package versions are **independent SemVer** for this library:
 
-- Package `1.3.2` corresponds to upstream Ghostty `v1.3.2`, always.
-- Packaging-only respins (e.g. a bad `.snupkg`, a missing native artifact) ship as a 4-digit version: `1.3.2.1`, `1.3.2.2`, etc. SemVer permits this.
-- There are no independent version bumps. If our .NET surface changes in a breaking way without an upstream bump, we wait for the next upstream release rather than breaking the mirror.
+- MAJOR for a breaking public API change.
+- MINOR for a new public API.
+- PATCH for fixes and internal work.
+- Packaging-only respins use a fourth digit, `X.Y.Z.N`, which NuGet permits.
 
-This keeps the story on nuget.org one sentence long: *"install `1.3.2` to get the VT parser from Ghostty `v1.3.2`."*
+`version.json` at the repository root is the source of truth. The package version does **not** mirror the upstream Ghostty version.
+
+Upstream tracking lives in `ghostty-upstream.json`: it pins the exact Ghostty commit each build uses. Release notes name that commit and the upstream version it reports. The package version and the upstream version are deliberately separate.
+
+The release channels are:
+
+| Channel | Version shape | Example |
+|---|---|---|
+| Nightly | `<version>-ci.<timestamp>.g<sha>` | `1.4.1-ci.202610221530.g67edd20a` |
+| Release candidate | `<version>-rc.<n>` | `1.4.0-rc.2` |
+| Stable | `<version>` | `1.4.0` |
+| Packaging respin | `<version>.<n>` | `1.4.0.1` |
+
+Nightly builds sort below the release candidate and stable versions for the same base. A stable release supersedes its candidates.
+
+After a stable release, update `version.json` to the next version before the next nightly. For example, after `1.4.0`, set `version.json` to `1.4.1` for internal fixes, or `1.5.0` for new public API work. The nightly fails closed if its base is not ahead of the latest published stable, so a missed bump is visible instead of silently publishing an unreachable package.
 
 ## Preconditions
 
-Before tagging, `ghostty-upstream.json` must point at an upstream commit whose `build.zig.zon` reports a **non-`-dev`** version matching the tag you intend to push.
+Before tagging:
 
-Check with:
+- `version.json` contains a plain canonical `X.Y.Z` version matching the tag base. A respin may target the previous stable while `version.json` points at the next release.
+- `ghostty-upstream.json` points at a full 40-hex commit that exists upstream. The upstream version may be a `-dev` build; it is recorded for the release notes, not compared to the package version.
+- The tag is created from a commit on `main`; the release workflow checks ancestry before building.
+
+Check the inputs:
 
 ```bash
-jq -r '.upstreamVersion' ghostty-upstream.json
+jq -r '.version' version.json
+jq -r '.commit, .upstreamVersion' ghostty-upstream.json
 ```
-
-If it ends in `-dev` (e.g. `1.3.2-dev`), upstream has not cut a stable yet — wait, or manually merge the upstream-bump PR from the daily sync workflow once one lands.
 
 ## One-time setup
 
@@ -30,62 +49,76 @@ Before the first release:
 
 1. Repo → **Settings → Environments → New environment** → `nuget-release`.
 2. Under **Deployment protection rules → Required reviewers**, add yourself (`deblasis`).
-3. No deployment branch restrictions are needed. Tag refs are not branches, and the workflow's tag-shape guard covers correctness.
+3. No deployment branch restrictions are needed. Tag refs are not branches; the release workflow checks tag shape, the `version.json` match, published-version ordering, and `main` ancestry before building.
 
-The `NUGET_API_KEY` secret is already configured and glob-scoped to `DeBlasis.GhosttyVt*` (covers stable versions).
+The `NUGET_API_KEY` secret is configured and glob-scoped to `DeBlasis.GhosttyVt*`.
 
 ## Cutting a release
 
-1. **Verify preconditions.**
+1. **Update `version.json` and the changelog.** The tag base must match `version.json`; a respin is the one exception and must target the latest published stable.
+2. **Commit and push `main`.** Tag from that commit.
+3. **Create an annotated tag.** The message shows up on the GitHub Release.
    ```bash
-   jq -r '.upstreamVersion, .commit' ghostty-upstream.json
+   git tag -a v1.4.0 -m "DeBlasis.GhosttyVt 1.4.0"
    ```
-   The version must match the tag you are about to push, and must not end in `-dev`.
-
-2. **Create an annotated tag.** The message shows up on the GitHub Release.
+4. **Push the tag.**
    ```bash
-   git tag -a v1.3.2 -m "DeBlasis.GhosttyVt 1.3.2 (Ghostty 1.3.2)"
+   git push origin v1.4.0
    ```
-
-3. **Push the tag.**
-   ```bash
-   git push origin v1.3.2
-   ```
-
-4. **Approve the deployment.** GitHub will email / notify you. Go to **Actions → Release → (run) → Review deployments**, verify the computed version and the upstream commit shown in the `preflight` logs, then **Approve**.
-
-5. **Confirm the publish.** After approval the workflow will:
-   - Push `DeBlasis.GhosttyVt.1.3.2.nupkg` (and `.snupkg`) to nuget.org via `--skip-duplicate`.
-   - Create GitHub Release `v1.3.2` with auto-generated changelog and the package link.
-   - Attach the `.nupkg` and `.snupkg` files to the GitHub Release.
-
-   Verify at https://www.nuget.org/packages/DeBlasis.GhosttyVt/1.3.2 (allow a few minutes for indexing).
+5. **Approve the deployment.** Go to **Actions → Release → (run) → Review deployments**. Preflight prints the package version, base version, respin flag, upstream commit, and upstream version; verify them, then approve.
+6. **Confirm the publish.** After approval the workflow will:
+   - push `DeBlasis.GhosttyVt.1.4.0.nupkg` and its `.snupkg` to nuget.org with `--skip-duplicate`;
+   - create GitHub Release `v1.4.0`, marked stable or prerelease as appropriate;
+   - attach the package assets to the release.
+7. **Bump `version.json`** to the next release version and commit it, so the next nightly builds above the release.
 
 ## Dry run
 
-Before pushing a real tag, you can exercise the full build + test + pack pipeline without publishing anything:
+Exercise the full build, test, pack and consumer validation without publishing:
 
 ```bash
 gh workflow run release.yml -f dry_run_commit=$(jq -r '.commit' ghostty-upstream.json)
 ```
 
-This runs `preflight` (with Guard 2 skipped — there is no tag to compare), the full native build matrix, `dotnet test`, and `dotnet pack`. The resulting `.nupkg` is uploaded as a workflow artifact (`nuget-package`) and can be downloaded for inspection. The `publish` job is skipped entirely (`if: needs.preflight.outputs.is_dry_run == 'false'`).
+This runs preflight (with tag guards skipped), the native matrix, tests, pack and the package-consumer validation. The `publish` job is skipped.
+
+## Guards
+
+`build/selftest-release-guards.sh` executes the real `run:` blocks from `release.yml` and asserts both the refusals and their reasons. It covers:
+
+- tag shape and canonical numeric components (`vX.Y.Z`, `vX.Y.Z.N`, `vX.Y.Z-rc.N`; no leading zeros, no `.0` respin, no combined respin/RC);
+- tag base matching `version.json`, including the respin window;
+- plain canonical `X.Y.Z` in `version.json`, including multiline and non-string rejection;
+- the dry-run branch;
+- only `-rc.N` is accepted for a human-cut prerelease;
+- published-version ordering against the NuGet flat container for stable, RC, respin, and nightly;
+- the packed nupkg version matching the guarded version;
+- the upstream-version record and comment-decoy rejection;
+- nightly version computation and the non-numeric SHA suffix;
+- the exact output, pack, and release wiring, including the nightly key scope.
+
+It runs in CI. The guards are the only thing between a wrong version and an irreversible nuget.org publish, so do not weaken them without updating the self-test.
 
 ## Failure modes
 
 | Symptom | Meaning | Fix |
-|---------|---------|-----|
-| `preflight` fails: "Tag X does not match v<X.Y.Z>..." | Tag is malformed. | Delete the tag (`git push origin :v...` + `git tag -d`), re-tag correctly. |
-| `preflight` fails: "Tag base version X does not match upstream Y" | Upstream pin is for a different version than the tag. | Check `ghostty-upstream.json`; either retag to match or merge an upstream bump first. |
-| `preflight` fails: "Upstream version X-dev is a -dev build" | Upstream has not cut a stable tag yet. | Wait for upstream. Do not force. |
-| `preflight` fails: "Pinned commit X not found upstream" | The pin was hand-edited with a typo, or points at a commit that never reached GitHub. | Fix `ghostty-upstream.json`, commit, retag. |
-| `pack` fails at `dotnet test` | A test regression. | Fix the test or the underlying bug on `main` first; retag. |
-| `publish` pauses at "Review deployments" | Environment protection is doing its job. | Approve when ready. |
-| `dotnet nuget push` fails with auth error | `NUGET_API_KEY` is expired or revoked. | Rotate the API key at nuget.org, update the repo secret, re-run `publish`. |
+|---|---|---|
+| `preflight` fails: tag does not match `v<X.Y.Z>...` | Malformed tag. | Delete the tag, re-tag correctly. |
+| `preflight` fails: tag base does not match `version.json` | The version file was not updated for this tag. | Update `version.json`, commit, retag. |
+| `preflight` fails: `version.json` is not plain `X.Y.Z` | The version file has a suffix or is malformed. | Use a plain version; put channel suffixes in the tag only. |
+| `preflight` fails: pinned commit not found upstream | Bad or unreachable pin. | Fix `ghostty-upstream.json`. |
+| `preflight` fails: tag is not on `origin/main` | Tag points at a side or stale commit. | Tag the intended `main` commit. |
+| `preflight`/`publish` fails: tag has moved | The tag no longer names the commit the run validated. | Re-tag the intended commit; do not force-move a release tag. |
+| `preflight` fails: published-version ordering | The version is not ahead of NuGet, or an RC/respin is unreachable. | Bump `version.json` or choose the next version. |
+| Nightly fails: `Bump version.json` | `version.json` is not ahead of the latest stable. | Bump it to the next release version. |
+| `pack` fails: packed version mismatch | NuGet normalized the version or the pack wiring is wrong. | Fix the version before publishing. |
+| `pack` fails at tests or consumer validation | A regression or packaging problem. | Fix on `main` first, then retag. |
+| `publish` pauses at Review deployments | Environment protection. | Approve when ready. |
+| `dotnet nuget push` auth error | Expired or revoked API key. | Rotate the key and re-run. |
 
-## Rolling back a release
+## Rolling back
 
-**nuget.org publishes are irreversible.** You can only *unlist* a version, which hides it from search but keeps it resolvable for anyone already referencing it. You cannot re-push the same version number.
+nuget.org publishes are irreversible. You can only unlist a version; it remains resolvable for existing references. Cannot re-push the same version number.
 
-1. Unlist at https://www.nuget.org/packages/DeBlasis.GhosttyVt → **Manage package → Listing → Unlist**.
-2. Ship the fix as `X.Y.Z.1` (or the next respin digit) using the normal release flow. Note: the nuget.org listing for the unlisted version stays visible to tooling — the fix version replaces it in practice, not in the registry.
+1. Unlist the version at https://www.nuget.org/packages/DeBlasis.GhosttyVt → **Manage package → Listing → Unlist**.
+2. Ship the fix as the next patch version (`X.Y.Z+1`). A four-digit respin is available only for the latest published stable while `version.json` points at the next release; the ordering guard enforces that window.

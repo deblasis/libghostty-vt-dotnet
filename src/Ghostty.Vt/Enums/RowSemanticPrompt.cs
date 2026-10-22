@@ -1,8 +1,15 @@
+using System;
+
 namespace Ghostty.Vt.Enums;
 
 public enum RowSemanticPrompt
 {
     None = 0,
-    Primary = 1,
-    Continuation = 2,
+    Prompt = 1,
+    PromptContinuation = 2,
+
+    [Obsolete("Use Prompt.")]
+    Primary = Prompt,
+    [Obsolete("Use PromptContinuation.")]
+    Continuation = PromptContinuation,
 }

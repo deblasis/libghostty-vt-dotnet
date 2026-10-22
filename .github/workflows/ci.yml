@@ -12,19 +12,57 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Zig
-        uses: mlugg/setup-zig@v2
-        with:
-          version: '0.15.2'
-
-      - name: Clone Ghostty upstream
+      # Build the *pinned* commit, not `main`. The native surface is pinned in
+      # ghostty-upstream.json, so building main here tested a pairing this repo
+      # never ships: with the pin 57 days
+      # behind (issue #43), 20 of 197 tests failed with
+      # EntryPointNotFoundException for symbols upstream had since renamed.
+      #
+      # Detecting that drift is the daily sync's job, not per-PR CI's: the
+      # sync resolves upstream HEAD, builds it, tests against it, and (since
+      # #46) regenerates the bindings against it every night.
+      #
+      # On `pull_request` — including from a fork — ghostty-upstream.json is
+      # attacker-controlled, and a `${{ }}` expression is substituted
+      # textually before bash parses the line. So validate here, once, before
+      # the value can reach an interpolation or a step output: `=~` matches
+      # the whole string, which also rejects an embedded newline (that would
+      # otherwise let the file inject arbitrary step outputs via $GITHUB_OUTPUT).
+      # release.yml has an equivalent check in its "Guard 3"; ci.yml had none.
+      - name: Resolve and validate pinned upstream commit
+        id: pin
         run: |
-          git clone --depth 1 https://github.com/ghostty-org/ghostty.git /tmp/ghostty
+          COMMIT=$(jq -r '.commit' ghostty-upstream.json)
+          if ! [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::ghostty-upstream.json .commit is not a 40-character SHA"
+            exit 1
+          fi
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+
+      # Toolchain derived from that commit's build.zig.zon rather than
+      # hardcoded, so an upstream Zig bump cannot silently break CI (#43).
+      - name: Setup Zig
+        uses: ./.github/actions/setup-zig
+        with:
+          ghostty-ref: ${{ steps.pin.outputs.commit }}
+
+      - name: Clone Ghostty at pinned commit
+        env:
+          COMMIT: ${{ steps.pin.outputs.commit }}
+        run: |
+          git init /tmp/ghostty
+          cd /tmp/ghostty
+          git remote add origin https://github.com/ghostty-org/ghostty.git
+          git fetch --depth 1 origin "$COMMIT"
+          git checkout FETCH_HEAD
 
       - name: Build native libghostty-vt
+        # No-op on Linux, but every native-build site carries the same flag:
+        # on a macOS host Ghostty would otherwise also build the Apple-only
+        # XCFramework, whose iOS slices Zig 0.17.0 cannot compile.
         run: |
           cd /tmp/ghostty
-          zig build install -Demit-lib-vt=true -Dtarget=x86_64-linux-gnu.2.31 -Doptimize=ReleaseSafe
+          zig build install -Demit-lib-vt=true -Demit-xcframework=false -Dtarget=x86_64-linux-gnu.2.31 -Doptimize=ReleaseSafe
           mkdir -p ${{ github.workspace }}/runtimes/linux-x64/native
           cp zig-out/lib/libghostty-vt.so ${{ github.workspace }}/runtimes/linux-x64/native/
 
@@ -33,6 +71,163 @@ jobs:
         with:
           name: libghostty-vt-linux-x64
           path: runtimes/linux-x64/native/libghostty-vt.so
+
+  aot-smoke:
+    needs: build-native
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Download native artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: libghostty-vt-linux-x64
+          path: runtimes/linux-x64/native
+
+      - name: Publish NativeAOT smoke app
+        run: dotnet publish tests/Ghostty.Vt.AotSmoke/Ghostty.Vt.AotSmoke.csproj -c Release -r linux-x64 -p:PublishAot=true --self-contained
+
+      - name: Run NativeAOT smoke app
+        run: ./tests/Ghostty.Vt.AotSmoke/bin/Release/net9.0/linux-x64/publish/Ghostty.Vt.AotSmoke
+
+  # The strict half of the drift detection added in #46. Two gates:
+  #
+  #   1. the generator runs against the pinned headers and emits a real
+  #      P/Invoke surface — which keeps ClangSharp itself honest, so that if
+  #      it breaks again the way it had silently been broken for months, the
+  #      next PR goes red instead of reporting a cheerful green nothing;
+  #   2. every entry point the committed bindings declare still exists in
+  #      those headers.
+  #
+  # Gate 2 compares the generated output to the checked-in reference. The
+  # reference is the native surface, and the committed raw layer and curated
+  # forwarders are derived from it. Gate 3 asks the complementary question:
+  # are the symbols in that reference still present upstream? That is
+  # precisely the failure that cost 20 test failures when the pin went stale.
+
+  # ---------------------------------------------------------------------
+  # The release guards decide what may be published to nuget.org, and a
+  # nuget.org publish is irreversible -- a wrong version can only be unlisted,
+  # never replaced. Like the binding gates, they exist to REFUSE, so a guard
+  # that has silently lost the ability to refuse is indistinguishable from one
+  # that is passing. The self-test executes the workflow's real `run:` blocks
+  # rather than a copy, and asserts which refusal fired, not merely that one
+  # did.
+  native-coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify compiled native bindings
+        run: python3 build/check-native-coverage.py
+      - name: Verify every raw entry point is referenced by tests
+        run: python3 build/check-raw-test-coverage.py
+      - name: Verify native interop stays in the raw layer
+        run: python3 build/check-interop-location.py
+
+  release-guards:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Self-test the release version guards
+        run: bash build/selftest-release-guards.sh
+
+  bindings-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Same validation as build-native above, for the same reason: on a fork
+      # `pull_request` this file is attacker-controlled.
+      - name: Resolve and validate pinned upstream commit
+        id: pin
+        run: |
+          COMMIT=$(jq -r '.commit' ghostty-upstream.json)
+          if ! [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::ghostty-upstream.json .commit is not a 40-character SHA"
+            exit 1
+          fi
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+
+      # The rsp resolves headers relative to the working directory, so the
+      # source has to land in ./ghostty-src rather than /tmp.
+      - name: Clone Ghostty at pinned commit
+        env:
+          COMMIT: ${{ steps.pin.outputs.commit }}
+        run: |
+          git init ghostty-src
+          cd ghostty-src
+          git remote add origin https://github.com/ghostty-org/ghostty.git
+          git fetch --depth 1 origin "$COMMIT"
+          git checkout FETCH_HEAD
+
+      - name: Setup ClangSharp
+        id: clangsharp
+        uses: ./.github/actions/setup-clangsharp
+
+      # Gate 0 — test the gates themselves, with deliberately broken stub
+      # generators, before trusting anything they say below.
+      #
+      # These gates exist to fail, which makes a gate that has quietly become
+      # incapable of failing indistinguishable from one that is passing. That
+      # is #46 exactly, and the first fix for it reintroduced the same defect:
+      # the emitted-count check measured the checked-in file `actions/checkout`
+      # had left at the output path, so a generator that wrote nothing scored
+      # a stale output file as its own output.
+      #
+      # Runs before the real regeneration and reads the committed reference.
+      - name: Self-test the binding gates
+        run: bash build/selftest-binding-gates.sh ghostty-src/include/ghostty
+
+      # Gate 1 — the generator must run AND emit a real P/Invoke surface.
+      # Exit code alone is not evidence: it exits 0 while emitting nothing.
+      - name: Regenerate bindings from the pinned headers
+        run: bash build/generate-bindings.sh "${{ steps.clangsharp.outputs.generator }}" "${{ steps.clangsharp.outputs.extra-args-file }}"
+
+      # Gate 2 — the generated output must match the checked-in reference,
+      # byte for byte.
+      #
+      # The generated output is compared against the checked-in reference;
+      # generated-vs-generated is apples to apples and is byte-stable in
+      # practice (verified SHA-256 identical across independent runs). This is
+      # the only gate that can see a SIGNATURE change: when
+      # ghostty_terminal_new lost its by-value options struct upstream the
+      # name was untouched, so the entry-point check below reports a clean
+      # 97/97 while the ABI silently corrupts. Here it is a one-line diff.
+      - name: Check generated output matches the checked-in reference
+        run: |
+          if diff -u build/bindings-reference/NativeMethods.pinned.cs                     src/Ghostty.Vt/Native/NativeMethods.cs > "$RUNNER_TEMP/reference.diff"; then
+            echo "::notice title=Bindings::Generated output is byte-identical to the checked-in reference."
+            exit 0
+          fi
+          echo "::error title=Binding reference drift::The bindings the generator produces from the pinned headers no longer match build/bindings-reference/NativeMethods.pinned.cs. If ghostty-upstream.json moved, refresh the reference in the same commit (download the 'regenerated-bindings-pinned' artifact from this run and copy it over the reference file). If the pin did not move, the generator or its toolchain changed and that needs explaining before it is accepted."
+          head -c 20000 "$RUNNER_TEMP/reference.diff"
+          exit 1
+
+      # Gate 3 — every entry point in the committed reference must still exist
+      # in the pinned headers. The reference is the native surface; the raw
+      # layer is generated from it. This catches removals; gate 2 catches
+      # signature changes. Neither subsumes the other.
+      - name: Check declared entry points still exist upstream
+        run: |
+          git show HEAD:build/bindings-reference/NativeMethods.pinned.cs > "$RUNNER_TEMP/committed-bindings.cs"
+          bash build/check-binding-symbols.sh "$RUNNER_TEMP/committed-bindings.cs" ghostty-src/include/ghostty
+
+      # Uploaded on success as well as failure: on failure it is what you
+      # copy over the reference, and on success it is a convenient artifact.
+      # `error` is now meaningful — the regeneration step deletes the output
+      # path first, so a missing file here means the generator wrote nothing.
+      - name: Upload regenerated bindings
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: regenerated-bindings-pinned
+          path: src/Ghostty.Vt/Native/NativeMethods.cs
+          if-no-files-found: ignore
 
   build-test:
     needs: build-native

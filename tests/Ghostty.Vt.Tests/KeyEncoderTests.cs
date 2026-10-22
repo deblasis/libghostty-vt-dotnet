@@ -34,9 +34,20 @@ public class KeyEncoderTests
     [Fact]
     public void ConfigureFromTerminal_SyncsModes()
     {
+        // This used to set TerminalMode.KittyKeyboard, which named no mode that
+        // exists: libghostty returned GHOSTTY_INVALID_VALUE and the binding
+        // discarded the result, so the test exercised a no-op. Kitty keyboard
+        // state is not a mode at all -- it is read through
+        // TerminalData.KittyKeyboardFlags.
+        //
+        // DECCKM is a real mode and one that genuinely affects key encoding,
+        // so the setup now does what the test always claimed to do.
         using var term = new Terminal(80, 24);
         using var encoder = new KeyEncoder();
-        term.ModeSet(TerminalMode.KittyKeyboard, true);
+
+        term.ModeSet(TerminalMode.CursorKeys, true);
+        Assert.True(term.ModeGet(TerminalMode.CursorKeys));
+
         encoder.ConfigureFromTerminal(term);
     }
 }

@@ -1,6 +1,7 @@
 using System.Text;
 using Ghostty.Vt.Enums;
 using Ghostty.Vt.Native;
+using Ghostty.Vt.Raw;
 using Ghostty.Vt.Types;
 
 namespace Ghostty.Vt;
@@ -53,28 +54,28 @@ public readonly struct GridRef
 
         // Query cell data via ghostty_cell_get
         int contentTag = 0;
-        NativeMethods.ghostty_cell_get(rawCell, 2 /* CELL_DATA_CONTENT_TAG */, &contentTag);
+        NativeMethods.ghostty_cell_get(rawCell, (int)GhosttyCellData.GHOSTTY_CELL_DATA_CONTENT_TAG, &contentTag);
 
         uint codepoint = 0;
-        NativeMethods.ghostty_cell_get(rawCell, 1 /* CELL_DATA_CODEPOINT */, &codepoint);
+        NativeMethods.ghostty_cell_get(rawCell, (int)GhosttyCellData.GHOSTTY_CELL_DATA_CODEPOINT, &codepoint);
 
         int wide = 0;
-        NativeMethods.ghostty_cell_get(rawCell, 3 /* CELL_DATA_WIDE */, &wide);
+        NativeMethods.ghostty_cell_get(rawCell, (int)GhosttyCellData.GHOSTTY_CELL_DATA_WIDE, &wide);
 
         byte hasText = 0;
-        NativeMethods.ghostty_cell_get(rawCell, 4 /* CELL_DATA_HAS_TEXT */, &hasText);
+        NativeMethods.ghostty_cell_get(rawCell, (int)GhosttyCellData.GHOSTTY_CELL_DATA_HAS_TEXT, &hasText);
 
         byte hasStyling = 0;
-        NativeMethods.ghostty_cell_get(rawCell, 5 /* CELL_DATA_HAS_STYLING */, &hasStyling);
+        NativeMethods.ghostty_cell_get(rawCell, (int)GhosttyCellData.GHOSTTY_CELL_DATA_HAS_STYLING, &hasStyling);
 
         byte hasHyperlink = 0;
-        NativeMethods.ghostty_cell_get(rawCell, 7 /* CELL_DATA_HAS_HYPERLINK */, &hasHyperlink);
+        NativeMethods.ghostty_cell_get(rawCell, (int)GhosttyCellData.GHOSTTY_CELL_DATA_HAS_HYPERLINK, &hasHyperlink);
 
         byte protected_ = 0;
-        NativeMethods.ghostty_cell_get(rawCell, 8 /* CELL_DATA_PROTECTED */, &protected_);
+        NativeMethods.ghostty_cell_get(rawCell, (int)GhosttyCellData.GHOSTTY_CELL_DATA_PROTECTED, &protected_);
 
         int semantic = 0;
-        NativeMethods.ghostty_cell_get(rawCell, 9 /* CELL_DATA_SEMANTIC_CONTENT */, &semantic);
+        NativeMethods.ghostty_cell_get(rawCell, (int)GhosttyCellData.GHOSTTY_CELL_DATA_SEMANTIC_CONTENT, &semantic);
 
         // Get grapheme text from graphemes() for multi-codepoint cells
         string? grapheme = null;
@@ -118,13 +119,13 @@ public readonly struct GridRef
 
         // Query row data
         byte wrap = 0;
-        NativeMethods.ghostty_row_get(rawRow, 1 /* ROW_DATA_WRAP */, &wrap);
+        NativeMethods.ghostty_row_get(rawRow, (int)GhosttyRowData.GHOSTTY_ROW_DATA_WRAP, &wrap);
 
         byte wrapContinuation = 0;
-        NativeMethods.ghostty_row_get(rawRow, 2 /* ROW_DATA_WRAP_CONTINUATION */, &wrapContinuation);
+        NativeMethods.ghostty_row_get(rawRow, (int)GhosttyRowData.GHOSTTY_ROW_DATA_WRAP_CONTINUATION, &wrapContinuation);
 
         int semanticPrompt = 0;
-        NativeMethods.ghostty_row_get(rawRow, 6 /* ROW_DATA_SEMANTIC_PROMPT */, &semanticPrompt);
+        NativeMethods.ghostty_row_get(rawRow, (int)GhosttyRowData.GHOSTTY_ROW_DATA_SEMANTIC_PROMPT, &semanticPrompt);
 
         return new Row
         {

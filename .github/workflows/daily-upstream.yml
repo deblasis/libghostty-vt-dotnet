@@ -4,6 +4,23 @@ on:
   schedule:
     - cron: '30 3 * * *'
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Build, test and pack only — do not publish, move the pin, or cut a release'
+        type: boolean
+        # Safe by default, and free: a `schedule` event does not apply
+        # workflow_dispatch input defaults (the `inputs` context is empty), so
+        # this does not touch the nightly publish path. It only means a
+        # maintainer who clicks "Run workflow" to retry a failed nightly and
+        # leaves the box alone cannot accidentally publish to nuget.org, push
+        # a moved pin to main, and cut a release. Untick it to publish.
+        default: true
+
+# A manual run racing the 03:30 cron would give two `publish` jobs both doing
+# `git push` of ghostty-upstream.json with no `pull --rebase` between them.
+concurrency:
+  group: daily-upstream
+  cancel-in-progress: false
 
 jobs:
   check-upstream:
@@ -18,8 +35,19 @@ jobs:
       - name: Check for upstream changes
         id: check
         run: |
-          CURRENT=$(jq -r '.commit' ghostty-upstream.json)
+          CURRENT=$(jq -er '.commit | select(type == "string")' ghostty-upstream.json 2>/dev/null) || {
+            echo "::error::Could not read a string commit from ghostty-upstream.json"
+            exit 1
+          }
+          if ! [[ "$CURRENT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Pinned upstream commit is not a full 40-hex SHA: '$CURRENT'"
+            exit 1
+          fi
           LATEST=$(git ls-remote https://github.com/ghostty-org/ghostty.git HEAD | awk '{print $1}')
+          if ! [[ "$LATEST" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Could not resolve upstream HEAD to a full 40-hex SHA: '$LATEST'"
+            exit 1
+          fi
 
           if [ "$CURRENT" = "$LATEST" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -28,12 +56,13 @@ jobs:
           fi
 
           echo "changed=true" >> "$GITHUB_OUTPUT"
-          echo "commit=$LATEST" >> "$GITHUB_OUTPUT"
+          printf 'commit=%s\n' "$LATEST" >> "$GITHUB_OUTPUT"
 
-          # Fetch build.zig.zon directly to read the upstream version (Zig ZON syntax: .version = "x.y.z")
+          # The reader rejects comments, nested decoys, and malformed values
+          # before this output reaches a shell or a release note.
           VERSION=$(curl -sSfL "https://raw.githubusercontent.com/ghostty-org/ghostty/${LATEST}/build.zig.zon" \
-            | grep -oP '(?<=\.version = ")[^"]+' | head -1)
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+            | python3 build/read-upstream-version.py)
+          printf 'version=%s\n' "$VERSION" >> "$GITHUB_OUTPUT"
 
           echo "New upstream: $LATEST (version $VERSION)"
 
@@ -43,14 +72,40 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Clone Ghostty at new commit
+        env:
+          UPSTREAM_COMMIT: ${{ needs.check-upstream.outputs.new_commit }}
         run: |
           git init ghostty-src
           cd ghostty-src
           git remote add origin https://github.com/ghostty-org/ghostty.git
-          git fetch --depth 1 origin ${{ needs.check-upstream.outputs.new_commit }}
+          git fetch --depth 1 origin "$UPSTREAM_COMMIT"
           git checkout FETCH_HEAD
 
-      - name: Tar source (preserves permissions and symlinks)
+      # Windows runners cannot create symlinks during extraction without
+      # Developer Mode or SeCreateSymbolicLinkPrivilege, so a tar that carries
+      # one aborts the whole Windows build ("tar: ./CLAUDE.md: Cannot create
+      # symlink to 'AGENTS.md'"). Upstream today ships exactly one symlink
+      # (CLAUDE.md -> AGENTS.md) and none of them are load-bearing for the
+      # build, so flatten them here — once, on Linux — rather than teaching
+      # each consumer a different extraction incantation.
+      - name: Flatten symlinks (Windows runners cannot extract them)
+        run: |
+          find ghostty-src -type l -print0 | while IFS= read -r -d '' link; do
+            if [ -f "$link" ]; then
+              target=$(readlink -f "$link")
+              rm "$link" && cp "$target" "$link"
+              echo "flattened file symlink: ${link#ghostty-src/}"
+            elif [ -d "$link" ]; then
+              target=$(readlink -f "$link")
+              rm "$link" && cp -R "$target" "$link"
+              echo "flattened directory symlink: ${link#ghostty-src/}"
+            else
+              rm "$link"
+              echo "::warning title=Dangling symlink::dropped ${link#ghostty-src/} (target does not exist upstream)"
+            fi
+          done
+
+      - name: Tar source (preserves permissions; symlinks already flattened)
         run: tar -cf ghostty-src.tar -C ghostty-src .
 
       - name: Upload source artifact
@@ -94,10 +149,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Version comes from the upstream commit's own build.zig.zon, so an
+      # upstream Zig bump no longer silently breaks every sync (issue #43).
       - name: Setup Zig
-        uses: mlugg/setup-zig@v2
+        uses: ./.github/actions/setup-zig
         with:
-          version: '0.15.2'
+          ghostty-ref: ${{ needs.check-upstream.outputs.new_commit }}
 
       - name: Download Ghostty source
         uses: actions/download-artifact@v8
@@ -110,9 +167,17 @@ jobs:
           tar -xf ghostty-src.tar -C /tmp/ghostty
 
       - name: Build native libghostty-vt
+        # We only need the shared library for the requested target. On a macOS
+        # host Ghostty's `install` step additionally builds a universal
+        # libghostty-vt XCFramework (macOS x86_64 + arm64, plus iOS device and
+        # simulator slices) whenever xcodebuild is present, which it is on the
+        # GitHub runner. Zig 0.17.0 cannot compile those iOS slices at all:
+        # std/Io/Threaded.zig references `null_file.fd`, a field the iOS
+        # NullFile does not have, so the entire macOS leg dies building an
+        # artifact this project never ships. Skip it explicitly.
         run: |
           cd /tmp/ghostty
-          zig build install -Demit-lib-vt=true -Dtarget=${{ matrix.zig_target }} -Doptimize=ReleaseSafe
+          zig build install -Demit-lib-vt=true -Demit-xcframework=false -Dtarget=${{ matrix.zig_target }} -Doptimize=ReleaseSafe
           mkdir -p "${{ github.workspace }}/runtimes/${{ matrix.rid }}/native"
           cp "zig-out/${{ matrix.src_dir }}/${{ matrix.artifact }}" \
             "${{ github.workspace }}/runtimes/${{ matrix.rid }}/native/"
@@ -124,20 +189,40 @@ jobs:
           path: runtimes/${{ matrix.rid }}/native/${{ matrix.artifact }}
 
   regenerate-bindings:
-    needs: [prepare-ghostty-src, build-native]
+    # No longer waits on build-native: this job reads headers, never the
+    # compiled library, so the dependency only slowed the signal down.
+    # `check-upstream` is here only so the artifact can record which upstream
+    # commit it was generated for; the commit binding is asserted before use.
+    needs: [check-upstream, prepare-ghostty-src]
     runs-on: ubuntu-latest
-    # This job is a drift detector — it regenerates P/Invoke bindings from
-    # the upstream headers and uploads them as an artifact if they differ
-    # from the hand-maintained NativeMethods.cs. The current bindings file
-    # uses LibraryImport (net7+), while ClangSharp 18.x emits DllImport,
-    # so a clean run always produces a diff anyway. Don't block publish
-    # on this job; downstream `publish` treats it as advisory via `if`.
+    # A hang here would hold `publish` (which lists this job in `needs`) until
+    # the default 6-hour timeout. Fifteen times the observed runtime is ample.
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      issues: write   # durable API-delta tracker (the red bindings gate is gone)
+    env:
+      # A manual dry run must not mutate the public issue tracker.
+      DRY_RUN: ${{ inputs.dry_run == true }}
+    # Drift detector: regenerates the P/Invoke surface from the NEW upstream
+    # headers. `ci.yml` holds the strict counterpart — regenerate against the
+    # *pinned* commit and fail on any difference. When this succeeds, publish
+    # consumes the artifact and refreshes the pinned reference with the pin.
     #
-    # Runs on Linux so ClangSharp's bundled libclang can resolve C system
-    # headers (<stddef.h>, <stdint.h>, ...) from glibc without pulling in
-    # the MSVC/Windows SDK. The rsp file passes --target=x86_64-pc-linux-gnu
-    # to match.
-    continue-on-error: true
+    # `continue-on-error: true` used to sit here and hid a generator that had
+    # never once started (#46): every run reported success while producing
+    # nothing. Two outcomes were being conflated, so they are now separated —
+    #   * the generator failing to run is a BUG and fails this job;
+    #   * the regenerated bindings differing from the committed ones is a
+    #     FINDING and is reported, not failed.
+    # `publish` lists this job in `needs` now, but its explicit
+    # `!cancelled()` + result guard means a failed detector does not skip
+    # publishing. When the generator succeeds, `publish` consumes the artifact
+    # below and refreshes the pinned reference in the same commit as the pin.
+    #
+    # Runs on Linux so libclang resolves C system headers (<stddef.h>,
+    # <stdint.h>, ...) from glibc without pulling in the MSVC/Windows SDK.
+    # The rsp file passes --target=x86_64-pc-linux-gnu to match.
     steps:
       - uses: actions/checkout@v4
 
@@ -151,46 +236,174 @@ jobs:
           mkdir -p ghostty-src
           tar -xf ghostty-src.tar -C ghostty-src
 
-      - name: Regenerate bindings
-        # ClangSharpPInvokeGenerator 20.x+ targets net10.0, which the runner
-        # does not ship. 18.1.0.4 is the last release packaged for net8.0
-        # and works against the runner's pre-installed .NET 8/9. Installed
-        # into a workspace-local tool path to avoid any pre-cached global
-        # tool entry tripping up `dotnet tool install --global`.
-        run: |
-          dotnet tool install --tool-path "$RUNNER_TEMP/tools" --version 18.1.0.4 ClangSharpPInvokeGenerator
-          "$RUNNER_TEMP/tools/ClangSharpPInvokeGenerator" @build/generate-bindings.rsp
+      - name: Setup ClangSharp
+        id: clangsharp
+        uses: ./.github/actions/setup-clangsharp
 
-      - name: Check for binding changes
-        id: bindings
+      # Hard failure: the generator must run and emit a real P/Invoke surface.
+      # Its exit code alone proves nothing — it exits 0 while emitting nothing.
+      - name: Regenerate bindings
+        run: bash build/generate-bindings.sh "${{ steps.clangsharp.outputs.generator }}" "${{ steps.clangsharp.outputs.extra-args-file }}"
+
+      # Reported, not failed: entry points disappearing at a *new* upstream
+      # commit is the news this job exists to deliver, not a defect in the
+      # repo. ci.yml runs the same check against the pinned commit, where a
+      # missing symbol really is a defect and does fail.
+      #
+      # Branching on the exit code matters. Treating "any non-zero" as drift
+      # would report a *broken checker* as news — a cheerful "binding drift"
+      # warning above an empty list of entry points — which is precisely the
+      # conflation between "detector says no" and "detector cannot speak" that
+      # #46 was made of. The script distinguishes them: 1 = drift, 2 = the
+      # question was never asked.
+      - name: Report entry points removed upstream
         run: |
-          if git diff --exit-code src/Ghostty.Vt/Native/NativeMethods.cs; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
+          git show HEAD:build/bindings-reference/NativeMethods.pinned.cs > "$RUNNER_TEMP/committed-bindings.cs"
+          set +e
+          bash build/check-binding-symbols.sh "$RUNNER_TEMP/committed-bindings.cs" ghostty-src/include/ghostty
+          rc=$?
+          set -e
+          case "$rc" in
+            0)
+              echo "::notice title=Bindings::Every declared entry point still exists at the new upstream commit."
+              ;;
+            1)
+              echo "::warning title=Binding drift::Entry points listed above no longer exist upstream. The bindings must be updated before this commit can be adopted; the 'regenerated-bindings' artifact holds the generator's view of the new API."
+              ;;
+            *)
+              echo "::error::check-binding-symbols.sh could not run (exit $rc). This is a broken check, not a clean result."
+              exit 1
+              ;;
+          esac
+
+      # Informational: what the upstream API change actually looks like, as a
+      # diff against the same reference ci.yml gates the pinned output on.
+      # This is the closest thing to a ready-made summary of the work a delta
+      # PR has to absorb, including signature changes that the entry-point
+      # check above cannot see.
+      - name: Summarise API change against the pinned reference
+        run: |
+          if diff -u build/bindings-reference/NativeMethods.pinned.cs                     src/Ghostty.Vt/Native/NativeMethods.cs > "$RUNNER_TEMP/upstream.diff"; then
+            echo "::notice title=API::The new upstream commit generates bindings identical to the pinned reference."
           else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
+            added=$(grep -c '^+' "$RUNNER_TEMP/upstream.diff" || true)
+            removed=$(grep -c '^-' "$RUNNER_TEMP/upstream.diff" || true)
+            echo "::warning title=API::Upstream generates different bindings than the pinned reference (+${added}/-${removed} diff lines). See the log and the 'regenerated-bindings' artifact."
+            # Signature-level changes first, and unabridged. These are the
+            # highest-signal subset and are what the entry-point check cannot
+            # see: ghostty_terminal_new losing its by-value options struct is
+            # one line here and invisible everywhere else. Printing only the
+            # truncated head of the full diff would have buried it -- in the
+            # first run of this step it fell past the 20000-character cut.
+            echo "--- changed declarations (signature level) ---"
+            grep -E '^[+-].*static extern' "$RUNNER_TEMP/upstream.diff" || true
+            echo "--- full diff (truncated) ---"
+            head -c 20000 "$RUNNER_TEMP/upstream.diff"
           fi
 
+      # The nightly now advances the pinned reference automatically, so the red
+      # `ci.yml` signature-change alarm is gone. Replace it with a durable,
+      # non-red tracker: one open issue per condition, with the signature-level
+      # lines and the run link. Best-effort: an issue-tracker outage must not
+      # hold the pin (the step cannot fail the job, and dry runs print the body
+      # instead of posting it).
+      - name: Track API delta in an issue
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          COMMIT: ${{ needs.check-upstream.outputs.new_commit }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          TITLE: Upstream bindings API delta
+        run: |
+          set -euo pipefail
+          if [ ! -s "$RUNNER_TEMP/upstream.diff" ]; then
+            echo "No API delta; nothing to track."
+            exit 0
+          fi
+
+          SIGNATURES=$(grep -E '^[+-].*static extern' "$RUNNER_TEMP/upstream.diff" | head -50 || true)
+          BODY=$(printf 'Upstream `%s` generates a different pinned binding reference — [run](%s).\n\nThe pinned reference and raw ABI layer are refreshed automatically with the pin. Review the signature delta below.\n\nSignature-level changes:\n\n```diff\n%s\n```\n' \
+            "$COMMIT" "$RUN_URL" "$SIGNATURES")
+
+          # Dry runs exercise the body construction but must not mutate the
+          # public tracker.
+          if [ "${DRY_RUN:-}" = "true" ]; then
+            echo "Dry run: would file or update '$TITLE' with:"
+            printf '%s\n' "$BODY"
+            exit 0
+          fi
+
+          EXISTING=$(gh issue list --state open --limit 100 --json number,title \
+            | jq -r --arg t "$TITLE" 'map(select(.title == $t)) | .[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body "$BODY"
+          else
+            gh issue create --title "$TITLE" --body "$BODY"
+          fi
+
+      # Stage into a directory so the artifact can carry a metadata file that
+      # binds it to the upstream commit. The publish job asserts that binding
+      # before the pin can move; a re-run that resolves a different HEAD fails
+      # closed instead of committing a reference from the wrong commit.
+      - name: Stage regenerated binding artifact
+        run: |
+          mkdir -p "$RUNNER_TEMP/regenerated-bindings"
+          cp src/Ghostty.Vt/Native/NativeMethods.cs "$RUNNER_TEMP/regenerated-bindings/NativeMethods.cs"
+          printf 'upstream_commit=%s\nrun_id=%s\nrun_attempt=%s\n' \
+            "${{ needs.check-upstream.outputs.new_commit }}" \
+            "${{ github.run_id }}" \
+            "${{ github.run_attempt }}" \
+            > "$RUNNER_TEMP/regenerated-bindings/metadata.txt"
+
       - name: Upload bindings
-        if: steps.bindings.outputs.changed == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: regenerated-bindings
-          path: src/Ghostty.Vt/Native/NativeMethods.cs
+          path: ${{ runner.temp }}/regenerated-bindings
+          if-no-files-found: error
 
   publish:
+    # `regenerate-bindings` feeds both the pinned reference and the public raw
+    # ABI layer. A failed generator must not ship a package whose raw
+    # signatures belong to the previous pin, so publishing and the pin move are
+    # held; the next nightly retries. Build/Test/Pack still run to validate the
+    # curated surface. The job-level `if` runs on `!cancelled()` plus explicit
+    # check-upstream/build-native result checks so this job can make that
+    # decision instead of being skipped.
     needs: [check-upstream, build-native, regenerate-bindings]
+    if: |
+      !cancelled() &&
+      needs.check-upstream.result == 'success' &&
+      needs.build-native.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write   # commit updated ghostty-upstream.json + create release
-      issues: write     # fallback "Create issue on failure" step
+      # No `issues: write` — failure reporting moved to the notify-failure
+      # job, which is the only one that also fires when build-native fails.
     env:
-      # Secret gate: the publish / commit-update / release steps are skipped
-      # when NUGET_API_KEY is absent. Earlier steps (build, test, pack) still
-      # run so the daily workflow remains useful as a validation pipeline
-      # while the final publishing destination is still being decided.
-      NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+      # A manual `workflow_dispatch` with dry_run=true exercises the whole
+      # pipeline (build / test / pack) without publishing, moving the pin, or
+      # cutting a release — the only safe way to validate a workflow change on
+      # a repo where NUGET_API_KEY is set. Empty (falsy) on scheduled runs.
+      DRY_RUN: ${{ inputs.dry_run == true }}
     steps:
       - uses: actions/checkout@v4
+
+      # The key is exposed only to this check and to the push step. Keeping it
+      # out of the job environment means build, pack, pin, and release steps
+      # cannot read it if any of their inputs are compromised.
+      - name: Check NuGet key
+        id: nuget
+        if: github.ref == 'refs/heads/main'
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          if [ -n "$NUGET_API_KEY" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -215,12 +428,98 @@ jobs:
           name: native-osx-arm64
           path: runtimes/osx-arm64/native
 
-      - name: Download regenerated bindings (if changed)
+      # The generator output is what `ci.yml` compares the pinned reference
+      # against. Download it when the generator succeeded; the commit step
+      # below writes it to build/bindings-reference/NativeMethods.pinned.cs in
+      # the same commit as the pin move, so the next `ci.yml` run sees a
+      # consistent tree. The committed reference and raw layer are updated
+      # automatically with the pin; the generated output is only a staging
+      # artifact.
+      #
+      # If the generator failed, this download is skipped and a later step
+      # holds publishing and the pin; the package is not pushed. If the
+      # generator reports success but its artifact is missing or wrong, the
+      # validation step below fails closed before Build/NuGet: a successful
+      # job result is the claim that the reference is trustworthy, and a
+      # missing file is an infrastructure failure, not a reason to commit a
+      # stale reference.
+      - name: Download regenerated binding reference
+        if: needs.regenerate-bindings.result == 'success'
         uses: actions/download-artifact@v8
         with:
           name: regenerated-bindings
-          path: src/Ghostty.Vt/Native
-        continue-on-error: true
+          path: ${{ runner.temp }}/regenerated-bindings
+
+      - name: Validate regenerated binding reference
+        if: needs.regenerate-bindings.result == 'success'
+        run: |
+          bash build/validate-regenerated-reference.sh \
+            "${{ runner.temp }}/regenerated-bindings" \
+            "${{ needs.check-upstream.outputs.new_commit }}"
+
+      # Stage the new reference and derive the raw layer before anything is
+      # built or packed. The package must ship the raw signatures that match
+      # the native library it is built against, not the previous pin's.
+      - name: Stage regenerated reference and raw ABI layer
+        if: needs.regenerate-bindings.result == 'success'
+        run: |
+          bash build/validate-regenerated-reference.sh \
+            "${{ runner.temp }}/regenerated-bindings" \
+            "${{ needs.check-upstream.outputs.new_commit }}" \
+            --stage
+          python3 build/emit-compiled-native.py \
+            build/bindings-reference/NativeMethods.pinned.cs \
+            src/Ghostty.Vt/Raw/GhosttyVtNative.g.cs
+          python3 build/check-native-coverage.py
+          python3 build/check-raw-test-coverage.py
+          python3 build/check-interop-location.py
+          git diff --stat -- \
+            build/bindings-reference/NativeMethods.pinned.cs \
+            src/Ghostty.Vt/Raw/GhosttyVtNative.g.cs
+          if [ "${DRY_RUN:-}" = "true" ]; then
+            echo "::notice title=Reference refresh::Would update the pinned reference and raw ABI layer; no commit in dry run."
+          fi
+
+      # Prepare the pin commit before the irreversible NuGet push. If this
+      # fails, nothing is published and main is unchanged. The push itself is
+      # after the publish so a failed push cannot leave main pointing at a
+      # package that was never published.
+      - name: Prepare pin update
+        id: pin_update
+        if: github.ref == 'refs/heads/main' && steps.nuget.outputs.present == 'true' && env.DRY_RUN != 'true' && needs.regenerate-bindings.result == 'success'
+        env:
+          NEW_COMMIT: ${{ needs.check-upstream.outputs.new_commit }}
+          NEW_VERSION: ${{ needs.check-upstream.outputs.new_version }}
+        run: |
+          jq -n \
+            --arg repo "https://github.com/ghostty-org/ghostty.git" \
+            --arg branch "main" \
+            --arg commit "$NEW_COMMIT" \
+            --arg upstreamVersion "$NEW_VERSION" \
+            --arg lastUpdated "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{repo: $repo, branch: $branch, commit: $commit, upstreamVersion: $upstreamVersion, lastUpdated: $lastUpdated}' \
+            > ghostty-upstream.json
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          MESSAGE="chore: update upstream to ${NEW_COMMIT}"
+          if ! git diff --quiet -- \
+              build/bindings-reference/NativeMethods.pinned.cs \
+              src/Ghostty.Vt/Raw/GhosttyVtNative.g.cs; then
+            git add build/bindings-reference/NativeMethods.pinned.cs
+            git add src/Ghostty.Vt/Raw/GhosttyVtNative.g.cs
+            MESSAGE="$MESSAGE and refresh pinned binding reference"
+            echo "Including the regenerated pinned binding reference and compiled layer."
+          else
+            echo "The regenerated reference is unchanged; moving the pin only."
+          fi
+
+          git add ghostty-upstream.json
+          git diff --cached --quiet || git commit -m "$MESSAGE"
+          PIN_COMMIT=$(git rev-parse HEAD)
+          echo "pin_commit=$PIN_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "Prepared pin commit: $PIN_COMMIT"
 
       - name: Build
         run: dotnet build Ghostty.Vt.sln --configuration Release
@@ -242,82 +541,198 @@ jobs:
 
       - name: Compute version
         id: version
+        env:
+          NEW_COMMIT: ${{ needs.check-upstream.outputs.new_commit }}
         run: |
-          VERSION_BASE="${{ needs.check-upstream.outputs.new_version }}"
-          COMMIT="${{ needs.check-upstream.outputs.new_commit }}"
-          SHORT="${COMMIT:0:8}"
+          VERSION_BASE=$(bash build/read-package-version.sh)
+          if ! [[ "$NEW_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Upstream commit is not a full 40-hex SHA: '$NEW_COMMIT'"
+            exit 1
+          fi
+          SHORT="g${NEW_COMMIT:0:8}"
           TIMESTAMP=$(date -u +%Y%m%d%H%M)
-          VERSION_BASE="${VERSION_BASE%-dev}"
           PACKAGE_VERSION="${VERSION_BASE}-ci.${TIMESTAMP}.${SHORT}"
+          python3 build/check-nuget-version.py nightly --version "$VERSION_BASE"
           echo "package_version=$PACKAGE_VERSION" >> "$GITHUB_OUTPUT"
           echo "Package version: $PACKAGE_VERSION"
+          echo "Upstream commit: $NEW_COMMIT"
 
       - name: Pack
+        env:
+          PKG_VERSION: ${{ steps.version.outputs.package_version }}
         run: |
           dotnet pack src/Ghostty.Vt/Ghostty.Vt.csproj \
             --configuration Release \
             --output artifacts \
-            -p:Version=${{ steps.version.outputs.package_version }}
+            -p:Version="$PKG_VERSION"
+
+      - name: Assert packed version
+        env:
+          PKG_VERSION: ${{ steps.version.outputs.package_version }}
+        run: |
+          bash build/assert-packed-version.sh \
+            "$(find artifacts -name '*.nupkg' -print -quit)" \
+            "$PKG_VERSION"
+
+      # Consume the just-packed nupkg exactly as a client would. The
+      # project reads DeBlasis.GhosttyVt from artifacts/ only, so a missing
+      # runtime, a broken raw namespace or a bad package layout fails here
+      # before the push.
+      - name: Validate packed package
+        run: |
+          rm -rf tests/Ghostty.Vt.PackageConsumer.Tests/packages \
+                 tests/Ghostty.Vt.PackageConsumer.Tests/bin \
+                 tests/Ghostty.Vt.PackageConsumer.Tests/obj
+          dotnet test tests/Ghostty.Vt.PackageConsumer.Tests/Ghostty.Vt.PackageConsumer.Tests.csproj \
+            --configuration Release
+
+      - name: Re-check nightly ordering
+        if: github.ref == 'refs/heads/main' && steps.nuget.outputs.present == 'true' && env.DRY_RUN != 'true' && needs.regenerate-bindings.result == 'success'
+        env:
+          PKG_VERSION: ${{ steps.version.outputs.package_version }}
+        run: |
+          BASE="${PKG_VERSION%%-ci.*}"
+          python3 build/check-nuget-version.py nightly --version "$BASE"
 
       - name: Publish to NuGet
         # dotnet nuget push automatically pushes the matching *.snupkg symbols
         # package from the same folder. --skip-duplicate makes retries safe.
-        if: env.NUGET_API_KEY != ''
+        # The raw ABI layer is part of the package; a generator failure must
+        # not publish a package with signatures from the previous pin.
+        if: github.ref == 'refs/heads/main' && steps.nuget.outputs.present == 'true' && env.DRY_RUN != 'true' && needs.regenerate-bindings.result == 'success'
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
         run: |
+          if [ "${GITHUB_REF:-}" != "refs/heads/main" ]; then
+            echo "::error::Refusing to publish from ${GITHUB_REF:-unknown}; nightlies publish from main only."
+            exit 1
+          fi
           dotnet nuget push "artifacts/*.nupkg" \
             --api-key "$NUGET_API_KEY" \
             --source https://api.nuget.org/v3/index.json \
             --skip-duplicate
 
       - name: Skipped publish (no NUGET_API_KEY)
-        if: env.NUGET_API_KEY == ''
+        if: steps.nuget.outputs.present != 'true'
         run: |
           echo "::notice title=Publish skipped::NUGET_API_KEY is not set on this repo."
           echo "The daily workflow built + tested + packed successfully, but publishing is"
           echo "skipped until a destination is chosen and the corresponding secret is added."
 
-      - name: Update ghostty-upstream.json
-        if: env.NUGET_API_KEY != ''
+      - name: Skipped publish (dry run)
+        if: env.DRY_RUN == 'true'
         run: |
-          cat > ghostty-upstream.json << EOF
-          {
-            "repo": "https://github.com/ghostty-org/ghostty.git",
-            "branch": "main",
-            "commit": "${{ needs.check-upstream.outputs.new_commit }}",
-            "upstreamVersion": "${{ needs.check-upstream.outputs.new_version }}",
-            "lastUpdated": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          }
-          EOF
+          echo "::notice title=Dry run::Publish, pin update and release were skipped (dry_run=true)."
 
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add ghostty-upstream.json
-          git diff --cached --quiet || git commit -m "chore: update upstream to ${{ needs.check-upstream.outputs.new_commit }}"
-          git push
+      - name: Push pin update
+        if: github.ref == 'refs/heads/main' && steps.nuget.outputs.present == 'true' && env.DRY_RUN != 'true' && needs.regenerate-bindings.result == 'success'
+        env:
+          PIN_COMMIT: ${{ steps.pin_update.outputs.pin_commit }}
+        run: |
+          if [ "${GITHUB_REF:-}" != "refs/heads/main" ]; then
+            echo "::error::Refusing to move main from ${GITHUB_REF:-unknown}."
+            exit 1
+          fi
+          git push origin "HEAD:main"
+          echo "Pushed pin commit: $PIN_COMMIT"
+
+      - name: Hold publish and pin (binding reference unavailable)
+        if: github.ref == 'refs/heads/main' && steps.nuget.outputs.present == 'true' && env.DRY_RUN != 'true' && needs.regenerate-bindings.result != 'success'
+        run: |
+          echo "::warning title=Binding reference::regenerate-bindings did not succeed; publishing and the pin move are held so the package cannot ship stale raw signatures. The next nightly retries."
 
       - name: Create GitHub Release
-        if: env.NUGET_API_KEY != ''
+        if: github.ref == 'refs/heads/main' && steps.nuget.outputs.present == 'true' && env.DRY_RUN != 'true' && needs.regenerate-bindings.result == 'success'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PKG_VERSION: ${{ steps.version.outputs.package_version }}
+          UPSTREAM_COMMIT: ${{ needs.check-upstream.outputs.new_commit }}
+          UPSTREAM_VERSION: ${{ needs.check-upstream.outputs.new_version }}
+          PIN_COMMIT: ${{ steps.pin_update.outputs.pin_commit }}
         run: |
-          gh release create "v${{ steps.version.outputs.package_version }}" \
-            --title "v${{ steps.version.outputs.package_version }}" \
-            --notes "Automated daily build from upstream ghostty-org/ghostty@${{ needs.check-upstream.outputs.new_commit }}"
+          if [ "${GITHUB_REF:-}" != "refs/heads/main" ]; then
+            echo "::error::Refusing to create a release from ${GITHUB_REF:-unknown}; nightlies release from main only."
+            exit 1
+          fi
+          gh release create "v${PKG_VERSION}" \
+            --title "v${PKG_VERSION}" \
+            --target "$PIN_COMMIT" \
+            --prerelease \
+            --latest=false \
+            --notes "Automated daily build from ghostty-org/ghostty@${UPSTREAM_COMMIT} (Ghostty ${UPSTREAM_VERSION}). Package versions are independent of upstream."
 
-      - name: Create issue on failure
-        if: failure()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          SHORT="${{ needs.check-upstream.outputs.new_commit }}"
-          gh issue create \
-            --title "Upstream sync failed for ${SHORT:0:8}" \
-            --body "Daily upstream sync failed. Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."
-
+  # Failure reporting lives here, not inside `publish`.
+  #
+  # It used to be a `Create issue on failure` step inside `publish`, which
+  # meant it could only ever report a *publish* failure. For 57 consecutive
+  # nights `build-native` failed, `publish` was skipped, and that step never
+  # ran — which is why the outage in #43 produced zero issues. This job's
+  # `if: failure()` fires whenever any ancestor failed, `build-native`
+  # included, so the alert now covers the failure mode that actually happened.
+  #
+  # It also reports one issue for the *condition*, not one per upstream SHA.
+  # The old title embedded the commit, which changes daily, so once
+  # `build-native` started passing it would have filed a brand-new issue every
+  # single night with no dedupe. Search for the open tracker first and add a
+  # dated comment; only create one when there is none. Closing the tracker is
+  # how a maintainer says "handled" — if the condition recurs after that, a
+  # fresh issue is the right outcome.
   notify-failure:
-    needs: [check-upstream, publish]
+    # `regenerate-bindings` is listed because it now feeds publish and because
+    # a broken generator must reach the tracker even though the package can
+    # still publish; publish holds the pin when the reference is unavailable.
+    # Leaving it out here would make a generator failure silent in the one
+    # place anyone actually looks — precisely how #46 went unnoticed.
+    #
+    # Known consequence of that choice, deliberately accepted: if
+    # `regenerate-bindings` fails, this files "Daily upstream sync is failing"
+    # on a run that built and tested but held publishing and the pin. The
+    # alert is correct that something needs attention; read the run before
+    # acting.
+    needs: [check-upstream, regenerate-bindings, publish]
     if: failure()
     runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    env:
+      # A dry run must not write to the public tracker, or the input is not
+      # the non-mutating switch it advertises.
+      DRY_RUN: ${{ inputs.dry_run == true }}
     steps:
-      - name: Failure already handled
-        run: echo "Failure notification handled by publish job issue creation"
+      - name: Report sync failure
+        if: env.DRY_RUN != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # This job deliberately has no `actions/checkout` — it only talks to
+          # the API — so `gh` has no git remote to infer the repo from and
+          # would fail with "not a git repository". GH_REPO supplies it
+          # without cloning. (The old step worked only because it happened to
+          # sit inside `publish`, which checks out.)
+          GH_REPO: ${{ github.repository }}
+          COMMIT: ${{ needs.check-upstream.outputs.new_commit }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          TITLE: Daily upstream sync is failing
+        run: |
+          set -euo pipefail
+
+          EXISTING=$(gh issue list --state open --limit 100 --json number,title \
+            | jq -r --arg t "$TITLE" 'map(select(.title == $t)) | .[0].number // empty')
+
+          if [ -n "$EXISTING" ]; then
+            echo "::notice::Commenting on existing sync-failure issue #$EXISTING"
+            gh issue comment "$EXISTING" \
+              --body "Still failing, now for upstream \`${COMMIT}\` — [run](${RUN_URL})."
+          else
+            echo "::notice::Opening a new sync-failure issue"
+            gh issue create --title "$TITLE" --body \
+          "The daily upstream sync failed for upstream \`${COMMIT}\` — [run](${RUN_URL}).
+
+          Publishing and the pin move are held when the generated binding reference is unavailable, so the package cannot ship stale raw signatures.
+
+          Further failures are added as comments here rather than as new issues.
+          Close this once the sync is green again; if it breaks later, a fresh issue is opened."
+          fi
+
+      - name: Reporting skipped (dry run)
+        if: env.DRY_RUN == 'true'
+        run: echo "::notice title=Dry run::Sync failed, but issue reporting was skipped (dry_run=true)."
