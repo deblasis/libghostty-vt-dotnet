@@ -425,6 +425,7 @@ public unsafe partial class RawSurfaceCoverageTests
         {
             Write(terminal, "hello");
             Write(terminal, "\x1b_Gf=24,s=1,v=1,a=T,i=1;/wAA\x1b\\");
+            Write(terminal, "\x1b_Ga=p,i=1,p=1,c=2,r=2;\x1b\\");
             Assert.Equal(
                 GhosttyResult.GHOSTTY_SUCCESS,
                 GhosttyVtNative.ghostty_render_state_new(null, &state));
@@ -514,10 +515,7 @@ public unsafe partial class RawSurfaceCoverageTests
                         Assert.Equal(
                             GhosttyResult.GHOSTTY_SUCCESS,
                             GhosttyVtNative.ghostty_render_state_row_cells_select(cells, 0));
-                        if (GhosttyVtNative.ghostty_render_state_row_cells_next(cells) == 0)
-                        {
-                            return;
-                        }
+                        Assert.Equal((byte)1, GhosttyVtNative.ghostty_render_state_row_cells_next(cells));
                         var cellKeys = stackalloc GhosttyRenderStateRowCellsData[2];
                         cellKeys[0] = GhosttyRenderStateRowCellsData.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_SELECTED;
                         cellKeys[1] = GhosttyRenderStateRowCellsData.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_HAS_STYLING;
@@ -572,23 +570,20 @@ public unsafe partial class RawSurfaceCoverageTests
                     GhosttyVtNative.ghostty_render_state_image_iterator_new(null, &imageIterator));
                 try
                 {
-                    if (GhosttyVtNative.ghostty_render_state_image_iterator_next(imageIterator) == 0)
-                    {
-                        return;
-                    }
-                    GhosttyRenderStateImageData data = GhosttyRenderStateImageData.GHOSTTY_RENDER_STATE_IMAGE_DATA_PROTOCOL;
-                    GhosttyImageProtocol protocol = default;
                     Assert.Equal(
                         GhosttyResult.GHOSTTY_SUCCESS,
-                        GhosttyVtNative.ghostty_render_state_image_get(imageIterator, data, &protocol));
+                        GhosttyVtNative.ghostty_render_state_get(
+                            state, GhosttyRenderStateData.GHOSTTY_RENDER_STATE_DATA_IMAGE_ITERATOR, &imageIterator));
+                    _ = GhosttyVtNative.ghostty_render_state_image_iterator_next(imageIterator);
+                    GhosttyRenderStateImageData data = GhosttyRenderStateImageData.GHOSTTY_RENDER_STATE_IMAGE_DATA_PROTOCOL;
+                    GhosttyImageProtocol protocol = default;
+                    Assert.True(Tolerated(GhosttyVtNative.ghostty_render_state_image_get(imageIterator, data, &protocol)));
                     var imageKeys = stackalloc GhosttyRenderStateImageData[1];
                     imageKeys[0] = data;
                     var imageValues = stackalloc void*[1];
                     imageValues[0] = &protocol;
-                    Assert.Equal(
-                        GhosttyResult.GHOSTTY_SUCCESS,
-                        GhosttyVtNative.ghostty_render_state_image_get_multi(
-                            imageIterator, 1, imageKeys, imageValues, &written));
+                    Assert.True(Tolerated(GhosttyVtNative.ghostty_render_state_image_get_multi(
+                        imageIterator, 1, imageKeys, imageValues, &written)));
                 }
                 finally
                 {
@@ -668,10 +663,7 @@ public unsafe partial class RawSurfaceCoverageTests
                     GhosttyVtNative.ghostty_kitty_graphics_placement_iterator_set(
                         iterator, GhosttyKittyGraphicsPlacementIteratorOption.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_ITERATOR_OPTION_LAYER,
                         &layer));
-                if (GhosttyVtNative.ghostty_kitty_graphics_placement_next(iterator) == 0)
-                {
-                    return;
-                }
+                Assert.Equal((byte)1, GhosttyVtNative.ghostty_kitty_graphics_placement_next(iterator));
                 uint imageId = 0;
                 Assert.Equal(
                     GhosttyResult.GHOSTTY_SUCCESS,

@@ -12,7 +12,7 @@ the package version does not mirror the upstream version.
   The 94 hand-written P/Invoke declarations were removed; the public surface is
   unchanged. The formatter now passes `GhosttyFormatterTerminalOptions` by
   value, matching the pinned header.
-- Added raw-surface coverage for all 205 entry points. `250` tests pass, and
+- Added raw-surface coverage for all 205 entry points. `252` tests pass, and
   `build/check-raw-test-coverage.py` fails if a raw entry point has no test
   reference.
 - The raw layer uses `DllImport`; the separate `LibraryImport`/AOT migration

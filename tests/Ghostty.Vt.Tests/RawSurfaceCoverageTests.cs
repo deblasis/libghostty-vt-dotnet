@@ -331,3 +331,74 @@ public unsafe partial class RawSurfaceCoverageTests
         Assert.Equal(sizeof(GhosttyTerminalModeConfig), sizeof(GhosttyTerminalModeConfigNative));
     }
 }
+
+public unsafe partial class RawSurfaceCoverageTests
+{
+    [Fact]
+    public void NativeStructOffsetsMatchTheRawLayer()
+    {
+        Assert.Equal(0, Marshal.OffsetOf<GhosttyPoint>(nameof(GhosttyPoint.tag)).ToInt32());
+        Assert.Equal(8, Marshal.OffsetOf<GhosttyPoint>(nameof(GhosttyPoint.value)).ToInt32());
+        Assert.Equal(0, Marshal.OffsetOf<GhosttyPointNative>(nameof(GhosttyPointNative.Tag)).ToInt32());
+        Assert.Equal(8, Marshal.OffsetOf<GhosttyPointNative>(nameof(GhosttyPointNative.X)).ToInt32());
+        Assert.Equal(12, Marshal.OffsetOf<GhosttyPointNative>(nameof(GhosttyPointNative.Y)).ToInt32());
+
+        Assert.Equal(0, Marshal.OffsetOf<GhosttyGridRef>(nameof(GhosttyGridRef.size)).ToInt32());
+        Assert.Equal(8, Marshal.OffsetOf<GhosttyGridRef>(nameof(GhosttyGridRef.node)).ToInt32());
+        Assert.Equal(16, Marshal.OffsetOf<GhosttyGridRef>(nameof(GhosttyGridRef.x)).ToInt32());
+        Assert.Equal(18, Marshal.OffsetOf<GhosttyGridRef>(nameof(GhosttyGridRef.y)).ToInt32());
+        Assert.Equal(0, Marshal.OffsetOf<GhosttyGridRefNative>(nameof(GhosttyGridRefNative.Size)).ToInt32());
+        Assert.Equal(8, Marshal.OffsetOf<GhosttyGridRefNative>(nameof(GhosttyGridRefNative.Node)).ToInt32());
+        Assert.Equal(16, Marshal.OffsetOf<GhosttyGridRefNative>(nameof(GhosttyGridRefNative.X)).ToInt32());
+        Assert.Equal(18, Marshal.OffsetOf<GhosttyGridRefNative>(nameof(GhosttyGridRefNative.Y)).ToInt32());
+
+        Assert.Equal(0, Marshal.OffsetOf<GhosttyPointCoordinate>(nameof(GhosttyPointCoordinate.x)).ToInt32());
+        Assert.Equal(4, Marshal.OffsetOf<GhosttyPointCoordinate>(nameof(GhosttyPointCoordinate.y)).ToInt32());
+        Assert.Equal(0, Marshal.OffsetOf<GhosttyPointCoordinateNative>(nameof(GhosttyPointCoordinateNative.X)).ToInt32());
+        Assert.Equal(4, Marshal.OffsetOf<GhosttyPointCoordinateNative>(nameof(GhosttyPointCoordinateNative.Y)).ToInt32());
+
+        Assert.Equal(0, Marshal.OffsetOf<GhosttySizeReportSize>(nameof(GhosttySizeReportSize.rows)).ToInt32());
+        Assert.Equal(2, Marshal.OffsetOf<GhosttySizeReportSize>(nameof(GhosttySizeReportSize.columns)).ToInt32());
+        Assert.Equal(4, Marshal.OffsetOf<GhosttySizeReportSize>(nameof(GhosttySizeReportSize.cell_width)).ToInt32());
+        Assert.Equal(8, Marshal.OffsetOf<GhosttySizeReportSize>(nameof(GhosttySizeReportSize.cell_height)).ToInt32());
+        Assert.Equal(0, Marshal.OffsetOf<GhosttySizeReportSizeNative>(nameof(GhosttySizeReportSizeNative.Rows)).ToInt32());
+        Assert.Equal(2, Marshal.OffsetOf<GhosttySizeReportSizeNative>(nameof(GhosttySizeReportSizeNative.Columns)).ToInt32());
+        Assert.Equal(4, Marshal.OffsetOf<GhosttySizeReportSizeNative>(nameof(GhosttySizeReportSizeNative.CellWidth)).ToInt32());
+        Assert.Equal(8, Marshal.OffsetOf<GhosttySizeReportSizeNative>(nameof(GhosttySizeReportSizeNative.CellHeight)).ToInt32());
+
+        Assert.Equal(0, Marshal.OffsetOf<GhosttyMousePosition>(nameof(GhosttyMousePosition.x)).ToInt32());
+        Assert.Equal(4, Marshal.OffsetOf<GhosttyMousePosition>(nameof(GhosttyMousePosition.y)).ToInt32());
+        Assert.Equal(0, Marshal.OffsetOf<GhosttyMousePositionNative>(nameof(GhosttyMousePositionNative.X)).ToInt32());
+        Assert.Equal(4, Marshal.OffsetOf<GhosttyMousePositionNative>(nameof(GhosttyMousePositionNative.Y)).ToInt32());
+
+        Assert.Equal(0, Marshal.OffsetOf<GhosttySelection>(nameof(GhosttySelection.size)).ToInt32());
+        Assert.Equal(8, Marshal.OffsetOf<GhosttySelection>(nameof(GhosttySelection.start)).ToInt32());
+        Assert.Equal(32, Marshal.OffsetOf<GhosttySelection>(nameof(GhosttySelection.end)).ToInt32());
+        Assert.Equal(56, Marshal.OffsetOf<GhosttySelection>(nameof(GhosttySelection.rectangle)).ToInt32());
+        Assert.Equal(0, Marshal.OffsetOf<GhosttySelectionNative>(nameof(GhosttySelectionNative.Size)).ToInt32());
+        Assert.Equal(8, Marshal.OffsetOf<GhosttySelectionNative>(nameof(GhosttySelectionNative.Start)).ToInt32());
+        Assert.Equal(32, Marshal.OffsetOf<GhosttySelectionNative>(nameof(GhosttySelectionNative.End)).ToInt32());
+        Assert.Equal(56, Marshal.OffsetOf<GhosttySelectionNative>(nameof(GhosttySelectionNative.Rectangle)).ToInt32());
+    }
+}
+
+public partial class RawSurfaceCoverageTests
+{
+    [Fact]
+    public void FormatterTrimAndUnwrapOptionsChangeOutput()
+    {
+        using var terminal = new Terminal(5, 4);
+        terminal.VTWrite("abcdef   "u8);
+
+        using var plain = terminal.CreateFormatter(FormatterFormat.PlainText);
+        using var trimmed = terminal.CreateFormatter(FormatterFormat.PlainText, options => options.Trim = true);
+        Assert.Contains("   ", plain.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("   ", trimmed.ToString(), StringComparison.Ordinal);
+
+        using var wrapped = terminal.CreateFormatter(FormatterFormat.PlainText);
+        using var unwrapped = terminal.CreateFormatter(FormatterFormat.PlainText, options => options.Unwrap = true);
+        Assert.Contains("\n", wrapped.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("\n", unwrapped.ToString(), StringComparison.Ordinal);
+        Assert.Contains("abcdef", unwrapped.ToString(), StringComparison.Ordinal);
+    }
+}

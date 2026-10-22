@@ -471,6 +471,8 @@ jobs:
             build/bindings-reference/NativeMethods.pinned.cs \
             src/Ghostty.Vt/Raw/GhosttyVtNative.g.cs
           python3 build/check-native-coverage.py
+          python3 build/check-raw-test-coverage.py
+          python3 build/check-interop-location.py
           git diff --stat -- \
             build/bindings-reference/NativeMethods.pinned.cs \
             src/Ghostty.Vt/Raw/GhosttyVtNative.g.cs

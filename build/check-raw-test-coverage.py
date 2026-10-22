@@ -20,6 +20,37 @@ EXTERN = re.compile(r"public static extern [^(]+\b(ghostty_[a-z0-9_]+)\(")
 CALL = re.compile(r"GhosttyVtNative\.(ghostty_[a-z0-9_]+)\s*\(")
 
 
+def strip_csharp(text: str) -> str:
+    """Remove comments and string/char literals before looking for calls."""
+    out = []
+    index = 0
+    while index < len(text):
+        if text.startswith("//", index):
+            newline = text.find("\n", index)
+            index = len(text) if newline < 0 else newline
+            continue
+        if text.startswith("/*", index):
+            close = text.find("*/", index + 2)
+            index = len(text) if close < 0 else close + 2
+            continue
+        char = text[index]
+        if char in ('"', "'"):
+            quote = char
+            index += 1
+            while index < len(text):
+                if text[index] == "\\":
+                    index += 2
+                    continue
+                if text[index] == quote:
+                    index += 1
+                    break
+                index += 1
+            continue
+        out.append(char)
+        index += 1
+    return "".join(out)
+
+
 def fail(message: str) -> None:
     print(f"::error::{message}", file=sys.stderr)
     raise SystemExit(1)
@@ -32,7 +63,7 @@ if not raw_names:
 
 test_names: set[str] = set()
 for path in TESTS.rglob("*.cs"):
-    test_names.update(CALL.findall(path.read_text(encoding="utf-8")))
+    test_names.update(CALL.findall(strip_csharp(path.read_text(encoding="utf-8"))))
 
 missing = sorted(raw_names - test_names)
 if missing:
