@@ -77,10 +77,3 @@ public sealed class OscParser : IDisposable
         public new nint DangerousGetHandle() => handle;
     }
 }
-
-// OSC command data enum values
-public enum OscCommandData
-{
-    Invalid = 0,
-    ChangeWindowTitleStr = 1,
-}

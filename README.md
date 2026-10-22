@@ -19,10 +19,15 @@ Use this library to parse VT output, inspect the terminal grid, build your own r
 | `Ghostty.Vt.GridRef` | Reference and compare grid positions |
 | `Ghostty.Vt.Focus` | Focus reporting |
 | `Ghostty.Vt.Paste` | Bracketed paste encoding |
+| `Ghostty.Vt.Raw` | Full generated C ABI, low-level and unsafe |
 
 ## Prerequisites
 
-- [Zig 0.15.2](https://ziglang.org/download/) — builds libghostty-vt from source
+- [Zig](https://ziglang.org/download/) — builds libghostty-vt from source. Use the version the
+  upstream commit asks for: `.minimum_zig_version` in
+  [ghostty's `build.zig.zon`](https://github.com/ghostty-org/ghostty/blob/main/build.zig.zon)
+  at the SHA pinned in `ghostty-upstream.json`. CI derives it the same way rather than
+  hardcoding it.
 - [.NET SDK 9.0](https://dotnet.microsoft.com/download/dotnet/9.0) — builds and runs the library and tests
 
 ## Quick start
@@ -65,6 +70,21 @@ foreach (var row in renderState.Rows)
 }
 ```
 
+## Raw ABI access
+
+The curated API above is a subset of libghostty-vt. `Ghostty.Vt.Raw` exposes the full generated C ABI: all functions declared in the public C headers, plus the generated structs, enums and constants. Function-level documentation lives in those headers.
+
+```csharp
+using Ghostty.Vt.Raw;
+
+unsafe
+{
+    var json = GhosttyVtNative.ghostty_type_json();
+}
+```
+
+Enable unsafe blocks in the consuming project. The raw layer returns pointers and leaves lifetimes to the caller. Several structs are sized: set their `size` field to `sizeof(T)` before passing them. The `GHOSTTY_INIT_SIZED` macros are not generated. Memory from `ghostty_alloc` must be released with `ghostty_free` and the same allocator, exactly once. Some raw names, such as `GhosttyString` and `GhosttyKey`, overlap with curated types; qualify them when mixing namespaces. Prefer `Ghostty.Vt` unless you need a function it does not expose.
+
 ## NuGet
 
 The library ships as [`DeBlasis.GhosttyVt`](https://www.nuget.org/packages/DeBlasis.GhosttyVt) on NuGet with native runtimes for:
@@ -74,6 +94,14 @@ The library ships as [`DeBlasis.GhosttyVt`](https://www.nuget.org/packages/DeBla
 | Windows x64 | `win-x64` | `ghostty-vt.dll` |
 | Linux x64 | `linux-x64` | `libghostty-vt.so` |
 | macOS ARM64 | `osx-arm64` | `libghostty-vt.dylib` |
+
+## Versioning
+
+Package versions use independent SemVer. `version.json` is the source of truth. Every build pins the upstream Ghostty commit in [`ghostty-upstream.json`](https://github.com/deblasis/libghostty-vt-dotnet/blob/main/ghostty-upstream.json); release notes name the upstream version and commit. Nightly builds use `<version>-ci.<timestamp>.g<sha>`, release candidates use `<version>-rc.<n>`, and stable releases use `<version>`.
+
+## Used in
+
+[wintty](https://wintty.io), a Windows terminal built on Ghostty, uses this library for its persistent session panes.
 
 ## Development
 

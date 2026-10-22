@@ -27,7 +27,7 @@ public class TerminalStateQueryTests
     public void ActiveScreen_DefaultActive()
     {
         using var term = new Terminal(80, 24);
-        Assert.Equal(TerminalScreen.Active, term.ActiveScreen);
+        Assert.Equal(TerminalScreen.Primary, term.ActiveScreen);
     }
 
     [Fact]
