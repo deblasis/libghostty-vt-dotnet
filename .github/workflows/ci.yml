@@ -10,7 +10,7 @@ jobs:
   build-native:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Build the *pinned* commit, not `main`. The native surface is pinned in
       # ghostty-upstream.json, so building main here tested a pairing this repo
@@ -76,7 +76,7 @@ jobs:
     needs: build-native
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -121,7 +121,7 @@ jobs:
   native-coverage:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Verify compiled native bindings
         run: python3 build/check-native-coverage.py
       - name: Verify every raw entry point is referenced by tests
@@ -132,14 +132,14 @@ jobs:
   release-guards:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Self-test the release version guards
         run: bash build/selftest-release-guards.sh
 
   bindings-drift:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Same validation as build-native above, for the same reason: on a fork
       # `pull_request` this file is attacker-controlled.
@@ -233,7 +233,7 @@ jobs:
     needs: build-native
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -265,7 +265,7 @@ jobs:
     needs: build-test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
