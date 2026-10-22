@@ -16,7 +16,7 @@ REPO = Path(__file__).resolve().parent.parent
 RAW = REPO / "src" / "Ghostty.Vt" / "Raw" / "GhosttyVtNative.g.cs"
 TESTS = REPO / "tests"
 
-EXTERN = re.compile(r"public static extern [^(]+\b(ghostty_[a-z0-9_]+)\(")
+EXTERN = re.compile(r"public static (?:extern|partial) [^(]+\b(ghostty_[a-z0-9_]+)\(")
 CALL = re.compile(r"GhosttyVtNative\.(ghostty_[a-z0-9_]+)\s*\(")
 
 

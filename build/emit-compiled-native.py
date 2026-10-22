@@ -120,7 +120,13 @@ def main() -> None:
     text = "\n".join(header + body) + "\n"
 
     text = re.sub(r"\bclass NativeMethods\b", f"class {OUTPUT_CLASS}", text)
-    text = text.replace('DllImport("libghostty-vt"', 'DllImport("ghostty-vt"')
+    # The raw layer is source-generated for NativeAOT: use LibraryImport and
+    # an explicit Cdecl unmanaged calling convention instead of DllImport.
+    text = text.replace(
+        '[DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]',
+        '[LibraryImport("ghostty-vt")]\n        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]',
+    )
+    text = text.replace("public static extern ", "public static partial ")
 
     # ClangSharp emits these inline macro helpers with C-style bool casts that
     # C# rejects. The values are correct; express the casts explicitly.
