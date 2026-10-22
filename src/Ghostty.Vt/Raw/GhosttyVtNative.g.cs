@@ -816,6 +816,57 @@ namespace Ghostty.Vt.Raw;
         GHOSTTY_TERMINAL_CURSOR_STYLE_BLOCK_HOLLOW = 3,
         GHOSTTY_TERMINAL_CURSOR_STYLE_MAX_VALUE = 2147483647,
     }
+    [NativeTypeName("unsigned int")]
+    public enum GhosttyTerminalBoundary : uint
+    {
+        GHOSTTY_TERMINAL_BOUNDARY_GROUND = 1 << 0,
+        GHOSTTY_TERMINAL_BOUNDARY_APC_START = 1 << 1,
+        GHOSTTY_TERMINAL_BOUNDARY_APC_END = 1 << 2,
+        GHOSTTY_TERMINAL_BOUNDARY_DCS_START = 1 << 3,
+        GHOSTTY_TERMINAL_BOUNDARY_DCS_END = 1 << 4,
+        GHOSTTY_TERMINAL_BOUNDARY_OSC_START = 1 << 5,
+        GHOSTTY_TERMINAL_BOUNDARY_OSC_END = 1 << 6,
+        GHOSTTY_TERMINAL_BOUNDARY_MAX_VALUE = 2147483647,
+    }
+    [NativeTypeName("unsigned int")]
+    public enum GhosttyTerminalStringKind : uint
+    {
+        GHOSTTY_TERMINAL_STRING_KIND_APC = 0,
+        GHOSTTY_TERMINAL_STRING_KIND_DCS = 1,
+        GHOSTTY_TERMINAL_STRING_KIND_OSC = 2,
+        GHOSTTY_TERMINAL_STRING_KIND_MAX_VALUE = 2147483647,
+    }
+    [NativeTypeName("unsigned int")]
+    public enum GhosttyTerminalStringIntroducer : uint
+    {
+        GHOSTTY_TERMINAL_STRING_INTRODUCER_ESC = 0,
+        GHOSTTY_TERMINAL_STRING_INTRODUCER_C1 = 1,
+        GHOSTTY_TERMINAL_STRING_INTRODUCER_MAX_VALUE = 2147483647,
+    }
+    [NativeTypeName("unsigned int")]
+    public enum GhosttyTerminalStringEnd : uint
+    {
+        GHOSTTY_TERMINAL_STRING_END_ST_ESC = 0,
+        GHOSTTY_TERMINAL_STRING_END_ST_C1 = 1,
+        GHOSTTY_TERMINAL_STRING_END_CANCELLED = 2,
+        GHOSTTY_TERMINAL_STRING_END_ABORTED = 3,
+        GHOSTTY_TERMINAL_STRING_END_BEL = 4,
+        GHOSTTY_TERMINAL_STRING_END_MAX_VALUE = 2147483647,
+    }
+    public partial struct GhosttyTerminalWriteStop
+    {
+        [NativeTypeName("size_t")]
+        public nuint size;
+        [NativeTypeName("size_t")]
+        public nuint consumed;
+        [NativeTypeName("uint32_t")]
+        public uint reached;
+        public GhosttyTerminalStringKind kind;
+        public GhosttyTerminalStringIntroducer introducer;
+        public GhosttyTerminalStringEnd end;
+        [NativeTypeName("uint8_t")]
+        public byte @byte;
+    }
     public partial struct GhosttyTerminalScrollbar
     {
         [NativeTypeName("uint64_t")]
@@ -2012,7 +2063,15 @@ namespace Ghostty.Vt.Raw;
         GHOSTTY_SNAPSHOT_DECODER_OPT_MAX_CONTINUATION_BYTES = 0,
         GHOSTTY_SNAPSHOT_DECODER_OPT_RETAIN_CONTINUATION = 1,
         GHOSTTY_SNAPSHOT_DECODER_OPT_COMPRESS_HISTORY = 2,
+        GHOSTTY_SNAPSHOT_DECODER_OPT_KITTY_IMAGE_STORAGE_LIMIT = 3,
         GHOSTTY_SNAPSHOT_DECODER_OPT_MAX_VALUE = 2147483647,
+    }
+    [NativeTypeName("unsigned int")]
+    public enum GhosttySnapshotDecoderProgressKind : uint
+    {
+        GHOSTTY_SNAPSHOT_DECODER_PROGRESS_KIND_PAGE = 0,
+        GHOSTTY_SNAPSHOT_DECODER_PROGRESS_KIND_IMAGE = 1,
+        GHOSTTY_SNAPSHOT_DECODER_PROGRESS_KIND_MAX_VALUE = 2147483647,
     }
     [NativeTypeName("unsigned int")]
     public enum GhosttySnapshotDecoderData : uint
@@ -2027,6 +2086,15 @@ namespace Ghostty.Vt.Raw;
         GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_REMAINING = 7,
         GHOSTTY_SNAPSHOT_DECODER_DATA_RETAIN_CONTINUATION = 8,
         GHOSTTY_SNAPSHOT_DECODER_DATA_COMPRESS_HISTORY = 9,
+        GHOSTTY_SNAPSHOT_DECODER_DATA_KITTY_IMAGE_STORAGE_LIMIT = 10,
+        GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_KIND = 11,
+        GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_IMAGE_ID = 12,
+        GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_IMAGE_FRAME = 13,
+        GHOSTTY_SNAPSHOT_DECODER_DATA_PROGRESS_IMAGE_BYTES = 14,
+        GHOSTTY_SNAPSHOT_DECODER_DATA_KITTY_IMAGES_PRIMARY = 15,
+        GHOSTTY_SNAPSHOT_DECODER_DATA_KITTY_IMAGES_ALTERNATE = 16,
+        GHOSTTY_SNAPSHOT_DECODER_DATA_KITTY_PENDING_BYTES_PRIMARY = 17,
+        GHOSTTY_SNAPSHOT_DECODER_DATA_KITTY_PENDING_BYTES_ALTERNATE = 18,
         GHOSTTY_SNAPSHOT_DECODER_DATA_MAX_VALUE = 2147483647,
     }
     /// <summary>Defines the type of a member as it was used in the native signature.</summary>
@@ -2333,7 +2401,7 @@ namespace Ghostty.Vt.Raw;
         public static partial void ghostty_terminal_vt_write([NativeTypeName("GhosttyTerminal")] nint terminal, [NativeTypeName("const uint8_t *")] byte* data, [NativeTypeName("size_t")] nuint len);
         [LibraryImport("ghostty-vt")]
         [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-        public static partial GhosttyResult ghostty_terminal_vt_write_until_ground([NativeTypeName("GhosttyTerminal")] nint terminal, [NativeTypeName("const uint8_t *")] byte* data, [NativeTypeName("size_t")] nuint len, [NativeTypeName("size_t *")] nuint* out_consumed);
+        public static partial GhosttyResult ghostty_terminal_vt_write_until([NativeTypeName("GhosttyTerminal")] nint terminal, [NativeTypeName("const uint8_t *")] byte* data, [NativeTypeName("size_t")] nuint len, [NativeTypeName("uint32_t")] uint boundaries, GhosttyTerminalWriteStop* @out);
         [LibraryImport("ghostty-vt")]
         [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
         public static partial GhosttyResult ghostty_terminal_continuation_write([NativeTypeName("GhosttyTerminal")] nint terminal, GhosttyWriter writer);

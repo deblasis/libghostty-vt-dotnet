@@ -7,7 +7,7 @@ namespace Ghostty.Vt.Tests;
 
 public class PublicApiBaselineTests
 {
-    private const string Expected = "B82766D1EC2B094369208189D1EE2BB6BF7493BA94303A830899FEA879189C8A";
+    private const string Expected = "98F24468F4C08BF4FD90D92FB29AF859DB8283478F8B6D235942367EB6C33EFE";
 
     [Fact]
     public void PublicApiMembersMatchTheBaseline()
