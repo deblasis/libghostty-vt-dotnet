@@ -1,11 +1,19 @@
+using System;
+
 namespace Ghostty.Vt.Enums;
 
+/// <summary>Cursor visual style reported by libghostty.</summary>
 public enum CursorStyle
 {
-    Block = 0,
-    Bar = 1,
+    Bar = 0,
+    Block = 1,
     Underline = 2,
-    BlockBar = 3,
-    BlockUnderline = 4,
-    BarUnderline = 5,
+    BlockHollow = 3,
+
+    [Obsolete("Use Block.")]
+    BlockBar = Block,
+    [Obsolete("Use Block.")]
+    BlockUnderline = Block,
+    [Obsolete("Use Bar.")]
+    BarUnderline = Bar,
 }

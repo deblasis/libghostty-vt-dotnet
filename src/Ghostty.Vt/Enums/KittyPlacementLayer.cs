@@ -2,10 +2,16 @@ using System;
 
 namespace Ghostty.Vt.Enums;
 
-[Flags]
+/// <summary>Kitty graphics placement layer, matching GhosttyKittyPlacementLayer.</summary>
 public enum KittyPlacementLayer
 {
-    Background = 1 << 0,
-    Reference = 1 << 1,
-    All = Background | Reference,
+    All = 0,
+    BelowBackground = 1,
+    BelowText = 2,
+    AboveText = 3,
+
+    [Obsolete("Use BelowBackground.")]
+    Background = BelowBackground,
+    [Obsolete("Use BelowText.")]
+    Reference = BelowText,
 }
