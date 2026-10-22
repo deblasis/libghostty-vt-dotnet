@@ -1,6 +1,7 @@
 using Ghostty.Vt.Enums;
 using Ghostty.Vt.Internals;
 using Ghostty.Vt.Native;
+using Ghostty.Vt.Raw;
 using Ghostty.Vt.Types;
 
 namespace Ghostty.Vt;
@@ -283,10 +284,10 @@ public ref struct RenderStateRowEnumerator
 
             if (rawRow != 0)
             {
-                NativeMethods.ghostty_row_get(rawRow, 1 /* ROW_DATA_WRAP */, &wrap);
-                NativeMethods.ghostty_row_get(rawRow, 2 /* ROW_DATA_WRAP_CONTINUATION */, &wrapContinuation);
-                NativeMethods.ghostty_row_get(rawRow, 6 /* ROW_DATA_SEMANTIC_PROMPT */, &semanticPrompt);
-                NativeMethods.ghostty_row_get(rawRow, 7 /* ROW_DATA_KITTY_VIRTUAL_PLACEHOLDER */, &kittyVirtual);
+                NativeMethods.ghostty_row_get(rawRow, (int)GhosttyRowData.GHOSTTY_ROW_DATA_WRAP, &wrap);
+                NativeMethods.ghostty_row_get(rawRow, (int)GhosttyRowData.GHOSTTY_ROW_DATA_WRAP_CONTINUATION, &wrapContinuation);
+                NativeMethods.ghostty_row_get(rawRow, (int)GhosttyRowData.GHOSTTY_ROW_DATA_SEMANTIC_PROMPT, &semanticPrompt);
+                NativeMethods.ghostty_row_get(rawRow, (int)GhosttyRowData.GHOSTTY_ROW_DATA_KITTY_VIRTUAL_PLACEHOLDER, &kittyVirtual);
             }
 
             return new RenderStateRow
@@ -382,31 +383,31 @@ public ref struct RenderStateCellEnumerator
 
             // Get content tag from the raw cell (data=2)
             int contentTag = 0;
-            NativeMethods.ghostty_cell_get(rawCell, 2 /* CELL_DATA_CONTENT_TAG */, &contentTag);
+            NativeMethods.ghostty_cell_get(rawCell, (int)GhosttyCellData.GHOSTTY_CELL_DATA_CONTENT_TAG, &contentTag);
 
             // Get has_text flag from the raw cell (data=4)
             byte hasText = 0;
-            NativeMethods.ghostty_cell_get(rawCell, 4 /* CELL_DATA_HAS_TEXT */, &hasText);
+            NativeMethods.ghostty_cell_get(rawCell, (int)GhosttyCellData.GHOSTTY_CELL_DATA_HAS_TEXT, &hasText);
 
             // Read wide (data ID 3)
             int wide = 0;
-            NativeMethods.ghostty_cell_get(rawCell, 3 /* CELL_DATA_WIDE */, &wide);
+            NativeMethods.ghostty_cell_get(rawCell, (int)GhosttyCellData.GHOSTTY_CELL_DATA_WIDE, &wide);
 
             // Read has_styling (data ID 5)
             byte hasStyling = 0;
-            NativeMethods.ghostty_cell_get(rawCell, 5 /* CELL_DATA_HAS_STYLING */, &hasStyling);
+            NativeMethods.ghostty_cell_get(rawCell, (int)GhosttyCellData.GHOSTTY_CELL_DATA_HAS_STYLING, &hasStyling);
 
             // Read has_hyperlink (data ID 7)
             byte hasHyperlink = 0;
-            NativeMethods.ghostty_cell_get(rawCell, 7 /* CELL_DATA_HAS_HYPERLINK */, &hasHyperlink);
+            NativeMethods.ghostty_cell_get(rawCell, (int)GhosttyCellData.GHOSTTY_CELL_DATA_HAS_HYPERLINK, &hasHyperlink);
 
             // Read protected (data ID 8)
             byte protected_ = 0;
-            NativeMethods.ghostty_cell_get(rawCell, 8 /* CELL_DATA_PROTECTED */, &protected_);
+            NativeMethods.ghostty_cell_get(rawCell, (int)GhosttyCellData.GHOSTTY_CELL_DATA_PROTECTED, &protected_);
 
             // Read semantic_content (data ID 9)
             int semantic = 0;
-            NativeMethods.ghostty_cell_get(rawCell, 9 /* CELL_DATA_SEMANTIC_CONTENT */, &semantic);
+            NativeMethods.ghostty_cell_get(rawCell, (int)GhosttyCellData.GHOSTTY_CELL_DATA_SEMANTIC_CONTENT, &semantic);
 
             // Read grapheme text from codepoints if there's text
             string? grapheme = null;
@@ -442,7 +443,7 @@ public ref struct RenderStateCellEnumerator
                 {
                     // Single codepoint cell — get codepoint from the raw cell (data=1)
                     uint codepoint = 0;
-                    NativeMethods.ghostty_cell_get(rawCell, 1 /* CELL_DATA_CODEPOINT */, &codepoint);
+                    NativeMethods.ghostty_cell_get(rawCell, (int)GhosttyCellData.GHOSTTY_CELL_DATA_CODEPOINT, &codepoint);
                     if (codepoint > 0)
                     {
                         grapheme = codepoint <= 0xFFFF

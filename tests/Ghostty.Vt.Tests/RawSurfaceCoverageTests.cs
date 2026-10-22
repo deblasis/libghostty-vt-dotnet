@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Text;
+using Ghostty.Vt.Enums;
 using Ghostty.Vt.Native;
 using Ghostty.Vt.Raw;
 using RawKey = Ghostty.Vt.Raw.GhosttyKey;
@@ -400,5 +401,34 @@ public partial class RawSurfaceCoverageTests
         Assert.Contains("\n", wrapped.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain("\n", unwrapped.ToString(), StringComparison.Ordinal);
         Assert.Contains("abcdef", unwrapped.ToString(), StringComparison.Ordinal);
+    }
+}
+
+public partial class RawSurfaceCoverageTests
+{
+    [Fact]
+    public void CorrectedPublicEnumsMatchTheRawLayer()
+    {
+        Assert.Equal((int)GhosttyOptimizeMode.GHOSTTY_OPTIMIZE_DEBUG, (int)OptimizeMode.Debug);
+        Assert.Equal((int)GhosttyOptimizeMode.GHOSTTY_OPTIMIZE_RELEASE_SAFE, (int)OptimizeMode.ReleaseSafe);
+        Assert.Equal((int)GhosttyOptimizeMode.GHOSTTY_OPTIMIZE_RELEASE_SMALL, (int)OptimizeMode.ReleaseSmall);
+        Assert.Equal((int)GhosttyOptimizeMode.GHOSTTY_OPTIMIZE_RELEASE_FAST, (int)OptimizeMode.ReleaseFast);
+
+        Assert.Equal((int)GhosttyRowSemanticPrompt.GHOSTTY_ROW_SEMANTIC_NONE, (int)RowSemanticPrompt.None);
+        Assert.Equal((int)GhosttyRowSemanticPrompt.GHOSTTY_ROW_SEMANTIC_PROMPT, (int)RowSemanticPrompt.Prompt);
+        Assert.Equal((int)GhosttyRowSemanticPrompt.GHOSTTY_ROW_SEMANTIC_PROMPT_CONTINUATION, (int)RowSemanticPrompt.PromptContinuation);
+
+        Assert.Equal((int)GhosttyTerminalScreen.GHOSTTY_TERMINAL_SCREEN_PRIMARY, (int)TerminalScreen.Primary);
+        Assert.Equal((int)GhosttyTerminalScreen.GHOSTTY_TERMINAL_SCREEN_ALTERNATE, (int)TerminalScreen.Alternate);
+
+        Assert.Equal((int)GhosttyKittyPlacementLayer.GHOSTTY_KITTY_PLACEMENT_LAYER_ALL, (int)KittyPlacementLayer.All);
+        Assert.Equal((int)GhosttyKittyPlacementLayer.GHOSTTY_KITTY_PLACEMENT_LAYER_BELOW_BG, (int)KittyPlacementLayer.BelowBackground);
+        Assert.Equal((int)GhosttyKittyPlacementLayer.GHOSTTY_KITTY_PLACEMENT_LAYER_BELOW_TEXT, (int)KittyPlacementLayer.BelowText);
+        Assert.Equal((int)GhosttyKittyPlacementLayer.GHOSTTY_KITTY_PLACEMENT_LAYER_ABOVE_TEXT, (int)KittyPlacementLayer.AboveText);
+
+        Assert.Equal((int)GhosttyTerminalCursorStyle.GHOSTTY_TERMINAL_CURSOR_STYLE_BAR, (int)CursorStyle.Bar);
+        Assert.Equal((int)GhosttyTerminalCursorStyle.GHOSTTY_TERMINAL_CURSOR_STYLE_BLOCK, (int)CursorStyle.Block);
+        Assert.Equal((int)GhosttyTerminalCursorStyle.GHOSTTY_TERMINAL_CURSOR_STYLE_UNDERLINE, (int)CursorStyle.Underline);
+        Assert.Equal((int)GhosttyTerminalCursorStyle.GHOSTTY_TERMINAL_CURSOR_STYLE_BLOCK_HOLLOW, (int)CursorStyle.BlockHollow);
     }
 }
