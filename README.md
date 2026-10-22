@@ -85,6 +85,8 @@ unsafe
 
 Enable unsafe blocks in the consuming project. The raw layer returns pointers and leaves lifetimes to the caller. Several structs are sized: set their `size` field to `sizeof(T)` before passing them. The `GHOSTTY_INIT_SIZED` macros are not generated. Memory from `ghostty_alloc` must be released with `ghostty_free` and the same allocator, exactly once. Some raw names, such as `GhosttyString` and `GhosttyKey`, overlap with curated types; qualify them when mixing namespaces. Prefer `Ghostty.Vt` unless you need a function it does not expose.
 
+The raw layer uses source-generated `LibraryImport` with explicit Cdecl calling conventions. It is the AOT-compatible native surface; the curated API forwards to it.
+
 ## NuGet
 
 The library ships as [`DeBlasis.GhosttyVt`](https://www.nuget.org/packages/DeBlasis.GhosttyVt) on NuGet with native runtimes for:
@@ -112,8 +114,8 @@ just ci
 # Build native for a specific target
 just build-native target=x86_64-linux
 
-# Pack a NuGet package
-just pack version=1.0.0
+# Pack a NuGet package at the version in version.json
+just pack version=$(jq -r .version version.json)
 
 # Check for upstream Ghostty changes
 just check-upstream
