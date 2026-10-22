@@ -16,6 +16,18 @@ public sealed class Formatter : IDisposable
         var opts = new FormatterOptions();
         configure?.Invoke(opts);
 
+        var nativeOpts = ToNativeOptions(opts, format);
+
+        nint handle;
+        var result = (int)GhosttyVtNative.ghostty_formatter_terminal_new(
+            null, &handle, terminalHandle, nativeOpts);
+        GhosttyException.ThrowIfFailure(result);
+        _handle = new FormatterSafeHandle(handle);
+    }
+
+    internal static unsafe GhosttyFormatterTerminalOptions ToNativeOptions(
+        FormatterOptions opts, FormatterFormat format)
+    {
         GhosttyFormatterTerminalOptions nativeOpts = default;
         nativeOpts.size = (nuint)sizeof(GhosttyFormatterTerminalOptions);
         nativeOpts.emit = (GhosttyFormatterFormat)format;
@@ -36,11 +48,7 @@ public sealed class Formatter : IDisposable
         nativeOpts.extra.screen.kitty_keyboard = (byte)(opts.ExtraKittyKeyboard ? 1 : 0);
         nativeOpts.extra.screen.charsets = (byte)(opts.ExtraCharsets ? 1 : 0);
 
-        nint handle;
-        var result = (int)GhosttyVtNative.ghostty_formatter_terminal_new(
-            null, &handle, terminalHandle, nativeOpts);
-        GhosttyException.ThrowIfFailure(result);
-        _handle = new FormatterSafeHandle(handle);
+        return nativeOpts;
     }
 
     public override unsafe string ToString()
