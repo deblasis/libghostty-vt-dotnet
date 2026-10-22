@@ -108,9 +108,10 @@ It runs in CI. The guards are the only thing between a wrong version and an irre
 | `preflight` fails: `version.json` is not plain `X.Y.Z` | The version file has a suffix or is malformed. | Use a plain version; put channel suffixes in the tag only. |
 | `preflight` fails: pinned commit not found upstream | Bad or unreachable pin. | Fix `ghostty-upstream.json`. |
 | `preflight` fails: tag is not on `origin/main` | Tag points at a side or stale commit. | Tag the intended `main` commit. |
+| `preflight`/`publish` fails: tag has moved | The tag no longer names the commit the run validated. | Re-tag the intended commit; do not force-move a release tag. |
 | `preflight` fails: published-version ordering | The version is not ahead of NuGet, or an RC/respin is unreachable. | Bump `version.json` or choose the next version. |
 | Nightly fails: `Bump version.json` | `version.json` is not ahead of the latest stable. | Bump it to the next release version. |
-| `preflight` fails: packed version mismatch | NuGet normalized the version or the pack wiring is wrong. | Fix the version before publishing. |
+| `pack` fails: packed version mismatch | NuGet normalized the version or the pack wiring is wrong. | Fix the version before publishing. |
 | `pack` fails at tests or consumer validation | A regression or packaging problem. | Fix on `main` first, then retag. |
 | `publish` pauses at Review deployments | Environment protection. | Approve when ready. |
 | `dotnet nuget push` auth error | Expired or revoked API key. | Rotate the key and re-run. |

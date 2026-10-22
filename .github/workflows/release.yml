@@ -11,7 +11,9 @@ on:
         type: string
 
 concurrency:
-  group: release-${{ github.ref }}
+  # Serialize all release tags. Two tags running concurrently can pass
+  # preflight against the same registry and then race their pushes.
+  group: release
   cancel-in-progress: false
 
 jobs:
@@ -31,6 +33,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
 
       - name: Compute version and dry-run flag
@@ -136,7 +139,7 @@ jobs:
           COMMIT: ${{ steps.pin.outputs.upstream_commit }}
         run: |
           UPSTREAM=$(curl -sSfL "https://raw.githubusercontent.com/ghostty-org/ghostty/${COMMIT}/build.zig.zon" \
-            | bash build/read-upstream-version.sh)
+            | python3 build/read-upstream-version.py)
           # The package version is independent of the upstream version. This
           # value is recorded for release notes and the GitHub release body.
           printf 'upstream_version=%s\n' "$UPSTREAM" >> "$GITHUB_OUTPUT"
@@ -176,6 +179,12 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           git fetch --no-tags origin main
+          git fetch --tags --force origin "refs/tags/${TAG}:refs/tags/${TAG}"
+          TAG_SHA=$(git rev-parse "refs/tags/${TAG}^{commit}")
+          if [ "$TAG_SHA" != "$GITHUB_SHA" ]; then
+            echo "::error::Tag $TAG has moved; it no longer names the commit this run validated"
+            exit 1
+          fi
           if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
             echo "::error::Tag $TAG points at a commit that is not on origin/main"
             exit 1
@@ -187,7 +196,7 @@ jobs:
           COMMIT: ${{ steps.pin.outputs.upstream_commit }}
         run: |
           UPSTREAM=$(curl -sSfL "https://raw.githubusercontent.com/ghostty-org/ghostty/${COMMIT}/build.zig.zon" \
-            | bash build/read-upstream-version.sh || echo "unknown")
+            | python3 build/read-upstream-version.py || echo "unknown")
           echo "::notice::Dry run against upstream version $UPSTREAM (commit $COMMIT)"
 
   build-native:
@@ -217,6 +226,8 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
 
       # Derived from the pinned commit being released, so the toolchain
       # tracks the pin automatically as the daily sync moves it (issue #43).
@@ -258,6 +269,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -335,6 +348,8 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -362,6 +377,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -373,6 +390,27 @@ jobs:
         with:
           name: nuget-package
           path: artifacts
+
+      - name: Re-check published version ordering
+        env:
+          PKG_VERSION: ${{ needs.preflight.outputs.package_version }}
+          BASE_VERSION: ${{ needs.preflight.outputs.base_version }}
+        run: |
+          python3 build/check-nuget-version.py release \
+            --version "$PKG_VERSION" \
+            --base "$BASE_VERSION"
+
+      - name: Verify tag target
+        env:
+          TAG: ${{ github.ref_name }}
+          TARGET_SHA: ${{ github.sha }}
+        run: |
+          git fetch --tags --force origin "refs/tags/${TAG}:refs/tags/${TAG}"
+          TAG_SHA=$(git rev-parse "refs/tags/${TAG}^{commit}")
+          if [ "$TAG_SHA" != "$TARGET_SHA" ]; then
+            echo "::error::Tag $TAG has moved; refusing to publish against a different commit"
+            exit 1
+          fi
 
       - name: Verify version is unpublished
         env:

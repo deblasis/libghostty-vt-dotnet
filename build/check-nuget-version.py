@@ -59,10 +59,12 @@ def compare(left, right) -> int:
     if right[1] is None:
         return -1
     for a, b in zip(left[1], right[1]):
-        if a == b:
+        if a == b or a.lower() == b.lower():
             continue
         a_num, b_num = a.isdigit(), b.isdigit()
         if a_num and b_num:
+            if int(a) == int(b):
+                continue
             return -1 if int(a) < int(b) else 1
         if a_num:
             return -1
@@ -103,8 +105,12 @@ def load_versions(index_file: str | None, index_url: str) -> list[str]:
             with urllib.request.urlopen(request, timeout=20) as response:
                 data = json.load(response)
         except urllib.error.HTTPError as error:
+            # A 404 means the hardcoded package id is wrong or the package is
+            # gone. Treating it as an empty registry would disable the guard.
             if error.code == 404:
-                return []
+                raise ValueError(
+                    "NuGet flat-container returned 404; refusing to treat the package as absent"
+                ) from error
             raise
 
     versions = data.get("versions")
@@ -166,10 +172,10 @@ def main() -> int:
             base = args.version
 
         if kind == "stable":
-            if highest_any is not None and compare(requested, highest_any) <= 0:
+            if highest_stable is not None and compare(requested, highest_stable) <= 0:
                 return fail(
-                    f"Stable {args.version} is not ahead of the highest published version "
-                    f"{format_key(highest_any)}."
+                    f"Stable {args.version} is not ahead of the latest published stable "
+                    f"{format_key(highest_stable)}."
                 )
         elif kind == "rc":
             if highest_stable is not None and compare(parse_version(base), highest_stable) <= 0:

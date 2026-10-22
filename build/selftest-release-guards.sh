@@ -99,6 +99,26 @@ PY
 }
 extract_daily || exit 1
 
+extract_daily_job() { # extract_daily_job <job> <needle> <outfile>
+  python3 - "$DAILY" "$1" "$2" "$3" <<'PY'
+import sys, io, yaml
+wf, job, needle, out = sys.argv[1:5]
+d = yaml.safe_load(io.open(wf, encoding='utf-8'))
+hits = [st for st in d['jobs'][job]['steps']
+        if needle.lower() in str(st.get('name', '')).lower() and st.get('run')]
+if len(hits) != 1:
+    sys.stderr.write(f"expected exactly 1 step matching {needle!r} in {job!r}, found {len(hits)}\n")
+    sys.exit(1)
+io.open(out, 'w', encoding='utf-8').write(hits[0]['run'])
+PY
+}
+
+extract preflight "Guard 3" "$TMP/guard3.sh" || exit 1
+extract preflight "Guard 5" "$TMP/guard5.sh" || exit 1
+extract publish "Verify version is unpublished" "$TMP/unpublished.sh" || exit 1
+extract_daily_job publish "Prepare pin update" "$TMP/prepare-pin.sh" || exit 1
+extract_daily_job check-upstream "Check for upstream changes" "$TMP/check-upstream.sh" || exit 1
+
 # Any ${{ }} the substitutions below do not cover would reach bash as a "bad
 # substitution", which bash reports and then CONTINUES past, assigning empty.
 # Without this the harness silently tests a mutilated copy of the script.
@@ -292,23 +312,40 @@ check_refusal "non-string package version refused" $? "string version"
 
 run_upstream() { # run_upstream <zon-text>
   LAST_LOG="$TMP/last.log"; : > "$LAST_LOG"
-  printf '%s' "$1" | bash "$REPO/build/read-upstream-version.sh" >"$LAST_LOG" 2>&1
+  printf '%s' "$1" | python3 "$REPO/build/read-upstream-version.py" >"$LAST_LOG" 2>&1
   return $?
 }
 
-run_upstream '.version = "1.3.2-dev",'
+run_upstream '.{
+    .version = "1.3.2-dev",
+}'
 check "upstream -dev version accepted" 0 $?
 [ "$(cat "$TMP/last.log")" = "1.3.2-dev" ] && ok "reader prints the upstream version" || bad "reader prints the upstream version"
 
-run_upstream '// .version = "9.9.9"
-.version = "1.3.2-dev",'
+run_upstream '.{
+    // .version = "9.9.9"
+    .version = "1.3.2-dev",
+}'
 check "commented decoy is ignored" 0 $?
 [ "$(cat "$TMP/last.log")" = "1.3.2-dev" ] && ok "top-level version wins over a comment" || bad "top-level version wins over a comment"
 
 run_upstream 'const version = "1.3.2";'
 check_refusal "missing top-level version refused" $? "Could not parse"
-run_upstream '.version = "$(touch /tmp/decoy)",'
+run_upstream '.{
+    .version = "$(touch /tmp/decoy)",
+}'
 check_refusal "shell payload in upstream version refused" $? "valid SemVer"
+
+run_upstream '.{
+    .dependencies = .{
+        .foo = .{
+            .version = "9.9.9",
+        },
+    },
+    .version = "1.3.2-dev",
+}'
+check "nested version decoy is ignored" 0 $?
+[ "$(cat "$TMP/last.log")" = "1.3.2-dev" ] && ok "top-level version wins over a nested field" || bad "top-level version wins over a nested field"
 
 echo "== NuGet ordering =="
 
@@ -317,6 +354,9 @@ printf '{"versions":["1.4.0-rc.1","1.4.0-rc.2"]}' > "$TMP/nuget/rc.json"
 printf '{"versions":["1.4.0-rc.1","1.4.0-rc.2","1.4.0"]}' > "$TMP/nuget/stable.json"
 printf '{"versions":["1.4.0","1.4.0.1"]}' > "$TMP/nuget/respin.json"
 printf '{"versions":["1.4.0","1.4.1"]}' > "$TMP/nuget/next.json"
+printf '{"versions":["1.4.0-RC.2"]}' > "$TMP/nuget/case.json"
+printf '{"versions":["1.4.0-rc.01"]}' > "$TMP/nuget/zero.json"
+printf '{"versions":["1.3.2","1.4.1-rc.1"]}' > "$TMP/nuget/higher-rc.json"
 
 run_nuget() { # run_nuget <args...>
   LAST_LOG="$TMP/last.log"; : > "$LAST_LOG"
@@ -347,6 +387,33 @@ run_nuget release --version 1.4.0.2 --base 1.4.0 --index-file "$TMP/nuget/respin
 check "next respin allowed" 0 $?
 run_nuget release --version 1.4.1 --base 1.4.1 --index-file "$TMP/nuget/next.json"
 check_refusal "already-published stable refused" $? "not ahead"
+run_nuget release --version 1.4.0.1 --base 1.4.0 --index-file "$TMP/nuget/next.json"
+check_refusal "respin of an older stable refused" $? "not the latest stable"
+run_nuget release --version 1.4.0-rc.1 --base 1.4.0 --index-file "$TMP/nuget/case.json"
+check_refusal "case-insensitive RC ordering enforced" $? "not ahead"
+run_nuget release --version 1.4.0-rc.1 --base 1.4.0 --index-file "$TMP/nuget/zero.json"
+check_refusal "leading-zero RC ordering enforced" $? "not ahead"
+run_nuget release --version 1.4.0 --base 1.4.0 --index-file "$TMP/nuget/higher-rc.json"
+check "stable above a higher RC is allowed" 0 $?
+
+if python3 - "$REPO/build/check-nuget-version.py" <<'PY'
+import importlib.util, sys, urllib.error
+spec = importlib.util.spec_from_file_location("check_nuget_version", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+def missing(*args, **kwargs):
+    raise urllib.error.HTTPError("https://example.invalid", 404, "Not Found", {}, None)
+
+module.urllib.request.urlopen = missing
+try:
+    module.load_versions(None, "https://example.invalid")
+except ValueError as error:
+    if "404" in str(error):
+        sys.exit(0)
+sys.exit(1)
+PY
+then ok "NuGet 404 fails closed"; else bad "NuGet 404 fails closed"; fi
 
 echo "== packed version assertion =="
 
@@ -407,6 +474,164 @@ run_daily_compute '1.4.0\npackage_version=9.9.9' 0123456789abcdef0123456789abcde
 check_refusal "nightly multiline version refused" $? "plain canonical"
 run_daily_compute 1.4.1 not-a-sha
 check_refusal "nightly invalid commit refused" $? "40-hex"
+
+echo "== guard 3 =="
+
+assert_fully_substituted "$TMP/guard3.sh" "Guard 3"
+mkdir -p "$TMP/guard3-bin"
+cat > "$TMP/guard3-bin/python3" <<SH
+#!/usr/bin/env bash
+case " \$* " in
+  *check-nuget-version.py*) exit 1 ;;
+esac
+exec "$REAL_PYTHON" "\$@"
+SH
+chmod +x "$TMP/guard3-bin/python3"
+
+run_guard3() {
+  LAST_LOG="$TMP/last.log"; : > "$LAST_LOG"
+  ( PATH="$TMP/guard3-bin:$PATH" PKG_VERSION=1.4.0 BASE_VERSION=1.4.0 \
+      bash --noprofile --norc -e "$TMP/guard3.sh" ) >"$LAST_LOG" 2>&1
+  return $?
+}
+run_guard3
+check "Guard 3 failure propagates" 1 $?
+
+echo "== guard 5 =="
+
+assert_fully_substituted "$TMP/guard5.sh" "Guard 5"
+git init --bare -q "$TMP/guard5-origin.git"
+git clone -q "$TMP/guard5-origin.git" "$TMP/guard5-work"
+git -C "$TMP/guard5-work" config user.name selftest
+git -C "$TMP/guard5-work" config user.email selftest@example.invalid
+printf 'A\n' > "$TMP/guard5-work/marker"
+git -C "$TMP/guard5-work" add marker
+git -C "$TMP/guard5-work" commit -q -m A
+git -C "$TMP/guard5-work" branch -M main
+git -C "$TMP/guard5-work" tag -a v1.0.0 -m v1.0.0
+git -C "$TMP/guard5-work" push -q -u origin main
+git -C "$TMP/guard5-work" push -q origin v1.0.0
+A_SHA=$(git -C "$TMP/guard5-work" rev-parse HEAD)
+git -C "$TMP/guard5-work" checkout -q -b side
+printf 'B\n' > "$TMP/guard5-work/marker"
+git -C "$TMP/guard5-work" add marker
+git -C "$TMP/guard5-work" commit -q -m B
+git -C "$TMP/guard5-work" tag -a v1.0.1 -m v1.0.1
+git -C "$TMP/guard5-work" push -q origin side
+git -C "$TMP/guard5-work" push -q origin v1.0.1
+B_SHA=$(git -C "$TMP/guard5-work" rev-parse HEAD)
+git -C "$TMP/guard5-work" checkout -q main
+printf 'C\n' > "$TMP/guard5-work/marker"
+git -C "$TMP/guard5-work" add marker
+git -C "$TMP/guard5-work" commit -q -m C
+git -C "$TMP/guard5-work" push -q
+
+run_guard5() { # run_guard5 <sha> <tag>
+  LAST_LOG="$TMP/last.log"; : > "$LAST_LOG"
+  ( cd "$TMP/guard5-work" && GITHUB_SHA="$1" TAG="$2" \
+      bash --noprofile --norc -e "$TMP/guard5.sh" ) >"$LAST_LOG" 2>&1
+  return $?
+}
+run_guard5 "$A_SHA" v1.0.0
+check "tag on main accepted" 0 $?
+run_guard5 "$B_SHA" v1.0.1
+check_refusal "side-branch tag refused" $? "not on origin/main"
+run_guard5 "$A_SHA" v1.0.1
+check_refusal "moved tag refused" $? "has moved"
+
+echo "== unpublished check =="
+
+assert_fully_substituted "$TMP/unpublished.sh" "Verify version is unpublished"
+mkdir -p "$TMP/curl-bin"
+cat > "$TMP/curl-bin/curl" <<'SH'
+#!/usr/bin/env bash
+printf '%s' "${FAKE_HTTP:-404}"
+SH
+chmod +x "$TMP/curl-bin/curl"
+
+run_unpublished() { # run_unpublished <http-status>
+  LAST_LOG="$TMP/last.log"; : > "$LAST_LOG"
+  ( PATH="$TMP/curl-bin:$PATH" FAKE_HTTP="$1" PKG_VERSION=1.4.0 \
+      bash --noprofile --norc -e "$TMP/unpublished.sh" ) >"$LAST_LOG" 2>&1
+  return $?
+}
+run_unpublished 404
+check "unpublished version accepted" 0 $?
+run_unpublished 200
+check_refusal "published version refused" $? "already published"
+run_unpublished 503
+check_refusal "unknown registry state refused" $? "Could not confirm"
+
+echo "== pin commit preparation =="
+
+assert_fully_substituted "$TMP/prepare-pin.sh" "Prepare pin update"
+mkdir -p "$TMP/pin-repo"
+git -C "$TMP/pin-repo" init -q
+git -C "$TMP/pin-repo" config user.name selftest
+git -C "$TMP/pin-repo" config user.email selftest@example.invalid
+printf '{"repo":"https://github.com/ghostty-org/ghostty.git","commit":"0000000000000000000000000000000000000000"}\n' > "$TMP/pin-repo/ghostty-upstream.json"
+git -C "$TMP/pin-repo" add ghostty-upstream.json
+git -C "$TMP/pin-repo" commit -q -m initial
+
+out_pin_prepare() { grep -E "^$1=" "$TMP/out-pin-prepare.env" | tail -1 | cut -d= -f2-; }
+run_prepare_pin() { # run_prepare_pin <version>
+  : > "$TMP/out-pin-prepare.env"
+  LAST_LOG="$TMP/last.log"; : > "$LAST_LOG"
+  ( cd "$TMP/pin-repo" && GITHUB_OUTPUT="$TMP/out-pin-prepare.env" \
+      NEW_COMMIT=0123456789abcdef0123456789abcdef01234567 \
+      NEW_VERSION="$1" bash --noprofile --norc -e "$TMP/prepare-pin.sh" ) >"$LAST_LOG" 2>&1
+  return $?
+}
+PAYLOAD='1.3.2$(touch '"$TMP"'/pin-inject)'
+run_prepare_pin "$PAYLOAD"
+check "pin commit prepared" 0 $?
+[ ! -e "$TMP/pin-inject" ] && ok "pin version is not shell-expanded" || bad "pin version is not shell-expanded"
+[ "$(jq -r '.upstreamVersion' "$TMP/pin-repo/ghostty-upstream.json")" = "$PAYLOAD" ]   && ok "pin version is stored literally" || bad "pin version is stored literally"
+[ "$(out_pin_prepare pin_commit)" = "$(git -C "$TMP/pin-repo" rev-parse HEAD)" ]   && ok "pin commit SHA emitted" || bad "pin commit SHA emitted"
+
+echo "== upstream check =="
+
+assert_fully_substituted "$TMP/check-upstream.sh" "Check for upstream changes"
+mkdir -p "$TMP/check-work/build" "$TMP/check-bin"
+cp "$REPO/build/read-upstream-version.py" "$TMP/check-work/build/"
+printf '{"commit":"0000000000000000000000000000000000000000"}\n' > "$TMP/check-work/ghostty-upstream.json"
+REAL_GIT=$(command -v git)
+cat > "$TMP/check-bin/git" <<SH
+#!/usr/bin/env bash
+if [ "\$1" = "ls-remote" ]; then
+  printf '%s\tHEAD\n' "\${FAKE_LATEST:-}"
+  exit 0
+fi
+exec "$REAL_GIT" "\$@"
+SH
+chmod +x "$TMP/check-bin/git"
+cat > "$TMP/check-bin/curl" <<'ZON'
+#!/usr/bin/env bash
+cat <<'EOF'
+.{
+    // .version = "9.9.9"
+    .dependencies = .{ .foo = .{ .version = "8.8.8", }, },
+    .version = "1.3.2-dev",
+}
+EOF
+ZON
+chmod +x "$TMP/check-bin/curl"
+
+out_check_upstream() { grep -E "^$1=" "$TMP/out-check.env" | tail -1 | cut -d= -f2-; }
+run_check_upstream() { # run_check_upstream <latest>
+  : > "$TMP/out-check.env"
+  LAST_LOG="$TMP/last.log"; : > "$LAST_LOG"
+  ( cd "$TMP/check-work" && PATH="$TMP/check-bin:$PATH" FAKE_LATEST="$1" \
+      GITHUB_OUTPUT="$TMP/out-check.env" \
+      bash --noprofile --norc -e "$TMP/check-upstream.sh" ) >"$LAST_LOG" 2>&1
+  return $?
+}
+run_check_upstream 0123456789abcdef0123456789abcdef01234567
+check "upstream check accepted" 0 $?
+[ "$(out_check_upstream commit)" = "0123456789abcdef0123456789abcdef01234567" ]   && ok "upstream commit emitted" || bad "upstream commit emitted"
+[ "$(out_check_upstream version)" = "1.3.2-dev" ]   && ok "top-level upstream version emitted" || bad "top-level upstream version emitted"
+run_check_upstream not-a-sha
+check_refusal "invalid upstream SHA refused" $? "40-hex"
 
 # ---------------------------------------------------------------------------
 # Wiring. None of the above can see an `if:` condition or the outputs map, and
@@ -483,16 +708,63 @@ assert '-p:Version="$PKG_VERSION"' in pack['run']
 assert '${{' not in pack['run']
 assert any(s.get('name') == 'Assert packed version' for s in release['jobs']['pack']['steps'])
 assert 'validate-pack' in release['jobs']['publish']['needs']
-assert any(s.get('name') == 'Verify version is unpublished' for s in release['jobs']['publish']['steps'])
+
+assert release['concurrency']['group'] == 'release'
+for job in release['jobs'].values():
+    for step in job.get('steps', []):
+        if str(step.get('uses', '')).startswith('actions/checkout'):
+            assert step.get('with', {}).get('ref') == '${{ github.sha }}', job
+
+guard3 = next(s for s in pre['steps'] if 'Guard 3' in s.get('name', ''))
+assert 'check-nuget-version.py release' in guard3['run']
+assert '--version "$PKG_VERSION"' in guard3['run']
+assert '--base "$BASE_VERSION"' in guard3['run']
+assert '|| true' not in guard3['run']
+guard5 = next(s for s in pre['steps'] if 'Guard 5' in s.get('name', ''))
+assert 'merge-base --is-ancestor' in guard5['run']
+assert '^{commit}' in guard5['run']
+assert '|| true' not in guard5['run']
+recheck_release = next(s for s in release['jobs']['publish']['steps'] if s.get('name') == 'Re-check published version ordering')
+assert 'check-nuget-version.py release' in recheck_release['run']
+assert '--version "$PKG_VERSION"' in recheck_release['run']
+assert '--base "$BASE_VERSION"' in recheck_release['run']
+tag_target = next(s for s in release['jobs']['publish']['steps'] if s.get('name') == 'Verify tag target')
+assert '^{commit}' in tag_target['run']
+assert 'TARGET_SHA' in tag_target['env']
+unpublished = next(s for s in release['jobs']['publish']['steps'] if s.get('name') == 'Verify version is unpublished')
+assert 'HTTP' in unpublished['run'] and '404' in unpublished['run']
 
 notes = next(s for s in release['jobs']['publish']['steps'] if s.get('name') == 'Create GitHub Release')
 assert notes['env']['PKG_VERSION'] == '${{ needs.preflight.outputs.package_version }}'
 assert notes['env']['UPSTREAM_VERSION'] == '${{ needs.preflight.outputs.upstream_version }}'
+assert notes['env']['IS_PRERELEASE'] == '${{ needs.preflight.outputs.is_prerelease }}'
+assert 'LATEST_FLAG=(--latest)' in notes['run']
+assert 'LATEST_FLAG=(--latest=false)' in notes['run']
 assert '${{' not in notes['run']
 
 pub = daily['jobs']['publish']
 assert 'NUGET_API_KEY' not in pub.get('env', {})
-assert any(s.get('id') == 'nuget' for s in pub['steps'])
+key_step = next(s for s in pub['steps'] if s.get('id') == 'nuget')
+assert "github.ref == 'refs/heads/main'" in key_step['if']
+for name in ('Prepare pin update', 'Publish to NuGet', 'Push pin update', 'Create GitHub Release'):
+    step = next(s for s in pub['steps'] if s.get('name') == name)
+    assert "github.ref == 'refs/heads/main'" in step['if'], name
+for name in ('Publish to NuGet', 'Push pin update', 'Create GitHub Release'):
+    step = next(s for s in pub['steps'] if s.get('name') == name)
+    assert 'GITHUB_REF' in step['run'], name
+recheck = next(s for s in pub['steps'] if s.get('name') == 'Re-check nightly ordering')
+assert 'check-nuget-version.py nightly' in recheck['run']
+assert 'BASE="${PKG_VERSION%%-ci.*}"' in recheck['run']
+assert '|| true' not in recheck['run']
+
+check_upstream = next(s for s in daily['jobs']['check-upstream']['steps'] if s.get('name') == 'Check for upstream changes')
+assert 'read-upstream-version.py' in check_upstream['run']
+assert '[0-9a-f]{40}' in check_upstream['run']
+assert 'grep -oP' not in check_upstream['run']
+
+prepare = next(s for s in pub['steps'] if s.get('name') == 'Prepare pin update')
+assert 'jq -n' in prepare['run'] and '--arg' in prepare['run']
+assert 'cat > ghostty-upstream.json <<' not in prepare['run']
 compute = next(s for s in pub['steps'] if s.get('name') == 'Compute version')
 assert compute['env']['NEW_COMMIT'] == '${{ needs.check-upstream.outputs.new_commit }}'
 assert '${{' not in compute['run']
@@ -506,9 +778,13 @@ assert '--target "$PIN_COMMIT"' in release_step['run']
 assert '${{' not in release_step['run']
 
 names = [s.get('name') for s in pub['steps']]
-assert names.index('Prepare pin update') < names.index('Publish to NuGet') < names.index('Push pin update') < names.index('Create GitHub Release')
+assert names.index('Prepare pin update') < names.index('Build') < names.index('Pack')
+assert names.index('Pack') < names.index('Publish to NuGet') < names.index('Push pin update') < names.index('Create GitHub Release')
 publish_step = next(s for s in pub['steps'] if s.get('name') == 'Publish to NuGet')
 assert publish_step['env']['NUGET_API_KEY'] == '${{ secrets.NUGET_API_KEY }}'
+assert '--prerelease' in release_step['run']
+assert '--latest=false' in release_step['run']
+assert '--target "$PIN_COMMIT"' in release_step['run']
 PY
 then ok "release and nightly output/pack/release wiring is exact"; else bad "release and nightly output/pack/release wiring is exact"; head -5 "$TMP/wiring.log"; fi
 
