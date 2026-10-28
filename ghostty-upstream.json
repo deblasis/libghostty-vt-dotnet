@@ -1,7 +1,7 @@
 {
   "repo": "https://github.com/ghostty-org/ghostty.git",
   "branch": "main",
-  "commit": "68640f3049d5ae76d7d5eebb5bbdf713a3a98713",
-  "upstreamVersion": "1.3.2-dev",
-  "lastUpdated": "2026-10-27T09:14:53Z"
+  "commit": "6ba144158577d033ccb6ed4b574e4013957c9161",
+  "upstreamVersion": "1.4.1-dev",
+  "lastUpdated": "2026-10-28T09:55:55Z"
 }
