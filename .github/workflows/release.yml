@@ -380,6 +380,9 @@ jobs:
     environment: nuget-release
     permissions:
       contents: write
+      # Mints the OIDC token that NuGet Trusted Publishing exchanges for a
+      # one-hour API key. Without this, `NuGet/login` fails with a 403.
+      id-token: write
     steps:
       - uses: actions/checkout@v7
         with:
@@ -432,13 +435,60 @@ jobs:
             exit 1
           fi
 
+      # A release must never reach the push with a credential it did not
+      # select first. The check runs before the login so a missing secret is
+      # reported here, not as a 403 from nuget.org.
+      - name: Select publish credentials
+        id: creds
+        env:
+          NUGET_USER: ${{ secrets.NUGET_USER }}
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          if [ -n "$NUGET_USER" ]; then
+            echo "auth=oidc" >> "$GITHUB_OUTPUT"
+          elif [ -n "$NUGET_API_KEY" ]; then
+            echo "auth=key" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::No NuGet publish credential configured. Set NUGET_USER (Trusted Publishing) or NUGET_API_KEY."
+            exit 1
+          fi
+
+      # Requested immediately before the push, never earlier: the exchanged key
+      # lives for one hour and one OIDC token buys exactly one key.
+      - name: NuGet login (Trusted Publishing)
+        id: nuget_login
+        if: steps.creds.outputs.auth == 'oidc'
+        uses: NuGet/login@v1
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
       - name: Publish to NuGet
         # dotnet nuget push automatically pushes the matching *.snupkg symbols
         # package from the same folder. --skip-duplicate is a race guard; the
         # explicit check above refuses an already-published version first.
         env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+          AUTH_MODE: ${{ steps.creds.outputs.auth }}
+          OIDC_KEY: ${{ steps.nuget_login.outputs.NUGET_API_KEY }}
+          STORED_KEY: ${{ secrets.NUGET_API_KEY }}
         run: |
+          # Resolve by the mode selected above; a Trusted Publishing run must
+          # not silently fall back to a stored key.
+          case "$AUTH_MODE" in
+            oidc)
+              if [ -z "$OIDC_KEY" ]; then
+                echo "::error::Trusted Publishing login succeeded but returned no API key."
+                exit 1
+              fi
+              NUGET_API_KEY="$OIDC_KEY"
+              ;;
+            key)
+              NUGET_API_KEY="$STORED_KEY"
+              ;;
+            *)
+              echo "::error::No NuGet publish credential resolved (auth mode '${AUTH_MODE:-unset}')."
+              exit 1
+              ;;
+          esac
           dotnet nuget push "artifacts/*.nupkg" \
             --api-key "$NUGET_API_KEY" \
             --source https://api.nuget.org/v3/index.json \
