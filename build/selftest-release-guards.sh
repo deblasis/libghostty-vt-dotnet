@@ -85,7 +85,7 @@ extract preflight "Compute version" "$TMP/compute.sh" || exit 1
 extract preflight "Guard 2"         "$TMP/guard2.sh"  || exit 1
 extract preflight "Resolve upstream pin" "$TMP/pin.sh" || exit 1
 extract_daily() {
-  python3 - "$DAILY" "publish" "Compute version" "$TMP/daily-compute.sh" <<'PY'
+  python3 - "$DAILY" "build-package" "Compute version" "$TMP/daily-compute.sh" <<'PY'
 import sys, io, yaml
 wf, job, needle, out = sys.argv[1:5]
 d = yaml.safe_load(io.open(wf, encoding='utf-8'))
@@ -118,6 +118,11 @@ extract preflight "Guard 5" "$TMP/guard5.sh" || exit 1
 extract publish "Verify version is unpublished" "$TMP/unpublished.sh" || exit 1
 extract_daily_job publish "Prepare pin update" "$TMP/prepare-pin.sh" || exit 1
 extract_daily_job check-upstream "Check for upstream changes" "$TMP/check-upstream.sh" || exit 1
+extract_daily_job publish "Check publish credentials" "$TMP/daily-creds.sh" || exit 1
+extract_daily_job notify-failure "Report sync failure" "$TMP/report-failure.sh" || exit 1
+extract publish "Select publish credentials" "$TMP/release-creds.sh" || exit 1
+extract_daily_job publish "Publish to NuGet" "$TMP/daily-publish.sh" || exit 1
+extract publish "Publish to NuGet" "$TMP/release-publish.sh" || exit 1
 
 # Any ${{ }} the substitutions below do not cover would reach bash as a "bad
 # substitution", which bash reports and then CONTINUES past, assigning empty.
@@ -679,6 +684,194 @@ check_refusal "invalid upstream SHA refused" $? "40-hex"
 # Wiring. None of the above can see an `if:` condition or the outputs map, and
 # both decide whether the guards run at all.
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Publish credentials. These run the real selection and push blocks from both
+# workflows with a stubbed `dotnet`, because the failure being guarded against
+# is silent: a Trusted Publishing run that quietly reused a stored key would
+# look identical to a working one until nuget.org rejected the expired key.
+# ---------------------------------------------------------------------------
+echo "== publish credentials =="
+
+run_daily_creds() { # run_daily_creds <user> <key>
+  : > "$TMP/out-daily-creds.env"
+  LAST_LOG="$TMP/last.log"; : > "$LAST_LOG"
+  ( GITHUB_OUTPUT="$TMP/out-daily-creds.env" NUGET_USER="$1" NUGET_API_KEY="$2" \
+      bash --noprofile --norc -e "$TMP/daily-creds.sh" ) >"$LAST_LOG" 2>&1
+}
+
+grep_auth() { # grep_auth <file> <line> <name>
+  if grep -qxF -- "$2" "$1"; then ok "$3"; else bad "$3"; fi
+}
+
+run_daily_creds "deblasis" "stored-key"
+check "both credentials set: selection succeeds" 0 $?
+grep_auth "$TMP/out-daily-creds.env" "auth=oidc" "Trusted Publishing wins when both are set"
+grep_auth "$TMP/out-daily-creds.env" "present=true" "a credential is reported present"
+run_daily_creds "" "stored-key"
+check "stored key only: selection succeeds" 0 $?
+grep_auth "$TMP/out-daily-creds.env" "auth=key" "stored key selected when OIDC is absent"
+run_daily_creds "" ""
+check "no credential is not an error at selection time" 0 $?
+grep_auth "$TMP/out-daily-creds.env" "auth=none" "no credential is reported as none"
+grep_auth "$TMP/out-daily-creds.env" "present=false" "no credential is reported absent"
+
+run_release_creds() { # run_release_creds <user> <key>
+  : > "$TMP/out-release-creds.env"
+  LAST_LOG="$TMP/last.log"; : > "$LAST_LOG"
+  ( GITHUB_OUTPUT="$TMP/out-release-creds.env" NUGET_USER="$1" NUGET_API_KEY="$2" \
+      bash --noprofile --norc -e "$TMP/release-creds.sh" ) >"$LAST_LOG" 2>&1
+}
+
+run_release_creds "deblasis" "stored-key"
+check "release accepts Trusted Publishing" 0 $?
+grep_auth "$TMP/out-release-creds.env" "auth=oidc" "release prefers Trusted Publishing"
+run_release_creds "" "stored-key"
+check "release accepts a stored key" 0 $?
+run_release_creds "" ""
+check_refusal "release refuses to push with no credential" $? "No NuGet publish credential"
+
+mkdir -p "$TMP/dotnet-bin"
+cat > "$TMP/dotnet-bin/dotnet" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$@" > "$FAKE_DOTNET_LOG"
+SH
+chmod +x "$TMP/dotnet-bin/dotnet"
+
+run_daily_publish() { # run_daily_publish <auth> <oidc-key> <stored-key> <ref>
+  : > "$TMP/dotnet.log"
+  LAST_LOG="$TMP/last.log"; : > "$LAST_LOG"
+  ( PATH="$TMP/dotnet-bin:$PATH" FAKE_DOTNET_LOG="$TMP/dotnet.log" \
+      AUTH_MODE="$1" OIDC_KEY="$2" STORED_KEY="$3" GITHUB_REF="$4" \
+      bash --noprofile --norc -e "$TMP/daily-publish.sh" ) >"$LAST_LOG" 2>&1
+}
+
+run_daily_publish oidc "temp-key" "stored-key" refs/heads/main
+check "nightly pushes with the exchanged key" 0 $?
+grep_auth "$TMP/dotnet.log" "temp-key" "nightly passes the Trusted Publishing key to nuget"
+run_daily_publish oidc "" "stored-key" refs/heads/main
+check_refusal "nightly OIDC never falls back to a stored key" $? "returned no API key"
+run_daily_publish key "" "stored-key" refs/heads/main
+check "nightly pushes with the stored key" 0 $?
+grep_auth "$TMP/dotnet.log" "stored-key" "nightly passes the stored key to nuget"
+run_daily_publish none "" "" refs/heads/main
+check_refusal "nightly refuses an unresolved credential" $? "No NuGet publish credential resolved"
+run_daily_publish oidc "temp-key" "" refs/heads/dev
+check_refusal "nightly refuses to publish off main" $? "Refusing to publish"
+
+run_release_publish() { # run_release_publish <auth> <oidc-key> <stored-key>
+  : > "$TMP/dotnet.log"
+  LAST_LOG="$TMP/last.log"; : > "$LAST_LOG"
+  ( PATH="$TMP/dotnet-bin:$PATH" FAKE_DOTNET_LOG="$TMP/dotnet.log" \
+      AUTH_MODE="$1" OIDC_KEY="$2" STORED_KEY="$3" \
+      bash --noprofile --norc -e "$TMP/release-publish.sh" ) >"$LAST_LOG" 2>&1
+}
+
+run_release_publish oidc "temp-key" "stored-key"
+check "release pushes with the exchanged key" 0 $?
+grep_auth "$TMP/dotnet.log" "temp-key" "release passes the Trusted Publishing key to nuget"
+run_release_publish oidc "" "stored-key"
+check_refusal "release OIDC never falls back to a stored key" $? "returned no API key"
+run_release_publish key "" "stored-key"
+check "release pushes with the stored key" 0 $?
+grep_auth "$TMP/dotnet.log" "stored-key" "release passes the stored key to nuget"
+
+# ---------------------------------------------------------------------------
+# Failure report. The issue tracker must name the failed step. It must not
+# assert a cause: the run that opened the expired-key tracker claimed the
+# binding reference was unavailable, which sent the reader to the wrong place.
+# ---------------------------------------------------------------------------
+echo "== sync failure report =="
+
+mkdir -p "$TMP/gh-bin"
+cat > "$TMP/gh-bin/gh" <<'SH'
+#!/usr/bin/env bash
+set -e
+if [ "${1:-}" = "run" ] && [ "${2:-}" = "view" ]; then
+  shift 2
+  filter=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --jq) filter="${2:-}"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+  jq -r "$filter" < "$FAKE_RUN_JSON"
+  exit 0
+fi
+if [ "${1:-}" = "issue" ] && [ "${2:-}" = "list" ]; then
+  if [ "${FAKE_LIST_FAIL:-}" = "1" ]; then
+    exit 1
+  fi
+  if [ "${FAKE_EXISTING_ISSUE:-}" = "1" ]; then
+    echo '[{"number":84,"title":"Daily upstream sync is failing"}]'
+  else
+    echo '[]'
+  fi
+  exit 0
+fi
+if [ "${1:-}" = "issue" ] && [ "${2:-}" = "create" ]; then
+  printf '%s\n' "$@" > "$FAKE_ISSUE_ARGS"
+  exit 0
+fi
+if [ "${1:-}" = "issue" ] && [ "${2:-}" = "comment" ]; then
+  printf '%s\n' "$@" > "$FAKE_ISSUE_ARGS"
+  exit 0
+fi
+echo "unexpected gh invocation: $*" >&2
+exit 1
+SH
+chmod +x "$TMP/gh-bin/gh"
+
+printf '%s\n' '{"jobs":[{"name":"publish","conclusion":"failure","steps":[{"name":"Build","conclusion":"success"},{"name":"Publish to NuGet","conclusion":"failure"}]},{"name":"build-native","conclusion":"success","steps":[]}]}' > "$TMP/run.json"
+printf '%s\n' '{"jobs":[{"name":"publish`name","conclusion":"failure","steps":[]}]}' > "$TMP/run-hostile.json"
+
+run_report() { # run_report <run-json> [extra env assignment...]
+  local json="$1"; shift
+  : > "$TMP/issue-args"
+  LAST_LOG="$TMP/last.log"; : > "$LAST_LOG"
+  ( PATH="$TMP/gh-bin:$PATH" FAKE_RUN_JSON="$json" FAKE_ISSUE_ARGS="$TMP/issue-args" \
+      COMMIT=0123456789abcdef0123456789abcdef01234567 \
+      RUN_ID=12345 RUN_URL=https://github.com/deblasis/libghostty-vt-dotnet/actions/runs/12345 \
+      TITLE="Daily upstream sync is failing" DRY_RUN=false \
+      env "$@" bash --noprofile --norc -e "$TMP/report-failure.sh" ) >"$LAST_LOG" 2>&1
+}
+
+run_report "$TMP/run.json"
+check "failure report runs" 0 $?
+grep -qF 'publish (Publish to NuGet)' "$TMP/issue-args" && ok "report names the failed job and step" || bad "report names the failed job and step"
+if grep -qF 'binding reference is unavailable' "$TMP/issue-args"; then
+  bad "report no longer asserts a cause it cannot see"
+else
+  ok "report no longer asserts a cause it cannot see"
+fi
+
+# The common path once a tracker exists: comment on it, do not open a second.
+run_report "$TMP/run.json" FAKE_EXISTING_ISSUE=1
+check "failure report comments on an open tracker" 0 $?
+if [ "$(sed -n '1p' "$TMP/issue-args")" = "issue" ] && \
+   [ "$(sed -n '2p' "$TMP/issue-args")" = "comment" ] && \
+   [ "$(sed -n '3p' "$TMP/issue-args")" = "84" ]; then
+  ok "comment targets the existing tracker"
+else
+  bad "comment targets the existing tracker"
+fi
+grep -qF 'publish (Publish to NuGet)' "$TMP/issue-args" && ok "comment names the failed job and step" || bad "comment names the failed job and step"
+
+# A failed jobs lookup must degrade to the run link, not abort before filing.
+run_report "$TMP/missing.json"
+check "failure report still files when the job lookup fails" 0 $?
+grep -qF 'see the run' "$TMP/issue-args" && ok "report degrades to the run link" || bad "report degrades to the run link"
+
+# A failed dedupe lookup must file a duplicate rather than nothing.
+run_report "$TMP/run.json" FAKE_LIST_FAIL=1
+check "failure report ignores a failed dedupe lookup" 0 $?
+grep -qF 'publish (Publish to NuGet)' "$TMP/issue-args" && ok "report still files when dedupe fails" || bad "report still files when dedupe fails"
+
+# Backticks and an empty step list must not mangle the body.
+run_report "$TMP/run-hostile.json"
+check "failure report survives a hostile job name" 0 $?
+grep -qF "publish'name (no failed step recorded)" "$TMP/issue-args" && ok "report sanitises names and empty steps" || bad "report sanitises names and empty steps"
+
 echo "== wiring =="
 
 wiring() { # wiring <name> <python-expression-over-d>
@@ -793,6 +986,25 @@ assert 'if' not in publish_release_step
 release_notes_step = next(s for s in release['jobs']['publish']['steps'] if s.get('name') == 'Create GitHub Release')
 assert 'if' not in release_notes_step
 
+# Trusted Publishing wiring: the job must be allowed to mint an OIDC token,
+# must select before it logs in, and must take the key from the exchange.
+release_publish_job = release['jobs']['publish']
+assert release_publish_job['permissions']['id-token'] == 'write'
+release_creds_step = next(s for s in release_publish_job['steps'] if s.get('id') == 'creds')
+assert release_creds_step['env']['NUGET_USER'] == '${{ secrets.NUGET_USER }}'
+assert 'No NuGet publish credential' in release_creds_step['run']
+release_login_step = next(s for s in release_publish_job['steps'] if s.get('name') == 'NuGet login (Trusted Publishing)')
+assert release_login_step['uses'] == 'NuGet/login@v1'
+assert release_login_step['if'] == "steps.creds.outputs.auth == 'oidc'"
+assert release_login_step['with']['user'] == '${{ secrets.NUGET_USER }}'
+release_publish_names = [s.get('name') for s in release_publish_job['steps']]
+assert release_publish_names.index('Select publish credentials') < release_publish_names.index('NuGet login (Trusted Publishing)')
+assert release_publish_names.index('NuGet login (Trusted Publishing)') < release_publish_names.index('Publish to NuGet')
+assert publish_release_step['env']['AUTH_MODE'] == '${{ steps.creds.outputs.auth }}'
+assert publish_release_step['env']['OIDC_KEY'] == '${{ steps.nuget_login.outputs.NUGET_API_KEY }}'
+assert publish_release_step['env']['STORED_KEY'] == '${{ secrets.NUGET_API_KEY }}'
+assert 'returned no API key' in publish_release_step['run']
+
 notes = next(s for s in release['jobs']['publish']['steps'] if s.get('name') == 'Create GitHub Release')
 assert notes['env']['PKG_VERSION'] == '${{ needs.preflight.outputs.package_version }}'
 assert notes['env']['UPSTREAM_VERSION'] == '${{ needs.preflight.outputs.upstream_version }}'
@@ -823,33 +1035,88 @@ assert "env.DRY_RUN != 'true'" in recheck['if']
 assert "needs.regenerate-bindings.result == 'success'" in recheck['if']
 pub_names = [s.get('name') for s in pub['steps']]
 assert pub_names.index('Re-check nightly ordering') < pub_names.index('Publish to NuGet')
-assert '--version "$VERSION_BASE"' in next(s for s in pub['steps'] if s.get('name') == 'Compute version')['run']
+assert recheck['env']['PKG_VERSION'] == '${{ needs.build-package.outputs.package_version }}'
 
 check_upstream = next(s for s in daily['jobs']['check-upstream']['steps'] if s.get('name') == 'Check for upstream changes')
 assert 'read-upstream-version.py' in check_upstream['run']
 assert '[0-9a-f]{40}' in check_upstream['run']
 assert 'grep -oP' not in check_upstream['run']
 
+# The job allowed to mint a publish credential must not run code from the new
+# upstream commit or from restored dependencies. Build/Test/Pack live in
+# build-package; publish only stages the already-built package and pushes it.
+buildpkg = daily['jobs']['build-package']
+assert buildpkg['outputs']['package_version'] == '${{ steps.version.outputs.package_version }}'
+assert 'id-token' not in buildpkg.get('permissions', {})
+assert 'NUGET_API_KEY' not in buildpkg.get('env', {})
+assert 'NUGET_USER' not in str(buildpkg)
+bp_names = [s.get('name') for s in buildpkg['steps']]
+for name in ('Build', 'Test', 'Pack', 'Assert packed version', 'Validate packed package'):
+    assert name in bp_names, name
+assert 'Upload package' in bp_names
+assert 'Upload packaged binding reference' in bp_names
+assert 'build-package' in pub['needs']
+for name in ('Build', 'Test', 'Pack', 'Validate packed package'):
+    assert name not in pub_names, name
+
 prepare = next(s for s in pub['steps'] if s.get('name') == 'Prepare pin update')
 assert 'jq -n' in prepare['run'] and '--arg' in prepare['run']
 assert 'cat > ghostty-upstream.json <<' not in prepare['run']
-compute = next(s for s in pub['steps'] if s.get('name') == 'Compute version')
+compute = next(s for s in buildpkg['steps'] if s.get('name') == 'Compute version')
 assert compute['env']['NEW_COMMIT'] == '${{ needs.check-upstream.outputs.new_commit }}'
 assert '${{' not in compute['run']
 assert 'g${NEW_COMMIT:0:8}' in compute['run']
 assert 'check-nuget-version.py nightly' in compute['run']
+assert '--version "$VERSION_BASE"' in compute['run']
 release_step = next(s for s in pub['steps'] if s.get('name') == 'Create GitHub Release')
-assert release_step['env']['PKG_VERSION'] == '${{ steps.version.outputs.package_version }}'
+assert release_step['env']['PKG_VERSION'] == '${{ needs.build-package.outputs.package_version }}'
 assert release_step['env']['UPSTREAM_VERSION'] == '${{ needs.check-upstream.outputs.new_version }}'
 assert '--prerelease' in release_step['run']
 assert '--target "$PIN_COMMIT"' in release_step['run']
 assert '${{' not in release_step['run']
 
 names = [s.get('name') for s in pub['steps']]
-assert names.index('Prepare pin update') < names.index('Build') < names.index('Pack')
-assert names.index('Pack') < names.index('Publish to NuGet') < names.index('Push pin update') < names.index('Create GitHub Release')
+assert names.index('Assert packed version') < names.index('Prepare pin update') < names.index('Publish to NuGet')
+assert names.index('Publish to NuGet') < names.index('Push pin update') < names.index('Create GitHub Release')
 publish_step = next(s for s in pub['steps'] if s.get('name') == 'Publish to NuGet')
-assert publish_step['env']['NUGET_API_KEY'] == '${{ secrets.NUGET_API_KEY }}'
+assert publish_step['env']['AUTH_MODE'] == '${{ steps.nuget.outputs.auth }}'
+assert publish_step['env']['OIDC_KEY'] == '${{ steps.nuget_login.outputs.NUGET_API_KEY }}'
+assert publish_step['env']['STORED_KEY'] == '${{ secrets.NUGET_API_KEY }}'
+assert 'returned no API key' in publish_step['run']
+
+# Trusted Publishing wiring for the nightly. The login step must sit right
+# before the push (the exchanged key lives for an hour), the job must be
+# allowed to mint the OIDC token, and the selection step must emit the auth
+# mode the push block branches on.
+assert pub['permissions']['id-token'] == 'write'
+assert 'auth=oidc' in key_step['run'] and 'auth=key' in key_step['run'] and 'auth=none' in key_step['run']
+nightly_login = next(s for s in pub['steps'] if s.get('name') == 'NuGet login (Trusted Publishing)')
+assert nightly_login['uses'] == 'NuGet/login@v1'
+assert nightly_login['if'] == "github.ref == 'refs/heads/main' && steps.nuget.outputs.auth == 'oidc' && env.DRY_RUN != 'true' && needs.regenerate-bindings.result == 'success'"
+assert nightly_login['with']['user'] == '${{ secrets.NUGET_USER }}'
+assert names.index('NuGet login (Trusted Publishing)') < names.index('Publish to NuGet')
+assert names.index('Re-check nightly ordering') < names.index('NuGet login (Trusted Publishing)')
+
+# A credential-less nightly must fail, not exit green with nothing published.
+blocked = next(s for s in pub['steps'] if s.get('name') == 'Publish blocked (no credential)')
+assert "github.ref == 'refs/heads/main'" in blocked['if']
+assert "steps.nuget.outputs.present != 'true'" in blocked['if']
+assert "env.DRY_RUN != 'true'" in blocked['if']
+assert '::error' in blocked['run'] and 'exit 1' in blocked['run']
+not_main = next(s for s in pub['steps'] if s.get('name') == 'Skipped publish (not main)')
+assert "github.ref != 'refs/heads/main'" in not_main['if']
+assert 'Nightlies publish from main only' in not_main['run']
+
+# The failure report must name the failed step instead of asserting a cause:
+# the first version blamed the binding reference on a run where the NuGet key
+# had expired.
+notify = daily['jobs']['notify-failure']
+assert notify['permissions']['actions'] == 'read'
+report = next(s for s in notify['steps'] if s.get('name') == 'Report sync failure')
+assert 'gh run view' in report['run']
+assert 'conclusion == "failure"' in report['run']
+assert 'binding reference is unavailable' not in report['run']
+
 assert '--prerelease' in release_step['run']
 assert '--latest=false' in release_step['run']
 assert '--target "$PIN_COMMIT"' in release_step['run']

@@ -50,8 +50,19 @@ Before the first release:
 1. Repo → **Settings → Environments → New environment** → `nuget-release`.
 2. Under **Deployment protection rules → Required reviewers**, add yourself (`deblasis`).
 3. No deployment branch restrictions are needed. Tag refs are not branches; the release workflow checks tag shape, the `version.json` match, published-version ordering, and `main` ancestry before building.
+4. Publishing uses [NuGet Trusted Publishing](https://learn.microsoft.com/en-us/nuget/nuget-org/trusted-publishing), so there is no long-lived API key to rotate. On nuget.org, open the account menu → **Trusted Publishing** → **Add policy** twice, once per workflow that publishes:
 
-The `NUGET_API_KEY` secret is configured and glob-scoped to `DeBlasis.GhosttyVt*`.
+   | Repository Owner | Repository | Workflow File | Environment | Package scope |
+   |---|---|---|---|---|
+   | `deblasis` | `libghostty-vt-dotnet` | `daily-upstream.yml` | *(blank)* | `DeBlasis.GhosttyVt*` |
+   | `deblasis` | `libghostty-vt-dotnet` | `release.yml` | `nuget-release` | `DeBlasis.GhosttyVt*` |
+
+   `Workflow File` is the file name only, not the `.github/workflows/` path. The environment must match the job's `environment:` exactly, or the OIDC exchange is rejected.
+5. Repo → **Settings → Secrets and variables → Actions** → add `NUGET_USER`, set to the nuget.org profile name (not the email address).
+
+Add `NUGET_USER` only after the policies from step 4 exist. That secret is the switch: while it is absent the workflows use the stored key, and the first nightly after it is added tries Trusted Publishing. If the policy does not match, that nightly fails at `NuGet login` instead of publishing.
+
+`NUGET_API_KEY` is only a fallback for a repository that has not completed step 4. When both are configured the workflows prefer Trusted Publishing. Keep the fallback secret until the first OIDC publish succeeds, then delete it; a stale key is a credential that can only fail later.
 
 ## Cutting a release
 
@@ -114,7 +125,11 @@ It runs in CI. The guards are the only thing between a wrong version and an irre
 | `pack` fails: packed version mismatch | NuGet normalized the version or the pack wiring is wrong. | Fix the version before publishing. |
 | `pack` fails at tests or consumer validation | A regression or packaging problem. | Fix on `main` first, then retag. |
 | `publish` pauses at Review deployments | Environment protection. | Approve when ready. |
-| `dotnet nuget push` auth error | Expired or revoked API key. | Rotate the key and re-run. |
+| `NuGet login (Trusted Publishing)` fails | The nuget.org policy does not match this repository, workflow file, or environment, or `NUGET_USER` is not the profile name. | Fix the policy or secret and re-run. |
+| `dotnet nuget push` auth error while `NUGET_API_KEY` is the configured mode | Expired or revoked API key. | Rotate the key, or finish the Trusted Publishing setup above and delete the fallback. |
+| `Select publish credentials` fails: no credential configured (release) | Neither `NUGET_USER` nor `NUGET_API_KEY` is set. | Complete the Trusted Publishing setup, then re-run. |
+| `Publish blocked (no credential)` (nightly) | Neither `NUGET_USER` nor `NUGET_API_KEY` is set, and the nightly refuses to report success while publishing nothing. | Complete the Trusted Publishing setup, then re-run. |
+| `Publish to NuGet` fails: no credential resolved | The selected mode was Trusted Publishing but the login returned no key. | Check the `NuGet/login` step, then re-run. |
 
 ## Rolling back
 
