@@ -130,7 +130,7 @@ It runs in CI. The guards are the only thing between a wrong version and an irre
 | `Select publish credentials` fails: no credential configured (release) | Neither `NUGET_USER` nor `NUGET_API_KEY` is set. | Complete the Trusted Publishing setup, then re-run. |
 | `Publish blocked (no credential)` (nightly) | Neither `NUGET_USER` nor `NUGET_API_KEY` is set, and the nightly refuses to report success while publishing nothing. | Complete the Trusted Publishing setup, then re-run. |
 | `Publish to NuGet` fails: no credential resolved | The selected mode was Trusted Publishing but the login returned no key. | Check the `NuGet/login` step, then re-run. |
-| `Download packaged binding reference` fails after a generator failure | The package and reference artifacts are scoped to the run, while the generator gate is evaluated per attempt. Re-running only the failed `publish` job cannot rebuild them. | Re-run the whole workflow, not just the failed jobs. |
+| `Download packaged binding reference` fails after a generator failure | The package and reference artifacts are scoped to the run, while the generator gate is evaluated per attempt. Re-running only the failed `publish` job cannot rebuild them. | Start a new workflow run (the next nightly, or **Run workflow**); re-running all jobs in this run collides with the artifacts it already uploaded. |
 
 ## Rolling back
 

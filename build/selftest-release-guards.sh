@@ -824,6 +824,7 @@ chmod +x "$TMP/gh-bin/gh"
 
 printf '%s\n' '{"jobs":[{"name":"publish","conclusion":"failure","steps":[{"name":"Build","conclusion":"success"},{"name":"Publish to NuGet","conclusion":"failure"}]},{"name":"build-native","conclusion":"success","steps":[]}]}' > "$TMP/run.json"
 printf '%s\n' '{"jobs":[{"name":"publish`name","conclusion":"failure","steps":[]}]}' > "$TMP/run-hostile.json"
+printf '%s\n' '{"jobs":[{"name":"publish","conclusion":"failure","steps":[{"name":"step`one","conclusion":"failure"}]}]}' > "$TMP/run-hostile-step.json"
 
 run_report() { # run_report <run-json> [extra env assignment...]
   local json="$1"; shift
@@ -871,6 +872,10 @@ grep -qF 'publish (Publish to NuGet)' "$TMP/issue-args" && ok "report still file
 run_report "$TMP/run-hostile.json"
 check "failure report survives a hostile job name" 0 $?
 grep -qF "publish'name (no failed step recorded)" "$TMP/issue-args" && ok "report sanitises names and empty steps" || bad "report sanitises names and empty steps"
+
+run_report "$TMP/run-hostile-step.json"
+check "failure report survives a hostile step name" 0 $?
+grep -qF "publish (step'one)" "$TMP/issue-args" && ok "report sanitises step names" || bad "report sanitises step names"
 
 echo "== wiring =="
 
@@ -1053,7 +1058,7 @@ assert 'NUGET_USER' not in str(buildpkg)
 bp_names = [s.get('name') for s in buildpkg['steps']]
 for name in ('Build', 'Test', 'Pack', 'Assert packed version', 'Validate packed package'):
     assert name in bp_names, name
-assert buildpkg['permissions']['contents'] == 'read'
+assert buildpkg['permissions'] == {'contents': 'read'}
 uploads = [s for s in buildpkg['steps'] if str(s.get('uses', '')).startswith('actions/upload-artifact')]
 assert len(uploads) == 2
 for upload in uploads:
@@ -1061,6 +1066,9 @@ for upload in uploads:
     assert upload['with'].get('retention-days') == 7, upload['with']['name']
 ref_upload = next(u for u in uploads if u['with']['name'] == 'package-binding-reference')
 assert "needs.regenerate-bindings.result == 'success'" in ref_upload['if']
+for name in ('Download packaged binding reference', 'Stage packaged binding reference'):
+    step = next(s for s in pub['steps'] if s.get('name') == name)
+    assert "needs.regenerate-bindings.result == 'success'" in step['if'], name
 assert 'build-package' in pub['needs']
 for name in ('Build', 'Test', 'Pack', 'Validate packed package'):
     assert name not in pub_names, name
