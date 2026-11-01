@@ -376,6 +376,10 @@ jobs:
       needs.check-upstream.result == 'success' &&
       needs.build-native.result == 'success'
     runs-on: ubuntu-latest
+    # This job runs code from a new upstream commit and from restored
+    # dependencies; give its token nothing beyond reading the repository.
+    permissions:
+      contents: read
     outputs:
       package_version: ${{ steps.version.outputs.package_version }}
     steps:
@@ -515,10 +519,20 @@ jobs:
           name: nuget-package
           path: artifacts/
           if-no-files-found: error
+          # A failed-job re-run keeps the same run id and would otherwise hit
+          # 409 "an artifact with this name already exists".
+          overwrite: true
+          retention-days: 7
 
       # The pin commit in `publish` carries exactly the reference and raw layer
       # this package was built from, not a second generation of them.
+      #
+      # Uploaded only when the generator succeeded. Artifacts are scoped to the
+      # run, not the attempt, so a re-run of just the failed `publish` job after
+      # a failed-generator attempt must fail closed at the download rather than
+      # ship the previous pin's reference.
       - name: Upload packaged binding reference
+        if: needs.regenerate-bindings.result == 'success'
         uses: actions/upload-artifact@v7
         with:
           name: package-binding-reference
@@ -526,6 +540,8 @@ jobs:
             build/bindings-reference/NativeMethods.pinned.cs
             src/Ghostty.Vt/Raw/GhosttyVtNative.g.cs
           if-no-files-found: error
+          overwrite: true
+          retention-days: 7
 
   publish:
     # `regenerate-bindings` feeds both the pinned reference and the public raw

@@ -1053,8 +1053,14 @@ assert 'NUGET_USER' not in str(buildpkg)
 bp_names = [s.get('name') for s in buildpkg['steps']]
 for name in ('Build', 'Test', 'Pack', 'Assert packed version', 'Validate packed package'):
     assert name in bp_names, name
-assert 'Upload package' in bp_names
-assert 'Upload packaged binding reference' in bp_names
+assert buildpkg['permissions']['contents'] == 'read'
+uploads = [s for s in buildpkg['steps'] if str(s.get('uses', '')).startswith('actions/upload-artifact')]
+assert len(uploads) == 2
+for upload in uploads:
+    assert upload['with'].get('overwrite') is True, upload['with']['name']
+    assert upload['with'].get('retention-days') == 7, upload['with']['name']
+ref_upload = next(u for u in uploads if u['with']['name'] == 'package-binding-reference')
+assert "needs.regenerate-bindings.result == 'success'" in ref_upload['if']
 assert 'build-package' in pub['needs']
 for name in ('Build', 'Test', 'Pack', 'Validate packed package'):
     assert name not in pub_names, name
