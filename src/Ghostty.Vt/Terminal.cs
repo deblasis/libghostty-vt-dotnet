@@ -533,10 +533,10 @@ public sealed unsafe class Terminal : IDisposable
     {
         ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
         var nativePoint = new GhosttyPointNative { Tag = point.NativeTag, X = point.NativeX, Y = point.NativeY };
-        // Sized struct: must initialize size before calling
-        var gridRef = new GhosttyGridRefNative { Size = (nuint)sizeof(GhosttyGridRefNative) };
-        NativeMethods.ghostty_terminal_grid_ref(
+        GhosttyGridRefNative gridRef = default;
+        var result = NativeMethods.ghostty_terminal_grid_ref(
             _handle.DangerousGetHandle(), nativePoint, &gridRef);
+        GhosttyException.ThrowIfFailure(result);
         return new GridRef(gridRef, this);
     }
 
@@ -544,14 +544,13 @@ public sealed unsafe class Terminal : IDisposable
     {
         ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
         GhosttyGridRefNative nativeRef = gridRef.Native;
-        // Ensure size is set for the sized struct
-        nativeRef.Size = (nuint)sizeof(GhosttyGridRefNative);
-        GhosttyPointCoordinateNative coord;
-        NativeMethods.ghostty_terminal_point_from_grid_ref(
+        GhosttyPointCoordinateNative coord = default;
+        var result = NativeMethods.ghostty_terminal_point_from_grid_ref(
             _handle.DangerousGetHandle(),
             &nativeRef,
             0, // active tag
             &coord);
+        GhosttyException.ThrowIfFailure(result);
         return new Point { Tag = (PointTag)0, X = coord.X, Y = (int)coord.Y };
     }
 

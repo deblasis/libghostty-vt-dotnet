@@ -6,6 +6,41 @@ Versioning follows independent SemVer. `version.json` is the source of truth.
 Upstream tracking is recorded in `ghostty-upstream.json` and the release notes;
 the package version does not mirror the upstream version.
 
+## Unreleased
+
+### Breaking
+
+- Curated `Style` and `StyleColor` now match the frozen native layouts.
+  `Style.Bold`, `Italic`, `Faint`, `Blink`, `Inverse`, `Invisible`,
+  `Strikethrough`, `Overline`, `Style.Underline`, and `StyleColor.Tag` changed
+  from fields to properties; `Style.Size` was removed. `Style` is 16 bytes and
+  `StyleColor` is 4 bytes. Compiled consumers must be rebuilt.
+- Raw: `GhosttyFormatterTerminalOptions`, `GhosttyFormatterTerminalExtra`, and
+  `GhosttyFormatterScreenExtra` were removed. `ghostty_formatter_terminal_new`
+  no longer takes options; use `ghostty_formatter_set` and
+  `ghostty_formatter_get`. `GhosttyStyle` is now a 16-byte
+  `{ fg, bg, underline color, ushort flags, ushort reserved }` struct instead of
+  per-attribute `_Bool`/`int` fields; read the flags through the
+  `GHOSTTY_STYLE_FLAG_*` and `GHOSTTY_STYLE_UNDERLINE_*` macros.
+  `GhosttyStyleColor` is 4 bytes with a `byte tag` and a 3-byte union.
+  `GhosttyGridRef` and `GhosttySelection` lost their size fields.
+  `GhosttyAllocatorVtable` gained a four-pointer `reserved` area.
+  `ghostty_size_report_encode` and `ghostty_terminal_selection_format_buf`/`alloc`
+  now take pointers. Key, mouse, and encoder option setters return
+  `GhosttyResult`.
+
+### Changed
+
+- Upstream pin moved from `cec8b92f` to `e95bed63` (Ghostty `1.4.1-dev`). The
+  curated `FormatterOptions` mapping keeps the previous all-off defaults
+  despite the new upstream formatter defaults.
+- The curated key/mouse setters, grid-ref lookup, point lookup, and render-state
+  style read now throw `GhosttyException` when the native call fails instead of
+  returning a zeroed or stale value.
+- Added raw coverage for `ghostty_sized_init`, `ghostty_version`,
+  `ghostty_formatter_set`, and `ghostty_formatter_get`. The raw surface is now
+  209 entry points.
+
 ## 1.4.1 (2026-10-22)
 
 - The curated `Ghostty.Vt` API now forwards to the generated raw ABI layer.

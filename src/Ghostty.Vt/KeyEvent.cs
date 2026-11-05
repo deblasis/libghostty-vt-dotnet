@@ -20,7 +20,11 @@ public sealed class KeyEvent : IDisposable
     public int Key
     {
         get => _key;
-        set { _key = value; NativeMethods.ghostty_key_event_set_key(_handle, value); }
+        set
+        {
+            GhosttyException.ThrowIfFailure(NativeMethods.ghostty_key_event_set_key(_handle, value));
+            _key = value;
+        }
     }
 
     private int _action = 1; // press
@@ -28,7 +32,11 @@ public sealed class KeyEvent : IDisposable
     public int Action
     {
         get => _action;
-        set { _action = value; NativeMethods.ghostty_key_event_set_action(_handle, value); }
+        set
+        {
+            GhosttyException.ThrowIfFailure(NativeMethods.ghostty_key_event_set_action(_handle, value));
+            _action = value;
+        }
     }
 
     private ushort _modifiers;

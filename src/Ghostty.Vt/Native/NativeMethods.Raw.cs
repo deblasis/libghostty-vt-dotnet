@@ -166,9 +166,9 @@ internal static unsafe class NativeMethods
         GhosttyVtNative.ghostty_key_encoder_free(encoder);
     }
 
-    internal static void ghostty_key_encoder_setopt(nint encoder, int option, void* value)
+    internal static int ghostty_key_encoder_setopt(nint encoder, int option, void* value)
     {
-        GhosttyVtNative.ghostty_key_encoder_setopt(encoder, (GhosttyKeyEncoderOption)option, value);
+        return (int)GhosttyVtNative.ghostty_key_encoder_setopt(encoder, (GhosttyKeyEncoderOption)option, value);
     }
 
     internal static void ghostty_key_encoder_setopt_from_terminal(nint encoder, nint terminal)
@@ -191,9 +191,9 @@ internal static unsafe class NativeMethods
         GhosttyVtNative.ghostty_mouse_encoder_free(encoder);
     }
 
-    internal static void ghostty_mouse_encoder_setopt(nint encoder, int option, void* value)
+    internal static int ghostty_mouse_encoder_setopt(nint encoder, int option, void* value)
     {
-        GhosttyVtNative.ghostty_mouse_encoder_setopt(encoder, (GhosttyMouseEncoderOption)option, value);
+        return (int)GhosttyVtNative.ghostty_mouse_encoder_setopt(encoder, (GhosttyMouseEncoderOption)option, value);
     }
 
     internal static void ghostty_mouse_encoder_setopt_from_terminal(nint encoder, nint terminal)
@@ -221,14 +221,14 @@ internal static unsafe class NativeMethods
         GhosttyVtNative.ghostty_mouse_event_free((GhosttyMouseEventImpl*)mouse_event);
     }
 
-    internal static void ghostty_mouse_event_set_action(nint mouse_event, int action)
+    internal static int ghostty_mouse_event_set_action(nint mouse_event, int action)
     {
-        GhosttyVtNative.ghostty_mouse_event_set_action((GhosttyMouseEventImpl*)mouse_event, (GhosttyMouseAction)action);
+        return (int)GhosttyVtNative.ghostty_mouse_event_set_action((GhosttyMouseEventImpl*)mouse_event, (GhosttyMouseAction)action);
     }
 
-    internal static void ghostty_mouse_event_set_button(nint mouse_event, int button)
+    internal static int ghostty_mouse_event_set_button(nint mouse_event, int button)
     {
-        GhosttyVtNative.ghostty_mouse_event_set_button((GhosttyMouseEventImpl*)mouse_event, (GhosttyMouseButton)button);
+        return (int)GhosttyVtNative.ghostty_mouse_event_set_button((GhosttyMouseEventImpl*)mouse_event, (GhosttyMouseButton)button);
     }
 
     internal static void ghostty_mouse_event_clear_button(nint mouse_event)
@@ -256,14 +256,14 @@ internal static unsafe class NativeMethods
         GhosttyVtNative.ghostty_key_event_free((GhosttyKeyEventImpl*)key_event);
     }
 
-    internal static void ghostty_key_event_set_action(nint key_event, int action)
+    internal static int ghostty_key_event_set_action(nint key_event, int action)
     {
-        GhosttyVtNative.ghostty_key_event_set_action((GhosttyKeyEventImpl*)key_event, (GhosttyKeyAction)action);
+        return (int)GhosttyVtNative.ghostty_key_event_set_action((GhosttyKeyEventImpl*)key_event, (GhosttyKeyAction)action);
     }
 
-    internal static void ghostty_key_event_set_key(nint key_event, int key)
+    internal static int ghostty_key_event_set_key(nint key_event, int key)
     {
-        GhosttyVtNative.ghostty_key_event_set_key((GhosttyKeyEventImpl*)key_event, (GhosttyKey)key);
+        return (int)GhosttyVtNative.ghostty_key_event_set_key((GhosttyKeyEventImpl*)key_event, (GhosttyKey)key);
     }
 
     internal static void ghostty_key_event_set_mods(nint key_event, ushort mods)
@@ -466,9 +466,9 @@ internal static unsafe class NativeMethods
         return (int)GhosttyVtNative.ghostty_paste_encode((sbyte*)data, data_len, (byte)(bracketed ? 1 : 0), (sbyte*)buf, buf_len, out_written);
     }
 
-    internal static int ghostty_size_report_encode(int style, GhosttySizeReportSizeNative size, byte* buf, nuint buf_len, nuint* out_written)
+    internal static int ghostty_size_report_encode(int style, GhosttySizeReportSizeNative* size, byte* buf, nuint buf_len, nuint* out_written)
     {
-        return (int)GhosttyVtNative.ghostty_size_report_encode((GhosttySizeReportStyle)style, *(GhosttySizeReportSize*)&size, (sbyte*)buf, buf_len, out_written);
+        return (int)GhosttyVtNative.ghostty_size_report_encode((GhosttySizeReportStyle)style, (GhosttySizeReportSize*)size, (sbyte*)buf, buf_len, out_written);
     }
 
 }

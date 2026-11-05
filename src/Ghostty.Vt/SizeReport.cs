@@ -18,7 +18,7 @@ public static class SizeReport
             };
             nuint written;
             var result = NativeMethods.ghostty_size_report_encode(
-                0 /* GHOSTTY_SIZE_REPORT_MODE_2048 */, size, ptr, 64, &written);
+                0 /* GHOSTTY_SIZE_REPORT_MODE_2048 */, &size, ptr, 64, &written);
             GhosttyException.ThrowIfFailure(result);
             if (written == 0) return [];
             var bytes = new byte[(int)written];

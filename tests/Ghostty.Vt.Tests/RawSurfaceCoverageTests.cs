@@ -3,6 +3,7 @@ using System.Text;
 using Ghostty.Vt.Enums;
 using Ghostty.Vt.Native;
 using Ghostty.Vt.Raw;
+using Ghostty.Vt.Types;
 using RawKey = Ghostty.Vt.Raw.GhosttyKey;
 using Xunit;
 
@@ -168,6 +169,37 @@ public unsafe partial class RawSurfaceCoverageTests
     }
 
     [Fact]
+    public unsafe void RawStyle_SeparatesForegroundAndBackground()
+    {
+        nint terminal = NewTerminal();
+        try
+        {
+            Write(terminal, "\x1b[31mA");
+            GhosttyGridRef reference;
+            Assert.Equal(
+                GhosttyResult.GHOSTTY_SUCCESS,
+                GhosttyVtNative.ghostty_terminal_grid_ref(terminal, Point(0, 0), &reference));
+
+            GhosttyStyle style;
+            Assert.Equal(
+                GhosttyResult.GHOSTTY_SUCCESS,
+                GhosttyVtNative.ghostty_grid_ref_style(&reference, &style));
+
+            Assert.Equal(
+                GhosttyStyleColorTag.GHOSTTY_STYLE_COLOR_PALETTE,
+                (GhosttyStyleColorTag)style.fg_color.tag);
+            Assert.Equal((byte)1, style.fg_color.value.palette);
+            Assert.Equal(
+                GhosttyStyleColorTag.GHOSTTY_STYLE_COLOR_NONE,
+                (GhosttyStyleColorTag)style.bg_color.tag);
+        }
+        finally
+        {
+            GhosttyVtNative.ghostty_terminal_free(terminal);
+        }
+    }
+
+    [Fact]
     public unsafe void SizeAndModeReports()
     {
         GhosttySizeReportSize size = new()
@@ -185,7 +217,7 @@ public unsafe partial class RawSurfaceCoverageTests
                 GhosttyResult.GHOSTTY_SUCCESS,
                 GhosttyVtNative.ghostty_size_report_encode(
                     GhosttySizeReportStyle.GHOSTTY_SIZE_REPORT_CSI_14_T,
-                    size, (sbyte*)p, (nuint)buffer.Length, &written));
+                    &size, (sbyte*)p, (nuint)buffer.Length, &written));
         }
         Assert.True(written > 0);
 
@@ -344,14 +376,15 @@ public unsafe partial class RawSurfaceCoverageTests
         Assert.Equal(8, Marshal.OffsetOf<GhosttyPointNative>(nameof(GhosttyPointNative.X)).ToInt32());
         Assert.Equal(12, Marshal.OffsetOf<GhosttyPointNative>(nameof(GhosttyPointNative.Y)).ToInt32());
 
-        Assert.Equal(0, Marshal.OffsetOf<GhosttyGridRef>(nameof(GhosttyGridRef.size)).ToInt32());
-        Assert.Equal(8, Marshal.OffsetOf<GhosttyGridRef>(nameof(GhosttyGridRef.node)).ToInt32());
-        Assert.Equal(16, Marshal.OffsetOf<GhosttyGridRef>(nameof(GhosttyGridRef.x)).ToInt32());
-        Assert.Equal(18, Marshal.OffsetOf<GhosttyGridRef>(nameof(GhosttyGridRef.y)).ToInt32());
-        Assert.Equal(0, Marshal.OffsetOf<GhosttyGridRefNative>(nameof(GhosttyGridRefNative.Size)).ToInt32());
-        Assert.Equal(8, Marshal.OffsetOf<GhosttyGridRefNative>(nameof(GhosttyGridRefNative.Node)).ToInt32());
-        Assert.Equal(16, Marshal.OffsetOf<GhosttyGridRefNative>(nameof(GhosttyGridRefNative.X)).ToInt32());
-        Assert.Equal(18, Marshal.OffsetOf<GhosttyGridRefNative>(nameof(GhosttyGridRefNative.Y)).ToInt32());
+        Assert.Equal(0, Marshal.OffsetOf<GhosttyGridRef>(nameof(GhosttyGridRef.node)).ToInt32());
+        Assert.Equal(0, Marshal.OffsetOf<GhosttyGridRefNative>(nameof(GhosttyGridRefNative.Node)).ToInt32());
+        var gridRefSize = IntPtr.Size == 8 ? 16 : 8;
+        Assert.Equal(gridRefSize, sizeof(GhosttyGridRef));
+        Assert.Equal(gridRefSize, sizeof(GhosttyGridRefNative));
+        Assert.Equal(IntPtr.Size, Marshal.OffsetOf<GhosttyGridRef>(nameof(GhosttyGridRef.x)).ToInt32());
+        Assert.Equal(IntPtr.Size + 2, Marshal.OffsetOf<GhosttyGridRef>(nameof(GhosttyGridRef.y)).ToInt32());
+        Assert.Equal(IntPtr.Size, Marshal.OffsetOf<GhosttyGridRefNative>(nameof(GhosttyGridRefNative.X)).ToInt32());
+        Assert.Equal(IntPtr.Size + 2, Marshal.OffsetOf<GhosttyGridRefNative>(nameof(GhosttyGridRefNative.Y)).ToInt32());
 
         Assert.Equal(0, Marshal.OffsetOf<GhosttyPointCoordinate>(nameof(GhosttyPointCoordinate.x)).ToInt32());
         Assert.Equal(4, Marshal.OffsetOf<GhosttyPointCoordinate>(nameof(GhosttyPointCoordinate.y)).ToInt32());
@@ -372,14 +405,29 @@ public unsafe partial class RawSurfaceCoverageTests
         Assert.Equal(0, Marshal.OffsetOf<GhosttyMousePositionNative>(nameof(GhosttyMousePositionNative.X)).ToInt32());
         Assert.Equal(4, Marshal.OffsetOf<GhosttyMousePositionNative>(nameof(GhosttyMousePositionNative.Y)).ToInt32());
 
-        Assert.Equal(0, Marshal.OffsetOf<GhosttySelection>(nameof(GhosttySelection.size)).ToInt32());
-        Assert.Equal(8, Marshal.OffsetOf<GhosttySelection>(nameof(GhosttySelection.start)).ToInt32());
-        Assert.Equal(32, Marshal.OffsetOf<GhosttySelection>(nameof(GhosttySelection.end)).ToInt32());
-        Assert.Equal(56, Marshal.OffsetOf<GhosttySelection>(nameof(GhosttySelection.rectangle)).ToInt32());
-        Assert.Equal(0, Marshal.OffsetOf<GhosttySelectionNative>(nameof(GhosttySelectionNative.Size)).ToInt32());
-        Assert.Equal(8, Marshal.OffsetOf<GhosttySelectionNative>(nameof(GhosttySelectionNative.Start)).ToInt32());
-        Assert.Equal(32, Marshal.OffsetOf<GhosttySelectionNative>(nameof(GhosttySelectionNative.End)).ToInt32());
-        Assert.Equal(56, Marshal.OffsetOf<GhosttySelectionNative>(nameof(GhosttySelectionNative.Rectangle)).ToInt32());
+        Assert.Equal(0, Marshal.OffsetOf<GhosttySelection>(nameof(GhosttySelection.start)).ToInt32());
+        Assert.Equal(gridRefSize, Marshal.OffsetOf<GhosttySelection>(nameof(GhosttySelection.end)).ToInt32());
+        Assert.Equal(gridRefSize * 2, Marshal.OffsetOf<GhosttySelection>(nameof(GhosttySelection.rectangle)).ToInt32());
+        Assert.Equal(0, Marshal.OffsetOf<GhosttySelectionNative>(nameof(GhosttySelectionNative.Start)).ToInt32());
+        Assert.Equal(gridRefSize, Marshal.OffsetOf<GhosttySelectionNative>(nameof(GhosttySelectionNative.End)).ToInt32());
+        Assert.Equal(gridRefSize * 2, Marshal.OffsetOf<GhosttySelectionNative>(nameof(GhosttySelectionNative.Rectangle)).ToInt32());
+
+        // GhosttyStyle is a frozen 16-byte struct with no size field.
+        Assert.Equal(16, sizeof(GhosttyStyle));
+        Assert.Equal((int)sizeof(GhosttyStyle), sizeof(Style));
+        Assert.Equal(4, sizeof(GhosttyStyleColor));
+        Assert.Equal((int)sizeof(GhosttyStyleColor), sizeof(StyleColor));
+        Assert.Equal(0, Marshal.OffsetOf<GhosttyStyle>(nameof(GhosttyStyle.fg_color)).ToInt32());
+        Assert.Equal(4, Marshal.OffsetOf<GhosttyStyle>(nameof(GhosttyStyle.bg_color)).ToInt32());
+        Assert.Equal(8, Marshal.OffsetOf<GhosttyStyle>(nameof(GhosttyStyle.underline_color)).ToInt32());
+        Assert.Equal(12, Marshal.OffsetOf<GhosttyStyle>(nameof(GhosttyStyle.flags)).ToInt32());
+        Assert.Equal(14, Marshal.OffsetOf<GhosttyStyle>(nameof(GhosttyStyle.reserved)).ToInt32());
+        Assert.Equal(0, Marshal.OffsetOf<GhosttyStyleColor>(nameof(GhosttyStyleColor.tag)).ToInt32());
+        Assert.Equal(1, Marshal.OffsetOf<GhosttyStyleColor>(nameof(GhosttyStyleColor.value)).ToInt32());
+
+        // Frozen selection size, not just the field offsets above.
+        Assert.Equal(gridRefSize * 2 + (IntPtr.Size == 8 ? 8 : 4), sizeof(GhosttySelection));
+        Assert.Equal(sizeof(GhosttySelection), sizeof(GhosttySelectionNative));
     }
 }
 

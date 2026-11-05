@@ -453,11 +453,12 @@ public ref struct RenderStateCellEnumerator
                 }
             }
 
-            // Read style (data=2) — sized struct
+            // Read style (data=2). The layout is frozen upstream and has no
+            // size field.
             Style style = default;
-            style.Size = (nuint)sizeof(Style);
-            NativeMethods.ghostty_render_state_row_cells_get(
+            var styleResult = NativeMethods.ghostty_render_state_row_cells_get(
                 _cells, 2 /* ROW_CELLS_DATA_STYLE */, &style);
+            GhosttyException.ThrowIfFailure(styleResult);
 
             // Read pre-resolved BG color (data ID 5 on cells handle)
             var bgColorNative = default(GhosttyColorRgbNative);

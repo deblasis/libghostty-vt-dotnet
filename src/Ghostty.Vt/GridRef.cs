@@ -26,7 +26,6 @@ public readonly struct GridRef
     public unsafe Style GetStyle()
     {
         var style = default(Style);
-        style.Size = (nuint)sizeof(Style);
         fixed (GhosttyGridRefNative* ptr = &Native)
         {
             var result = NativeMethods.ghostty_grid_ref_style(ptr, &style);
