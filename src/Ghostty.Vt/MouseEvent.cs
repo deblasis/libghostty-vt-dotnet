@@ -18,7 +18,11 @@ public sealed class MouseEvent : IDisposable
     public int Action
     {
         get => _action;
-        set { _action = value; NativeMethods.ghostty_mouse_event_set_action(_handle, value); }
+        set
+        {
+            GhosttyException.ThrowIfFailure(NativeMethods.ghostty_mouse_event_set_action(_handle, value));
+            _action = value;
+        }
     }
 
     private int _button = -1; // -1 = no button set
@@ -27,11 +31,11 @@ public sealed class MouseEvent : IDisposable
         get => _button;
         set
         {
-            _button = value;
             if (value < 0)
                 NativeMethods.ghostty_mouse_event_clear_button(_handle);
             else
-                NativeMethods.ghostty_mouse_event_set_button(_handle, value);
+                GhosttyException.ThrowIfFailure(NativeMethods.ghostty_mouse_event_set_button(_handle, value));
+            _button = value;
         }
     }
 

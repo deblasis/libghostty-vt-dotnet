@@ -4,38 +4,49 @@ using Ghostty.Vt.Enums;
 namespace Ghostty.Vt.Types;
 
 /// <summary>
-/// Matches native GhosttyStyleColor: { tag(4), pad(4), value(union 8) } = 16 bytes.
+/// Matches native GhosttyStyleColor: { tag(1), value(3) } = 4 bytes.
+/// The tag is a byte and the value union holds a palette index or RGB bytes.
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
 public struct StyleColor
 {
-    public StyleColorTag Tag;
-    private int _pad; // alignment padding before 8-byte-aligned union
-    private ulong _value; // union: palette(u8), rgb{r,g,b}(3 bytes), padding(u64)
+    private byte _tag;
+    private byte _value0;
+    private byte _value1;
+    private byte _value2;
+
+    /// <summary>The kind of color held by this value.</summary>
+    public StyleColorTag Tag
+    {
+        readonly get => (StyleColorTag)_tag;
+        set => _tag = (byte)value;
+    }
 
     /// <summary>Palette index (valid when Tag == Palette).</summary>
-    public readonly byte PaletteIndex => (byte)_value;
+    public readonly byte PaletteIndex => _value0;
 
     /// <summary>RGB color (valid when Tag == Rgb).</summary>
     public readonly ColorRgb Rgb => new()
     {
-        R = (byte)_value,
-        G = (byte)(_value >> 8),
-        B = (byte)(_value >> 16),
+        R = _value0,
+        G = _value1,
+        B = _value2,
     };
 
     public static StyleColor None => default;
 
     public static StyleColor FromPalette(byte index) => new()
     {
-        Tag = StyleColorTag.Palette,
-        _value = index,
+        _tag = (byte)StyleColorTag.Palette,
+        _value0 = index,
     };
 
     public static StyleColor FromRgb(byte r, byte g, byte b) => new()
     {
-        Tag = StyleColorTag.Rgb,
-        _value = r | ((ulong)g << 8) | ((ulong)b << 16),
+        _tag = (byte)StyleColorTag.Rgb,
+        _value0 = r,
+        _value1 = g,
+        _value2 = b,
     };
 
     /// <summary>

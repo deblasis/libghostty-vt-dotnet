@@ -142,4 +142,20 @@ public class GridRefFullTests
 
         Assert.NotEqual(nint.Zero, gridRef.NativeHandle);
     }
+
+    [Fact]
+    public void GridRef_OutOfBoundsPoint_Throws()
+    {
+        using var term = new Terminal(5, 4);
+
+        Assert.Throws<GhosttyException>(() => term.GetGridRef(Point.Active(100, 100)));
+    }
+
+    [Fact]
+    public void PointFromGridRef_InvalidRef_Throws()
+    {
+        using var term = new Terminal(5, 4);
+
+        Assert.Throws<GhosttyException>(() => term.PointFromGridRef(default));
+    }
 }

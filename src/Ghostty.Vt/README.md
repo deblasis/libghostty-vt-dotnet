@@ -68,7 +68,7 @@ unsafe
 }
 ```
 
-Enable unsafe blocks in the consuming project. The raw layer returns pointers and leaves lifetimes to the caller. Several structs are sized: set their `size` field to `sizeof(T)` before passing them. The `GHOSTTY_INIT_SIZED` macros are not generated. Memory from `ghostty_alloc` must be released with `ghostty_free` and the same allocator, exactly once. Some raw names, such as `GhosttyString` and `GhosttyKey`, overlap with curated types; qualify them when mixing namespaces. Prefer `Ghostty.Vt` unless you need a function it does not expose.
+Enable unsafe blocks in the consuming project. The raw layer returns pointers and leaves lifetimes to the caller. Several structs are sized: initialize their `size` field with `ghostty_sized_init(&value, (nuint)sizeof(T))` before passing them. The `GHOSTTY_INIT_SIZED` macros are not generated, but `ghostty_sized_init` is the runtime equivalent. Some structs, such as `GhosttyStyle`, `GhosttyGridRef`, and `GhosttySelection`, have frozen layouts and no size field. Memory from `ghostty_alloc` must be released with `ghostty_free` and the same allocator, exactly once. Some raw names, such as `GhosttyString` and `GhosttyKey`, overlap with curated types; qualify them when mixing namespaces. Prefer `Ghostty.Vt` unless you need a function it does not expose.
 
 ## Supported platforms
 

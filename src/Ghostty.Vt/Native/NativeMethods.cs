@@ -66,11 +66,11 @@ internal struct GhosttyStringNative
     public nuint Len;
 }
 
-// Native struct matching GhosttyGridRef: { size_t size, void* node, uint16_t x, uint16_t y }
+// Native struct matching GhosttyGridRef: { void* node, uint16_t x, uint16_t y }
+// The layout is frozen upstream; it no longer carries a size prefix.
 [StructLayout(LayoutKind.Sequential)]
 internal struct GhosttyGridRefNative
 {
-    public nuint Size;
     public nint Node;
     public ushort X;
     public ushort Y;
@@ -116,15 +116,15 @@ internal struct GhosttyKittyPlacementRenderInfoNative
     public uint SourceHeight;
 }
 
-// Native struct matching GhosttySelection (sized struct, 64 bytes, align 8).
+// Native struct matching GhosttySelection. The layout is frozen upstream:
+// 40 bytes on 64-bit targets and 20 bytes on 32-bit targets. Let the CLR add
+// tail padding instead of hard-coding 64-bit widths.
 [StructLayout(LayoutKind.Sequential)]
-internal unsafe struct GhosttySelectionNative
+internal struct GhosttySelectionNative
 {
-    public nuint Size;
     public GhosttyGridRefNative Start;
     public GhosttyGridRefNative End;
     public byte Rectangle;
-    private fixed byte _padding[7];
 }
 
 // Native struct matching GhosttySysImage.

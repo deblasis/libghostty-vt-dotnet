@@ -117,13 +117,24 @@ public unsafe class RawSurfaceLegacyFunctionsTests
                 GhosttyResult.GHOSTTY_SUCCESS,
                 GhosttyVtNative.ghostty_key_encoder_new(null, &keyEncoder));
             byte altPrefix = 1;
-            GhosttyVtNative.ghostty_key_encoder_setopt(
-                keyEncoder, GhosttyKeyEncoderOption.GHOSTTY_KEY_ENCODER_OPT_ALT_ESC_PREFIX, &altPrefix);
+            Assert.Equal(
+                GhosttyResult.GHOSTTY_SUCCESS,
+                GhosttyVtNative.ghostty_key_encoder_setopt(
+                    keyEncoder, GhosttyKeyEncoderOption.GHOSTTY_KEY_ENCODER_OPT_ALT_ESC_PREFIX, &altPrefix));
+            Assert.Equal(
+                GhosttyResult.GHOSTTY_UNSUPPORTED,
+                GhosttyVtNative.ghostty_key_encoder_setopt(
+                    keyEncoder, (GhosttyKeyEncoderOption)9999, &altPrefix));
             GhosttyVtNative.ghostty_key_encoder_setopt_from_terminal(keyEncoder, terminal);
 
             Assert.Equal(GhosttyResult.GHOSTTY_SUCCESS, GhosttyVtNative.ghostty_key_event_new(null, &keyEvent));
-            GhosttyVtNative.ghostty_key_event_set_key(keyEvent, RawKey.GHOSTTY_KEY_A);
-            GhosttyVtNative.ghostty_key_event_set_action(keyEvent, GhosttyKeyAction.GHOSTTY_KEY_ACTION_PRESS);
+            Assert.Equal(
+                GhosttyResult.GHOSTTY_SUCCESS,
+                GhosttyVtNative.ghostty_key_event_set_key(keyEvent, RawKey.GHOSTTY_KEY_A));
+            Assert.Equal(
+                GhosttyResult.GHOSTTY_SUCCESS,
+                GhosttyVtNative.ghostty_key_event_set_action(
+                    keyEvent, GhosttyKeyAction.GHOSTTY_KEY_ACTION_PRESS));
             Span<byte> keyBuffer = stackalloc byte[32];
             fixed (byte* buffer = keyBuffer)
             {
@@ -138,13 +149,25 @@ public unsafe class RawSurfaceLegacyFunctionsTests
                 GhosttyResult.GHOSTTY_SUCCESS,
                 GhosttyVtNative.ghostty_mouse_encoder_new(null, &mouseEncoder));
             var format = GhosttyMouseFormat.GHOSTTY_MOUSE_FORMAT_SGR;
-            GhosttyVtNative.ghostty_mouse_encoder_setopt(
-                mouseEncoder, GhosttyMouseEncoderOption.GHOSTTY_MOUSE_ENCODER_OPT_FORMAT, &format);
+            Assert.Equal(
+                GhosttyResult.GHOSTTY_SUCCESS,
+                GhosttyVtNative.ghostty_mouse_encoder_setopt(
+                    mouseEncoder, GhosttyMouseEncoderOption.GHOSTTY_MOUSE_ENCODER_OPT_FORMAT, &format));
+            Assert.Equal(
+                GhosttyResult.GHOSTTY_UNSUPPORTED,
+                GhosttyVtNative.ghostty_mouse_encoder_setopt(
+                    mouseEncoder, (GhosttyMouseEncoderOption)9999, &format));
             GhosttyVtNative.ghostty_mouse_encoder_setopt_from_terminal(mouseEncoder, terminal);
 
             Assert.Equal(GhosttyResult.GHOSTTY_SUCCESS, GhosttyVtNative.ghostty_mouse_event_new(null, &mouseEvent));
-            GhosttyVtNative.ghostty_mouse_event_set_action(mouseEvent, GhosttyMouseAction.GHOSTTY_MOUSE_ACTION_PRESS);
-            GhosttyVtNative.ghostty_mouse_event_set_button(mouseEvent, GhosttyMouseButton.GHOSTTY_MOUSE_BUTTON_LEFT);
+            Assert.Equal(
+                GhosttyResult.GHOSTTY_SUCCESS,
+                GhosttyVtNative.ghostty_mouse_event_set_action(
+                    mouseEvent, GhosttyMouseAction.GHOSTTY_MOUSE_ACTION_PRESS));
+            Assert.Equal(
+                GhosttyResult.GHOSTTY_SUCCESS,
+                GhosttyVtNative.ghostty_mouse_event_set_button(
+                    mouseEvent, GhosttyMouseButton.GHOSTTY_MOUSE_BUTTON_LEFT));
             GhosttyVtNative.ghostty_mouse_event_set_position(mouseEvent, new GhosttyMousePosition { x = 1, y = 1 });
             Span<byte> mouseBuffer = stackalloc byte[32];
             fixed (byte* buffer = mouseBuffer)
@@ -174,18 +197,30 @@ public unsafe class RawSurfaceLegacyFunctionsTests
         try
         {
             Write(terminal, "formatter");
-            var options = new GhosttyFormatterTerminalOptions
-            {
-                size = (nuint)sizeof(GhosttyFormatterTerminalOptions),
-                emit = GhosttyFormatterFormat.GHOSTTY_FORMATTER_FORMAT_PLAIN,
-                unwrap = 1,
-                trim = 1,
-            };
-            options.extra.size = (nuint)sizeof(GhosttyFormatterTerminalExtra);
-            options.extra.screen.size = (nuint)sizeof(GhosttyFormatterScreenExtra);
             Assert.Equal(
                 GhosttyResult.GHOSTTY_SUCCESS,
-                GhosttyVtNative.ghostty_formatter_terminal_new(null, &formatter, terminal, options));
+                GhosttyVtNative.ghostty_formatter_terminal_new(null, &formatter, terminal));
+
+            var emit = GhosttyFormatterFormat.GHOSTTY_FORMATTER_FORMAT_PLAIN;
+            byte unwrap = 1;
+            byte trim = 1;
+            uint extras = 0;
+            Assert.Equal(
+                GhosttyResult.GHOSTTY_SUCCESS,
+                GhosttyVtNative.ghostty_formatter_set(
+                    formatter, GhosttyFormatterOption.GHOSTTY_FORMATTER_OPT_EMIT, &emit));
+            Assert.Equal(
+                GhosttyResult.GHOSTTY_SUCCESS,
+                GhosttyVtNative.ghostty_formatter_set(
+                    formatter, GhosttyFormatterOption.GHOSTTY_FORMATTER_OPT_UNWRAP, &unwrap));
+            Assert.Equal(
+                GhosttyResult.GHOSTTY_SUCCESS,
+                GhosttyVtNative.ghostty_formatter_set(
+                    formatter, GhosttyFormatterOption.GHOSTTY_FORMATTER_OPT_TRIM, &trim));
+            Assert.Equal(
+                GhosttyResult.GHOSTTY_SUCCESS,
+                GhosttyVtNative.ghostty_formatter_set(
+                    formatter, GhosttyFormatterOption.GHOSTTY_FORMATTER_OPT_EXTRAS, &extras));
 
             Span<byte> buffer = stackalloc byte[64];
             nuint written = 0;

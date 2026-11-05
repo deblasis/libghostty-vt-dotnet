@@ -1,3 +1,4 @@
+using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
@@ -13,6 +14,7 @@ namespace Ghostty.Vt.Native
         GHOSTTY_IO_ERROR = -5,
         GHOSTTY_LIMIT_EXCEEDED = -6,
         GHOSTTY_REJECTED = -7,
+        GHOSTTY_UNSUPPORTED = -8,
         GHOSTTY_RESULT_MAX_VALUE = 2147483647,
     }
 
@@ -135,6 +137,28 @@ namespace Ghostty.Vt.Native
 
         [NativeTypeName("void (*)(void *, void *, size_t, uint8_t, uintptr_t)")]
         public delegate* unmanaged[Cdecl]<void*, void*, nuint, byte, nuint, void> free;
+
+        [NativeTypeName("void *[4]")]
+        public _reserved_e__FixedBuffer reserved;
+
+        public unsafe partial struct _reserved_e__FixedBuffer
+        {
+            public void* e0;
+            public void* e1;
+            public void* e2;
+            public void* e3;
+
+            public ref void* this[int index]
+            {
+                get
+                {
+                    fixed (void** pThis = &e0)
+                    {
+                        return ref pThis[index];
+                    }
+                }
+            }
+        }
     }
 
     public unsafe partial struct GhosttyAllocator
@@ -387,62 +411,33 @@ namespace Ghostty.Vt.Native
 
         [FieldOffset(0)]
         public GhosttyColorRgb rgb;
-
-        [FieldOffset(0)]
-        [NativeTypeName("uint64_t")]
-        public nuint _padding;
     }
 
     public partial struct GhosttyStyleColor
     {
-        public GhosttyStyleColorTag tag;
+        [NativeTypeName("uint8_t")]
+        public byte tag;
 
         public GhosttyStyleColorValue value;
     }
 
     public partial struct GhosttyStyle
     {
-        [NativeTypeName("size_t")]
-        public nuint size;
-
         public GhosttyStyleColor fg_color;
 
         public GhosttyStyleColor bg_color;
 
         public GhosttyStyleColor underline_color;
 
-        [NativeTypeName("_Bool")]
-        public byte bold;
+        [NativeTypeName("GhosttyStyleFlags")]
+        public ushort flags;
 
-        [NativeTypeName("_Bool")]
-        public byte italic;
-
-        [NativeTypeName("_Bool")]
-        public byte faint;
-
-        [NativeTypeName("_Bool")]
-        public byte blink;
-
-        [NativeTypeName("_Bool")]
-        public byte inverse;
-
-        [NativeTypeName("_Bool")]
-        public byte invisible;
-
-        [NativeTypeName("_Bool")]
-        public byte strikethrough;
-
-        [NativeTypeName("_Bool")]
-        public byte overline;
-
-        public int underline;
+        [NativeTypeName("uint16_t")]
+        public ushort reserved;
     }
 
     public unsafe partial struct GhosttyGridRef
     {
-        [NativeTypeName("size_t")]
-        public nuint size;
-
         public void* node;
 
         [NativeTypeName("uint16_t")]
@@ -505,9 +500,6 @@ namespace Ghostty.Vt.Native
 
     public partial struct GhosttySelection
     {
-        [NativeTypeName("size_t")]
-        public nuint size;
-
         public GhosttyGridRef start;
 
         public GhosttyGridRef end;
@@ -1566,73 +1558,16 @@ namespace Ghostty.Vt.Native
         GHOSTTY_TERMINAL_DATA_MAX_VALUE = 2147483647,
     }
 
-    public partial struct GhosttyFormatterScreenExtra
+    [NativeTypeName("unsigned int")]
+    public enum GhosttyFormatterOption : uint
     {
-        [NativeTypeName("size_t")]
-        public nuint size;
-
-        [NativeTypeName("_Bool")]
-        public byte cursor;
-
-        [NativeTypeName("_Bool")]
-        public byte style;
-
-        [NativeTypeName("_Bool")]
-        public byte hyperlink;
-
-        [NativeTypeName("_Bool")]
-        public byte protection;
-
-        [NativeTypeName("_Bool")]
-        public byte kitty_keyboard;
-
-        [NativeTypeName("_Bool")]
-        public byte charsets;
-    }
-
-    public partial struct GhosttyFormatterTerminalExtra
-    {
-        [NativeTypeName("size_t")]
-        public nuint size;
-
-        [NativeTypeName("_Bool")]
-        public byte palette;
-
-        [NativeTypeName("_Bool")]
-        public byte modes;
-
-        [NativeTypeName("_Bool")]
-        public byte scrolling_region;
-
-        [NativeTypeName("_Bool")]
-        public byte tabstops;
-
-        [NativeTypeName("_Bool")]
-        public byte pwd;
-
-        [NativeTypeName("_Bool")]
-        public byte keyboard;
-
-        public GhosttyFormatterScreenExtra screen;
-    }
-
-    public unsafe partial struct GhosttyFormatterTerminalOptions
-    {
-        [NativeTypeName("size_t")]
-        public nuint size;
-
-        public GhosttyFormatterFormat emit;
-
-        [NativeTypeName("_Bool")]
-        public byte unwrap;
-
-        [NativeTypeName("_Bool")]
-        public byte trim;
-
-        public GhosttyFormatterTerminalExtra extra;
-
-        [NativeTypeName("const GhosttySelection *")]
-        public GhosttySelection* selection;
+        GHOSTTY_FORMATTER_OPT_INVALID = 0,
+        GHOSTTY_FORMATTER_OPT_EMIT = 1,
+        GHOSTTY_FORMATTER_OPT_UNWRAP = 2,
+        GHOSTTY_FORMATTER_OPT_TRIM = 3,
+        GHOSTTY_FORMATTER_OPT_SELECTION = 4,
+        GHOSTTY_FORMATTER_OPT_EXTRAS = 5,
+        GHOSTTY_FORMATTER_OPT_MAX_VALUE = 2147483647,
     }
 
     [NativeTypeName("unsigned int")]
@@ -2559,6 +2494,9 @@ namespace Ghostty.Vt.Native
     public static unsafe partial class NativeMethods
     {
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern void ghostty_sized_init(void* ptr, [NativeTypeName("size_t")] nuint size);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         [return: NativeTypeName("const char *")]
         public static extern sbyte* ghostty_type_json();
 
@@ -2571,6 +2509,10 @@ namespace Ghostty.Vt.Native
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         public static extern GhosttyResult ghostty_build_info(GhosttyBuildInfo data, void* @out);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        [return: NativeTypeName("const char *")]
+        public static extern sbyte* ghostty_version();
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         public static extern void ghostty_color_rgb_get([NativeTypeName("const GhosttyColorRgb *")] GhosttyColorRgb* color, [NativeTypeName("uint8_t *")] byte* r, [NativeTypeName("uint8_t *")] byte* g, [NativeTypeName("uint8_t *")] byte* b);
@@ -2690,10 +2632,10 @@ namespace Ghostty.Vt.Native
         public static extern GhosttyResult ghostty_terminal_select_output([NativeTypeName("GhosttyTerminal")] nint terminal, GhosttyGridRef @ref, GhosttySelection* out_selection);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        public static extern GhosttyResult ghostty_terminal_selection_format_buf([NativeTypeName("GhosttyTerminal")] nint terminal, GhosttyTerminalSelectionFormatOptions options, [NativeTypeName("uint8_t *")] byte* buf, [NativeTypeName("size_t")] nuint buf_len, [NativeTypeName("size_t *")] nuint* out_written);
+        public static extern GhosttyResult ghostty_terminal_selection_format_buf([NativeTypeName("GhosttyTerminal")] nint terminal, [NativeTypeName("const GhosttyTerminalSelectionFormatOptions *")] GhosttyTerminalSelectionFormatOptions* options, [NativeTypeName("uint8_t *")] byte* buf, [NativeTypeName("size_t")] nuint buf_len, [NativeTypeName("size_t *")] nuint* out_written);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        public static extern GhosttyResult ghostty_terminal_selection_format_alloc([NativeTypeName("GhosttyTerminal")] nint terminal, [NativeTypeName("const GhosttyAllocator *")] GhosttyAllocator* allocator, GhosttyTerminalSelectionFormatOptions options, [NativeTypeName("uint8_t **")] byte** out_ptr, [NativeTypeName("size_t *")] nuint* out_len);
+        public static extern GhosttyResult ghostty_terminal_selection_format_alloc([NativeTypeName("GhosttyTerminal")] nint terminal, [NativeTypeName("const GhosttyAllocator *")] GhosttyAllocator* allocator, [NativeTypeName("const GhosttyTerminalSelectionFormatOptions *")] GhosttyTerminalSelectionFormatOptions* options, [NativeTypeName("uint8_t **")] byte** out_ptr, [NativeTypeName("size_t *")] nuint* out_len);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         public static extern GhosttyResult ghostty_terminal_selection_adjust([NativeTypeName("GhosttyTerminal")] nint terminal, GhosttySelection* selection, GhosttySelectionAdjust adjustment);
@@ -2758,7 +2700,7 @@ namespace Ghostty.Vt.Native
         public static extern byte ghostty_osc_command_data([NativeTypeName("GhosttyOscCommand")] GhosttyOscCommandImpl* command, GhosttyOscCommandData data, void* @out);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        public static extern GhosttyResult ghostty_size_report_encode(GhosttySizeReportStyle style, GhosttySizeReportSize size, [NativeTypeName("char *")] sbyte* buf, [NativeTypeName("size_t")] nuint buf_len, [NativeTypeName("size_t *")] nuint* out_written);
+        public static extern GhosttyResult ghostty_size_report_encode(GhosttySizeReportStyle style, [NativeTypeName("const GhosttySizeReportSize *")] GhosttySizeReportSize* size, [NativeTypeName("char *")] sbyte* buf, [NativeTypeName("size_t")] nuint buf_len, [NativeTypeName("size_t *")] nuint* out_written);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         public static extern GhosttyResult ghostty_kitty_graphics_get([NativeTypeName("GhosttyKittyGraphics")] nint graphics, GhosttyKittyGraphicsData data, void* @out);
@@ -2868,7 +2810,13 @@ namespace Ghostty.Vt.Native
         public static extern GhosttyResult ghostty_terminal_point_from_grid_ref([NativeTypeName("GhosttyTerminal")] nint terminal, [NativeTypeName("const GhosttyGridRef *")] GhosttyGridRef* @ref, GhosttyPointTag tag, GhosttyPointCoordinate* @out);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        public static extern GhosttyResult ghostty_formatter_terminal_new([NativeTypeName("const GhosttyAllocator *")] GhosttyAllocator* allocator, [NativeTypeName("GhosttyFormatter *")] nint* formatter, [NativeTypeName("GhosttyTerminal")] nint terminal, GhosttyFormatterTerminalOptions options);
+        public static extern GhosttyResult ghostty_formatter_terminal_new([NativeTypeName("const GhosttyAllocator *")] GhosttyAllocator* allocator, [NativeTypeName("GhosttyFormatter *")] nint* formatter, [NativeTypeName("GhosttyTerminal")] nint terminal);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern GhosttyResult ghostty_formatter_set([NativeTypeName("GhosttyFormatter")] nint formatter, GhosttyFormatterOption option, [NativeTypeName("const void *")] void* value);
+
+        [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        public static extern GhosttyResult ghostty_formatter_get([NativeTypeName("GhosttyFormatter")] nint formatter, GhosttyFormatterOption option, void* @out);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         public static extern GhosttyResult ghostty_formatter_format([NativeTypeName("GhosttyFormatter")] nint formatter, GhosttyWriter writer);
@@ -3026,13 +2974,13 @@ namespace Ghostty.Vt.Native
         public static extern void ghostty_key_event_free([NativeTypeName("GhosttyKeyEvent")] GhosttyKeyEventImpl* @event);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        public static extern void ghostty_key_event_set_action([NativeTypeName("GhosttyKeyEvent")] GhosttyKeyEventImpl* @event, GhosttyKeyAction action);
+        public static extern GhosttyResult ghostty_key_event_set_action([NativeTypeName("GhosttyKeyEvent")] GhosttyKeyEventImpl* @event, GhosttyKeyAction action);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         public static extern GhosttyKeyAction ghostty_key_event_get_action([NativeTypeName("GhosttyKeyEvent")] GhosttyKeyEventImpl* @event);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        public static extern void ghostty_key_event_set_key([NativeTypeName("GhosttyKeyEvent")] GhosttyKeyEventImpl* @event, GhosttyKey key);
+        public static extern GhosttyResult ghostty_key_event_set_key([NativeTypeName("GhosttyKeyEvent")] GhosttyKeyEventImpl* @event, GhosttyKey key);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         public static extern GhosttyKey ghostty_key_event_get_key([NativeTypeName("GhosttyKeyEvent")] GhosttyKeyEventImpl* @event);
@@ -3079,7 +3027,7 @@ namespace Ghostty.Vt.Native
         public static extern void ghostty_key_encoder_free([NativeTypeName("GhosttyKeyEncoder")] nint encoder);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        public static extern void ghostty_key_encoder_setopt([NativeTypeName("GhosttyKeyEncoder")] nint encoder, GhosttyKeyEncoderOption option, [NativeTypeName("const void *")] void* value);
+        public static extern GhosttyResult ghostty_key_encoder_setopt([NativeTypeName("GhosttyKeyEncoder")] nint encoder, GhosttyKeyEncoderOption option, [NativeTypeName("const void *")] void* value);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         public static extern void ghostty_key_encoder_setopt_from_terminal([NativeTypeName("GhosttyKeyEncoder")] nint encoder, [NativeTypeName("GhosttyTerminal")] nint terminal);
@@ -3094,13 +3042,13 @@ namespace Ghostty.Vt.Native
         public static extern void ghostty_mouse_event_free([NativeTypeName("GhosttyMouseEvent")] GhosttyMouseEventImpl* @event);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        public static extern void ghostty_mouse_event_set_action([NativeTypeName("GhosttyMouseEvent")] GhosttyMouseEventImpl* @event, GhosttyMouseAction action);
+        public static extern GhosttyResult ghostty_mouse_event_set_action([NativeTypeName("GhosttyMouseEvent")] GhosttyMouseEventImpl* @event, GhosttyMouseAction action);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         public static extern GhosttyMouseAction ghostty_mouse_event_get_action([NativeTypeName("GhosttyMouseEvent")] GhosttyMouseEventImpl* @event);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        public static extern void ghostty_mouse_event_set_button([NativeTypeName("GhosttyMouseEvent")] GhosttyMouseEventImpl* @event, GhosttyMouseButton button);
+        public static extern GhosttyResult ghostty_mouse_event_set_button([NativeTypeName("GhosttyMouseEvent")] GhosttyMouseEventImpl* @event, GhosttyMouseButton button);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         public static extern void ghostty_mouse_event_clear_button([NativeTypeName("GhosttyMouseEvent")] GhosttyMouseEventImpl* @event);
@@ -3129,7 +3077,7 @@ namespace Ghostty.Vt.Native
         public static extern void ghostty_mouse_encoder_free([NativeTypeName("GhosttyMouseEncoder")] nint encoder);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        public static extern void ghostty_mouse_encoder_setopt([NativeTypeName("GhosttyMouseEncoder")] nint encoder, GhosttyMouseEncoderOption option, [NativeTypeName("const void *")] void* value);
+        public static extern GhosttyResult ghostty_mouse_encoder_setopt([NativeTypeName("GhosttyMouseEncoder")] nint encoder, GhosttyMouseEncoderOption option, [NativeTypeName("const void *")] void* value);
 
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         public static extern void ghostty_mouse_encoder_setopt_from_terminal([NativeTypeName("GhosttyMouseEncoder")] nint encoder, [NativeTypeName("GhosttyTerminal")] nint terminal);
@@ -3217,6 +3165,18 @@ namespace Ghostty.Vt.Native
         [DllImport("libghostty-vt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         [return: NativeTypeName("size_t")]
         public static extern nuint ghostty_unicode_grapheme_width([NativeTypeName("const uint32_t *")] uint* cps, [NativeTypeName("size_t")] nuint len, [NativeTypeName("uint8_t *")] byte* width);
+
+        [NativeTypeName("#define GHOSTTY_VT_VERSION_MAJOR 0")]
+        public const int GHOSTTY_VT_VERSION_MAJOR = 0;
+
+        [NativeTypeName("#define GHOSTTY_VT_VERSION_MINOR 1")]
+        public const int GHOSTTY_VT_VERSION_MINOR = 1;
+
+        [NativeTypeName("#define GHOSTTY_VT_VERSION_PATCH 0")]
+        public const int GHOSTTY_VT_VERSION_PATCH = 0;
+
+        [NativeTypeName("#define GHOSTTY_VT_VERSION \"0.1.0\"")]
+        public static ReadOnlySpan<byte> GHOSTTY_VT_VERSION => "0.1.0"u8;
 
         [NativeTypeName("#define GHOSTTY_ENUM_MAX_VALUE INT_MAX")]
         public const int GHOSTTY_ENUM_MAX_VALUE = 2147483647;
@@ -3404,6 +3364,36 @@ namespace Ghostty.Vt.Native
         [NativeTypeName("#define GHOSTTY_DA_DEVICE_TYPE_VT525 65")]
         public const int GHOSTTY_DA_DEVICE_TYPE_VT525 = 65;
 
+        [NativeTypeName("#define GHOSTTY_STYLE_FLAG_BOLD ((GhosttyStyleFlags)(1u << 0))")]
+        public const ushort GHOSTTY_STYLE_FLAG_BOLD = ((ushort)(1U << 0));
+
+        [NativeTypeName("#define GHOSTTY_STYLE_FLAG_ITALIC ((GhosttyStyleFlags)(1u << 1))")]
+        public const ushort GHOSTTY_STYLE_FLAG_ITALIC = ((ushort)(1U << 1));
+
+        [NativeTypeName("#define GHOSTTY_STYLE_FLAG_FAINT ((GhosttyStyleFlags)(1u << 2))")]
+        public const ushort GHOSTTY_STYLE_FLAG_FAINT = ((ushort)(1U << 2));
+
+        [NativeTypeName("#define GHOSTTY_STYLE_FLAG_BLINK ((GhosttyStyleFlags)(1u << 3))")]
+        public const ushort GHOSTTY_STYLE_FLAG_BLINK = ((ushort)(1U << 3));
+
+        [NativeTypeName("#define GHOSTTY_STYLE_FLAG_INVERSE ((GhosttyStyleFlags)(1u << 4))")]
+        public const ushort GHOSTTY_STYLE_FLAG_INVERSE = ((ushort)(1U << 4));
+
+        [NativeTypeName("#define GHOSTTY_STYLE_FLAG_INVISIBLE ((GhosttyStyleFlags)(1u << 5))")]
+        public const ushort GHOSTTY_STYLE_FLAG_INVISIBLE = ((ushort)(1U << 5));
+
+        [NativeTypeName("#define GHOSTTY_STYLE_FLAG_STRIKETHROUGH ((GhosttyStyleFlags)(1u << 6))")]
+        public const ushort GHOSTTY_STYLE_FLAG_STRIKETHROUGH = ((ushort)(1U << 6));
+
+        [NativeTypeName("#define GHOSTTY_STYLE_FLAG_OVERLINE ((GhosttyStyleFlags)(1u << 7))")]
+        public const ushort GHOSTTY_STYLE_FLAG_OVERLINE = ((ushort)(1U << 7));
+
+        [NativeTypeName("#define GHOSTTY_STYLE_UNDERLINE_SHIFT 8")]
+        public const int GHOSTTY_STYLE_UNDERLINE_SHIFT = 8;
+
+        [NativeTypeName("#define GHOSTTY_STYLE_UNDERLINE_MASK ((GhosttyStyleFlags)(0x7u << GHOSTTY_STYLE_UNDERLINE_SHIFT))")]
+        public const ushort GHOSTTY_STYLE_UNDERLINE_MASK = ((ushort)(0x7U << 8));
+
         [NativeTypeName("#define GHOSTTY_MODE_KAM (ghostty_mode_new(2, true))")]
         public static readonly ushort GHOSTTY_MODE_KAM = (ghostty_mode_new(2, (1) != 0));
 
@@ -3532,6 +3522,51 @@ namespace Ghostty.Vt.Native
 
         [NativeTypeName("#define GHOSTTY_MODE_PASTE_EVENTS (ghostty_mode_new(5522, false))")]
         public static readonly ushort GHOSTTY_MODE_PASTE_EVENTS = (ghostty_mode_new(5522, (0) != 0));
+
+        [NativeTypeName("#define GHOSTTY_FORMATTER_EXTRA_PALETTE (1u << 0)")]
+        public const uint GHOSTTY_FORMATTER_EXTRA_PALETTE = (1U << 0);
+
+        [NativeTypeName("#define GHOSTTY_FORMATTER_EXTRA_MODES (1u << 1)")]
+        public const uint GHOSTTY_FORMATTER_EXTRA_MODES = (1U << 1);
+
+        [NativeTypeName("#define GHOSTTY_FORMATTER_EXTRA_SCROLLING_REGION (1u << 2)")]
+        public const uint GHOSTTY_FORMATTER_EXTRA_SCROLLING_REGION = (1U << 2);
+
+        [NativeTypeName("#define GHOSTTY_FORMATTER_EXTRA_TABSTOPS (1u << 3)")]
+        public const uint GHOSTTY_FORMATTER_EXTRA_TABSTOPS = (1U << 3);
+
+        [NativeTypeName("#define GHOSTTY_FORMATTER_EXTRA_PWD (1u << 4)")]
+        public const uint GHOSTTY_FORMATTER_EXTRA_PWD = (1U << 4);
+
+        [NativeTypeName("#define GHOSTTY_FORMATTER_EXTRA_KEYBOARD (1u << 5)")]
+        public const uint GHOSTTY_FORMATTER_EXTRA_KEYBOARD = (1U << 5);
+
+        [NativeTypeName("#define GHOSTTY_FORMATTER_EXTRA_CURSOR (1u << 6)")]
+        public const uint GHOSTTY_FORMATTER_EXTRA_CURSOR = (1U << 6);
+
+        [NativeTypeName("#define GHOSTTY_FORMATTER_EXTRA_STYLE (1u << 7)")]
+        public const uint GHOSTTY_FORMATTER_EXTRA_STYLE = (1U << 7);
+
+        [NativeTypeName("#define GHOSTTY_FORMATTER_EXTRA_HYPERLINK (1u << 8)")]
+        public const uint GHOSTTY_FORMATTER_EXTRA_HYPERLINK = (1U << 8);
+
+        [NativeTypeName("#define GHOSTTY_FORMATTER_EXTRA_PROTECTION (1u << 9)")]
+        public const uint GHOSTTY_FORMATTER_EXTRA_PROTECTION = (1U << 9);
+
+        [NativeTypeName("#define GHOSTTY_FORMATTER_EXTRA_KITTY_KEYBOARD (1u << 10)")]
+        public const uint GHOSTTY_FORMATTER_EXTRA_KITTY_KEYBOARD = (1U << 10);
+
+        [NativeTypeName("#define GHOSTTY_FORMATTER_EXTRA_CHARSETS (1u << 11)")]
+        public const uint GHOSTTY_FORMATTER_EXTRA_CHARSETS = (1U << 11);
+
+        [NativeTypeName("#define GHOSTTY_FORMATTER_EXTRAS_NONE 0u")]
+        public const uint GHOSTTY_FORMATTER_EXTRAS_NONE = 0U;
+
+        [NativeTypeName("#define GHOSTTY_FORMATTER_EXTRAS_ALL 0xFFFu")]
+        public const uint GHOSTTY_FORMATTER_EXTRAS_ALL = 0xFFFU;
+
+        [NativeTypeName("#define GHOSTTY_FORMATTER_EXTRAS_DEFAULT (GHOSTTY_FORMATTER_EXTRA_PALETTE | GHOSTTY_FORMATTER_EXTRA_STYLE |         \\\n   GHOSTTY_FORMATTER_EXTRA_HYPERLINK)")]
+        public const uint GHOSTTY_FORMATTER_EXTRAS_DEFAULT = ((1U << 0) | (1U << 7) | (1U << 8));
 
         [NativeTypeName("#define GHOSTTY_MODS_SHIFT (1 << 0)")]
         public const int GHOSTTY_MODS_SHIFT = (1 << 0);

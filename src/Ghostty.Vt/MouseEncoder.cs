@@ -43,8 +43,9 @@ public sealed class MouseEncoder : IDisposable
         *(uint*)(buf + 28) = (uint)paddingBottom;
         *(uint*)(buf + 32) = (uint)paddingRight;
         *(uint*)(buf + 36) = (uint)paddingLeft;
-        NativeMethods.ghostty_mouse_encoder_setopt(
+        var result = NativeMethods.ghostty_mouse_encoder_setopt(
             _handle.DangerousGetHandle(), 2 /* GHOSTTY_MOUSE_ENCODER_OPT_SIZE */, buf);
+        GhosttyException.ThrowIfFailure(result);
     }
 
     public unsafe ReadOnlySpan<byte> Encode(MouseEvent mouseEvent)

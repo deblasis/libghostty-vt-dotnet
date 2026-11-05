@@ -309,10 +309,7 @@ public ref struct KittyGraphicsPlacementIterator
     public unsafe KittyPlacementRect Rect(KittyImage image, Terminal terminal)
     {
         ThrowIfDisposed();
-        var native = new GhosttySelectionNative
-        {
-            Size = (nuint)sizeof(GhosttySelectionNative),
-        };
+        var native = new GhosttySelectionNative();
         var result = NativeMethods.ghostty_kitty_graphics_placement_rect(
             _iterator, image.NativeHandle, terminal.NativeHandle, &native);
         GhosttyException.ThrowIfFailure(result);

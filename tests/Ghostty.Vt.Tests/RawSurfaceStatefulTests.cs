@@ -23,6 +23,30 @@ public unsafe partial class RawSurfaceCoverageTests
         return reference;
     }
 
+    private static void SizedInit<T>(T* value) where T : unmanaged =>
+        GhosttyVtNative.ghostty_sized_init(value, (nuint)sizeof(T));
+
+    private static void ConfigureFormatter(nint formatter, GhosttyFormatterFormat emit,
+        byte unwrap, byte trim, uint extras = 0)
+    {
+        Assert.Equal(
+            GhosttyResult.GHOSTTY_SUCCESS,
+            GhosttyVtNative.ghostty_formatter_set(
+                formatter, GhosttyFormatterOption.GHOSTTY_FORMATTER_OPT_EMIT, &emit));
+        Assert.Equal(
+            GhosttyResult.GHOSTTY_SUCCESS,
+            GhosttyVtNative.ghostty_formatter_set(
+                formatter, GhosttyFormatterOption.GHOSTTY_FORMATTER_OPT_UNWRAP, &unwrap));
+        Assert.Equal(
+            GhosttyResult.GHOSTTY_SUCCESS,
+            GhosttyVtNative.ghostty_formatter_set(
+                formatter, GhosttyFormatterOption.GHOSTTY_FORMATTER_OPT_TRIM, &trim));
+        Assert.Equal(
+            GhosttyResult.GHOSTTY_SUCCESS,
+            GhosttyVtNative.ghostty_formatter_set(
+                formatter, GhosttyFormatterOption.GHOSTTY_FORMATTER_OPT_EXTRAS, &extras));
+    }
+
     [Fact]
     public unsafe void SelectionAndTrackedGridRefs()
     {
@@ -43,7 +67,7 @@ public unsafe partial class RawSurfaceCoverageTests
             }
 
             var wordOptions = default(GhosttyTerminalSelectWordOptions);
-            wordOptions.size = (nuint)sizeof(GhosttyTerminalSelectWordOptions);
+            SizedInit(&wordOptions);
             wordOptions.@ref = first;
             GhosttySelection word;
             Assert.Equal(
@@ -51,7 +75,7 @@ public unsafe partial class RawSurfaceCoverageTests
                 GhosttyVtNative.ghostty_terminal_select_word(terminal, &wordOptions, &word));
 
             var wordBetweenOptions = default(GhosttyTerminalSelectWordBetweenOptions);
-            wordBetweenOptions.size = (nuint)sizeof(GhosttyTerminalSelectWordBetweenOptions);
+            SizedInit(&wordBetweenOptions);
             wordBetweenOptions.start = first;
             wordBetweenOptions.end = wordEnd;
             GhosttySelection wordBetween;
@@ -60,7 +84,7 @@ public unsafe partial class RawSurfaceCoverageTests
                 GhosttyVtNative.ghostty_terminal_select_word_between(terminal, &wordBetweenOptions, &wordBetween));
 
             var lineOptions = default(GhosttyTerminalSelectLineOptions);
-            lineOptions.size = (nuint)sizeof(GhosttyTerminalSelectLineOptions);
+            SizedInit(&lineOptions);
             lineOptions.@ref = first;
             GhosttySelection line;
             Assert.Equal(
@@ -105,7 +129,7 @@ public unsafe partial class RawSurfaceCoverageTests
                     terminal, &word, GhosttySelectionAdjust.GHOSTTY_SELECTION_ADJUST_RIGHT));
 
             var formatOptions = default(GhosttyTerminalSelectionFormatOptions);
-            formatOptions.size = (nuint)sizeof(GhosttyTerminalSelectionFormatOptions);
+            SizedInit(&formatOptions);
             formatOptions.emit = GhosttyFormatterFormat.GHOSTTY_FORMATTER_FORMAT_PLAIN;
             formatOptions.unwrap = 1;
             formatOptions.trim = 1;
@@ -117,7 +141,7 @@ public unsafe partial class RawSurfaceCoverageTests
                 Assert.Equal(
                     GhosttyResult.GHOSTTY_SUCCESS,
                     GhosttyVtNative.ghostty_terminal_selection_format_buf(
-                        terminal, formatOptions, buffer, (nuint)formatted.Length, &written));
+                        terminal, &formatOptions, buffer, (nuint)formatted.Length, &written));
             }
             Assert.True(written > 0);
 
@@ -126,7 +150,7 @@ public unsafe partial class RawSurfaceCoverageTests
             Assert.Equal(
                 GhosttyResult.GHOSTTY_SUCCESS,
                 GhosttyVtNative.ghostty_terminal_selection_format_alloc(
-                    terminal, null, formatOptions, &allocated, &allocatedLen));
+                    terminal, null, &formatOptions, &allocated, &allocatedLen));
             Assert.True(allocated != null);
             Assert.True(allocatedLen > 0);
             GhosttyVtNative.ghostty_free(null, allocated, allocatedLen);
@@ -876,6 +900,85 @@ public unsafe partial class RawSurfaceCoverageTests
 public unsafe partial class RawSurfaceCoverageTests
 {
     [Fact]
+    public unsafe void FormatterOptionsRoundTrip()
+    {
+        nint terminal = NewTerminal();
+        nint formatter = 0;
+        try
+        {
+            Assert.Equal(
+                GhosttyResult.GHOSTTY_SUCCESS,
+                GhosttyVtNative.ghostty_formatter_terminal_new(null, &formatter, terminal));
+
+            var emit = GhosttyFormatterFormat.GHOSTTY_FORMATTER_FORMAT_VT;
+            byte unwrap = 1;
+            byte trim = 0;
+            uint extras = GhosttyVtNative.GHOSTTY_FORMATTER_EXTRA_PALETTE |
+                          GhosttyVtNative.GHOSTTY_FORMATTER_EXTRA_CURSOR;
+            Assert.Equal(
+                GhosttyResult.GHOSTTY_SUCCESS,
+                GhosttyVtNative.ghostty_formatter_set(
+                    formatter, GhosttyFormatterOption.GHOSTTY_FORMATTER_OPT_EMIT, &emit));
+            Assert.Equal(
+                GhosttyResult.GHOSTTY_SUCCESS,
+                GhosttyVtNative.ghostty_formatter_set(
+                    formatter, GhosttyFormatterOption.GHOSTTY_FORMATTER_OPT_UNWRAP, &unwrap));
+            Assert.Equal(
+                GhosttyResult.GHOSTTY_SUCCESS,
+                GhosttyVtNative.ghostty_formatter_set(
+                    formatter, GhosttyFormatterOption.GHOSTTY_FORMATTER_OPT_TRIM, &trim));
+            Assert.Equal(
+                GhosttyResult.GHOSTTY_SUCCESS,
+                GhosttyVtNative.ghostty_formatter_set(
+                    formatter, GhosttyFormatterOption.GHOSTTY_FORMATTER_OPT_EXTRAS, &extras));
+
+            var readEmit = default(GhosttyFormatterFormat);
+            Assert.Equal(
+                GhosttyResult.GHOSTTY_SUCCESS,
+                GhosttyVtNative.ghostty_formatter_get(
+                    formatter, GhosttyFormatterOption.GHOSTTY_FORMATTER_OPT_EMIT, &readEmit));
+            Assert.Equal(emit, readEmit);
+
+            byte readUnwrap = 0;
+            Assert.Equal(
+                GhosttyResult.GHOSTTY_SUCCESS,
+                GhosttyVtNative.ghostty_formatter_get(
+                    formatter, GhosttyFormatterOption.GHOSTTY_FORMATTER_OPT_UNWRAP, &readUnwrap));
+            Assert.Equal(unwrap, readUnwrap);
+
+            uint readExtras = 0;
+            Assert.Equal(
+                GhosttyResult.GHOSTTY_SUCCESS,
+                GhosttyVtNative.ghostty_formatter_get(
+                    formatter, GhosttyFormatterOption.GHOSTTY_FORMATTER_OPT_EXTRAS, &readExtras));
+            Assert.Equal(extras, readExtras);
+
+            // A NULL value resets the option to the formatter's default.
+            Assert.Equal(
+                GhosttyResult.GHOSTTY_SUCCESS,
+                GhosttyVtNative.ghostty_formatter_set(
+                    formatter, GhosttyFormatterOption.GHOSTTY_FORMATTER_OPT_TRIM, null));
+            byte defaultTrim = 0;
+            Assert.Equal(
+                GhosttyResult.GHOSTTY_SUCCESS,
+                GhosttyVtNative.ghostty_formatter_get(
+                    formatter, GhosttyFormatterOption.GHOSTTY_FORMATTER_OPT_TRIM, &defaultTrim));
+            Assert.Equal((byte)1, defaultTrim);
+        }
+        finally
+        {
+            if (formatter != 0)
+            {
+                GhosttyVtNative.ghostty_formatter_free(formatter);
+            }
+            GhosttyVtNative.ghostty_terminal_free(terminal);
+        }
+    }
+}
+
+public unsafe partial class RawSurfaceCoverageTests
+{
+    [Fact]
     public unsafe void AllocationAndFormatterWriter()
     {
         byte* buffer = (byte*)GhosttyVtNative.ghostty_alloc(null, 32);
@@ -887,18 +990,11 @@ public unsafe partial class RawSurfaceCoverageTests
         try
         {
             Write(terminal, "formatter");
-            var options = new GhosttyFormatterTerminalOptions
-            {
-                size = (nuint)sizeof(GhosttyFormatterTerminalOptions),
-                emit = GhosttyFormatterFormat.GHOSTTY_FORMATTER_FORMAT_PLAIN,
-                unwrap = 1,
-                trim = 1,
-            };
-            options.extra.size = (nuint)sizeof(GhosttyFormatterTerminalExtra);
-            options.extra.screen.size = (nuint)sizeof(GhosttyFormatterScreenExtra);
             Assert.Equal(
                 GhosttyResult.GHOSTTY_SUCCESS,
-                GhosttyVtNative.ghostty_formatter_terminal_new(null, &formatter, terminal, options));
+                GhosttyVtNative.ghostty_formatter_terminal_new(null, &formatter, terminal));
+            ConfigureFormatter(
+                formatter, GhosttyFormatterFormat.GHOSTTY_FORMATTER_FORMAT_PLAIN, 1, 1);
             var writer = new GhosttyWriter { write = &SnapshotWriter, userdata = null };
             Assert.Equal(
                 GhosttyResult.GHOSTTY_SUCCESS,
