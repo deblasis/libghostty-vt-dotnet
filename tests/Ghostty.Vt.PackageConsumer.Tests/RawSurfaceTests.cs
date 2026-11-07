@@ -17,7 +17,7 @@ public class RawSurfaceTests
                 GhosttyBuildInfo.GHOSTTY_BUILD_INFO_VERSION_STRING, &version));
 
         var text = Encoding.UTF8.GetString(version.ptr, checked((int)version.len));
-        Assert.StartsWith("0.1.0", text, StringComparison.Ordinal);
+        Assert.StartsWith("1.1.0", text, StringComparison.Ordinal);
     }
 
     [Fact]

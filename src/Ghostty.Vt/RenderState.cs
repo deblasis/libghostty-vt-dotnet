@@ -409,39 +409,49 @@ public ref struct RenderStateCellEnumerator
             int semantic = 0;
             NativeMethods.ghostty_cell_get(rawCell, (int)GhosttyCellData.GHOSTTY_CELL_DATA_SEMANTIC_CONTENT, &semantic);
 
-            // Read grapheme text from codepoints if there's text
+            // Read grapheme text from codepoints if there's text. The length
+            // includes the base codepoint, and GRAPHEMES_BUF now takes a
+            // GhosttyCodepointBuffer (ptr, cap, len) rather than a bare
+            // pointer, so the caller communicates the buffer capacity.
             string? grapheme = null;
             if (hasText != 0)
             {
-                // Get grapheme length (data=3) → uint32_t
                 uint graphemesLen = 0;
-                NativeMethods.ghostty_render_state_row_cells_get(
+                var lenResult = NativeMethods.ghostty_render_state_row_cells_get(
                     _cells, 3 /* ROW_CELLS_DATA_GRAPHEMES_LEN */, &graphemesLen);
+                GhosttyException.ThrowIfFailure(lenResult);
 
                 if (graphemesLen > 0)
                 {
-                    // Get grapheme codepoints (data=4) → writes uint32_t[] into caller buffer
                     var codepoints = new uint[graphemesLen];
                     fixed (uint* buf = codepoints)
                     {
-                        NativeMethods.ghostty_render_state_row_cells_get(
-                            _cells, 4 /* ROW_CELLS_DATA_GRAPHEMES_BUF */, buf);
-                    }
+                        var buffer = new GhosttyCodepointBuffer
+                        {
+                            ptr = buf,
+                            cap = (nuint)codepoints.Length,
+                            len = 0,
+                        };
+                        var bufferResult = NativeMethods.ghostty_render_state_row_cells_get(
+                            _cells, 4 /* ROW_CELLS_DATA_GRAPHEMES_BUF */, &buffer);
+                        GhosttyException.ThrowIfFailure(bufferResult);
 
-                    // Convert codepoints to string (handling surrogate pairs)
-                    var sb = new System.Text.StringBuilder();
-                    foreach (uint cp in codepoints)
-                    {
-                        if (cp <= 0xFFFF)
-                            sb.Append((char)cp);
-                        else
-                            sb.Append(char.ConvertFromUtf32((int)cp));
+                        // Convert codepoints to string (handling surrogate pairs)
+                        var sb = new System.Text.StringBuilder();
+                        for (nuint i = 0; i < buffer.len && i < (nuint)codepoints.Length; i++)
+                        {
+                            uint cp = codepoints[i];
+                            if (cp <= 0xFFFF)
+                                sb.Append((char)cp);
+                            else
+                                sb.Append(char.ConvertFromUtf32((int)cp));
+                        }
+                        grapheme = sb.ToString();
                     }
-                    grapheme = sb.ToString();
                 }
                 else
                 {
-                    // Single codepoint cell — get codepoint from the raw cell (data=1)
+                    // Fallback for a cell whose text is a single codepoint.
                     uint codepoint = 0;
                     NativeMethods.ghostty_cell_get(rawCell, (int)GhosttyCellData.GHOSTTY_CELL_DATA_CODEPOINT, &codepoint);
                     if (codepoint > 0)

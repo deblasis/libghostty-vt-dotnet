@@ -48,4 +48,6 @@ public enum TerminalData
     VtGround = 38,
     CursorAtPrompt = 39,
     ClipboardWriteMaxBytes = 40,
+    MouseShape = 41,
+    MemoryUsage = 42,
 }

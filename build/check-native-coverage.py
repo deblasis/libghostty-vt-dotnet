@@ -77,13 +77,19 @@ def extern_declarations(text: str, label: str) -> dict[str, str]:
     return declarations
 
 
-def constants(text: str, label: str) -> Counter[str]:
+def constants(text: str, label: str, *, compiled: bool = False) -> Counter[str]:
     found: Counter[str] = Counter()
     for line_number, line in enumerate(text.splitlines(), 1):
         match = CONSTANT.match(line)
         if not match:
             continue
         normalized = re.sub(r"^\s*(?:public|internal)\s+", "", line).strip()
+        if compiled:
+            normalized = re.sub(
+                r"\(1U << \(int\)(GHOSTTY_IMAGE_LAYER_[A-Z0-9_]+)\)",
+                r"(1U << \1)",
+                normalized,
+            )
         found[normalized] += 1
     if not found:
         fail(f"{label}: no generated constants found")
@@ -140,6 +146,11 @@ def normalized_content(text: str, *, compiled: bool) -> list[str]:
             stripped = stripped.replace(
                 "return (ushort)(mode & 0x7FFF);", "return mode & 0x7FFF;"
             )
+            stripped = re.sub(
+                r"\(1U << \(int\)(GHOSTTY_IMAGE_LAYER_[A-Z0-9_]+)\)",
+                r"(1U << \1)",
+                stripped,
+            )
         if not stripped:
             continue
         lines.append(stripped)
@@ -188,7 +199,7 @@ def main() -> None:
         )
 
     reference_constants = constants(reference, "reference")
-    compiled_constants = constants(compiled, "compiled")
+    compiled_constants = constants(compiled, "compiled", compiled=True)
     if reference_constants != compiled_constants:
         for line in sorted((reference_constants - compiled_constants).elements()):
             print(f"  missing constant: {line}", file=sys.stderr)
@@ -290,6 +301,7 @@ def main() -> None:
         "using System.Diagnostics;",
         "using System.Runtime.CompilerServices;",
         "using System.Runtime.InteropServices;",
+        "using static Ghostty.Vt.Raw.GhosttyImageLayer;",
     ]
     if header_usings != expected_usings:
         fail(f"unexpected header using directives: {header_usings}")

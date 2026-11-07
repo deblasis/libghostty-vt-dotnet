@@ -507,14 +507,16 @@ public sealed unsafe class Terminal : IDisposable
     {
         ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
         var behavior = new GhosttyTerminalScrollViewportNative { Tag = 0 }; // GHOSTTY_SCROLL_VIEWPORT_TOP
-        NativeMethods.ghostty_terminal_scroll_viewport(_handle.DangerousGetHandle(), behavior);
+        var result = NativeMethods.ghostty_terminal_scroll_viewport(_handle.DangerousGetHandle(), behavior);
+        GhosttyException.ThrowIfFailure(result);
     }
 
     public void ScrollViewportToBottom()
     {
         ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
         var behavior = new GhosttyTerminalScrollViewportNative { Tag = 1 }; // GHOSTTY_SCROLL_VIEWPORT_BOTTOM
-        NativeMethods.ghostty_terminal_scroll_viewport(_handle.DangerousGetHandle(), behavior);
+        var result = NativeMethods.ghostty_terminal_scroll_viewport(_handle.DangerousGetHandle(), behavior);
+        GhosttyException.ThrowIfFailure(result);
     }
 
     public void ScrollViewportBy(int delta)
@@ -525,7 +527,8 @@ public sealed unsafe class Terminal : IDisposable
             Tag = 2, // GHOSTTY_SCROLL_VIEWPORT_DELTA
             Delta = (nint)delta,
         };
-        NativeMethods.ghostty_terminal_scroll_viewport(_handle.DangerousGetHandle(), behavior);
+        var result = NativeMethods.ghostty_terminal_scroll_viewport(_handle.DangerousGetHandle(), behavior);
+        GhosttyException.ThrowIfFailure(result);
     }
 
     // --- Grid access ---

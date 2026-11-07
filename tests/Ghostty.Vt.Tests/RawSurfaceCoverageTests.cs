@@ -5,6 +5,7 @@ using Ghostty.Vt.Native;
 using Ghostty.Vt.Raw;
 using Ghostty.Vt.Types;
 using RawKey = Ghostty.Vt.Raw.GhosttyKey;
+using RawString = Ghostty.Vt.Raw.GhosttyString;
 using Xunit;
 
 namespace Ghostty.Vt.Tests;
@@ -80,7 +81,7 @@ public unsafe partial class RawSurfaceCoverageTests
                 GhosttyResult.GHOSTTY_SUCCESS,
                 GhosttyVtNative.ghostty_color_scheme_report_encode(
                     GhosttyColorScheme.GHOSTTY_COLOR_SCHEME_DARK,
-                    (sbyte*)buffer, (nuint)report.Length, &written));
+                    buffer, (nuint)report.Length, &written));
         }
         Assert.True(written > 0);
     }
@@ -217,7 +218,7 @@ public unsafe partial class RawSurfaceCoverageTests
                 GhosttyResult.GHOSTTY_SUCCESS,
                 GhosttyVtNative.ghostty_size_report_encode(
                     GhosttySizeReportStyle.GHOSTTY_SIZE_REPORT_CSI_14_T,
-                    &size, (sbyte*)p, (nuint)buffer.Length, &written));
+                    &size, p, (nuint)buffer.Length, &written));
         }
         Assert.True(written > 0);
 
@@ -229,7 +230,7 @@ public unsafe partial class RawSurfaceCoverageTests
                 GhosttyVtNative.ghostty_mode_report_encode(
                     GhosttyVtNative.ghostty_mode_new(2004, ansi: false),
                     GhosttyModeReportState.GHOSTTY_MODE_REPORT_SET,
-                    (sbyte*)p, (nuint)buffer.Length, &written));
+                    p, (nuint)buffer.Length, &written));
         }
         Assert.True(written > 0);
     }
@@ -250,7 +251,10 @@ public unsafe partial class RawSurfaceCoverageTests
             var utf8 = "a"u8;
             fixed (byte* text = utf8)
             {
-                GhosttyVtNative.ghostty_key_event_set_utf8(key, (sbyte*)text, (nuint)utf8.Length);
+                var rawValue = new RawString { ptr = text, len = (nuint)utf8.Length };
+                Assert.Equal(
+                    GhosttyResult.GHOSTTY_SUCCESS,
+                    GhosttyVtNative.ghostty_key_event_set_utf8(key, rawValue));
             }
 
             Assert.Equal(RawKey.GHOSTTY_KEY_A, GhosttyVtNative.ghostty_key_event_get_key(key));
@@ -259,10 +263,9 @@ public unsafe partial class RawSurfaceCoverageTests
             Assert.Equal((ushort)1, GhosttyVtNative.ghostty_key_event_get_consumed_mods(key));
             Assert.NotEqual((byte)0, GhosttyVtNative.ghostty_key_event_get_composing(key));
             Assert.Equal((uint)'a', GhosttyVtNative.ghostty_key_event_get_unshifted_codepoint(key));
-            nuint len = 0;
-            var value = GhosttyVtNative.ghostty_key_event_get_utf8(key, &len);
-            Assert.Equal((nuint)1, len);
-            Assert.Equal((byte)'a', (byte)value[0]);
+            var value = GhosttyVtNative.ghostty_key_event_get_utf8(key);
+            Assert.Equal((nuint)1, value.len);
+            Assert.Equal((byte)'a', value.ptr[0]);
         }
         finally
         {
@@ -289,10 +292,16 @@ public unsafe partial class RawSurfaceCoverageTests
             Assert.Equal(12.5f, got.x);
             Assert.Equal(4.5f, got.y);
             GhosttyMouseButton button = default;
-            Assert.NotEqual((byte)0, GhosttyVtNative.ghostty_mouse_event_get_button(mouse, &button));
+            Assert.Equal(
+                GhosttyResult.GHOSTTY_SUCCESS,
+                GhosttyVtNative.ghostty_mouse_event_get_button(mouse, &button));
             Assert.Equal(GhosttyMouseButton.GHOSTTY_MOUSE_BUTTON_LEFT, button);
-            GhosttyVtNative.ghostty_mouse_event_clear_button(mouse);
-            Assert.Equal((byte)0, GhosttyVtNative.ghostty_mouse_event_get_button(mouse, &button));
+            Assert.Equal(
+                GhosttyResult.GHOSTTY_SUCCESS,
+                GhosttyVtNative.ghostty_mouse_event_clear_button(mouse));
+            Assert.Equal(
+                GhosttyResult.GHOSTTY_NO_VALUE,
+                GhosttyVtNative.ghostty_mouse_event_get_button(mouse, &button));
         }
         finally
         {
@@ -313,7 +322,7 @@ public unsafe partial class RawSurfaceCoverageTests
                 GhosttyVtNative.ghostty_sgr_set_params(parser, parameters, null, 1));
             GhosttySgrAttribute attribute;
             Assert.NotEqual((byte)0, GhosttyVtNative.ghostty_sgr_next(parser, &attribute));
-            Assert.Equal(GhosttySgrAttributeTag.GHOSTTY_SGR_ATTR_BOLD, GhosttyVtNative.ghostty_sgr_attribute_tag(attribute));
+            Assert.Equal(GhosttySgrAttributeTag.GHOSTTY_SGR_ATTR_BOLD, GhosttyVtNative.ghostty_sgr_attribute_tag(&attribute));
             Assert.True(GhosttyVtNative.ghostty_sgr_attribute_value(&attribute) != null);
 
             GhosttySgrUnknown unknown = default;
@@ -469,14 +478,23 @@ public partial class RawSurfaceCoverageTests
         Assert.Equal((int)GhosttyTerminalScreen.GHOSTTY_TERMINAL_SCREEN_PRIMARY, (int)TerminalScreen.Primary);
         Assert.Equal((int)GhosttyTerminalScreen.GHOSTTY_TERMINAL_SCREEN_ALTERNATE, (int)TerminalScreen.Alternate);
 
-        Assert.Equal((int)GhosttyKittyPlacementLayer.GHOSTTY_KITTY_PLACEMENT_LAYER_ALL, (int)KittyPlacementLayer.All);
-        Assert.Equal((int)GhosttyKittyPlacementLayer.GHOSTTY_KITTY_PLACEMENT_LAYER_BELOW_BG, (int)KittyPlacementLayer.BelowBackground);
-        Assert.Equal((int)GhosttyKittyPlacementLayer.GHOSTTY_KITTY_PLACEMENT_LAYER_BELOW_TEXT, (int)KittyPlacementLayer.BelowText);
-        Assert.Equal((int)GhosttyKittyPlacementLayer.GHOSTTY_KITTY_PLACEMENT_LAYER_ABOVE_TEXT, (int)KittyPlacementLayer.AboveText);
+        Assert.Equal((int)KittyPlacementLayer.All, 0);
+        Assert.Equal((int)KittyPlacementLayer.BelowBackground, 1);
+        Assert.Equal((int)KittyPlacementLayer.BelowText, 2);
+        Assert.Equal((int)KittyPlacementLayer.AboveText, 3);
+        Assert.Equal(
+            (uint)(1 << (int)GhosttyImageLayer.GHOSTTY_IMAGE_LAYER_BELOW_BACKGROUND),
+            GhosttyVtNative.GHOSTTY_IMAGE_LAYER_MASK_BELOW_BACKGROUND);
+        Assert.Equal(
+            (uint)(1 << (int)GhosttyImageLayer.GHOSTTY_IMAGE_LAYER_BELOW_TEXT),
+            GhosttyVtNative.GHOSTTY_IMAGE_LAYER_MASK_BELOW_TEXT);
+        Assert.Equal(
+            (uint)(1 << (int)GhosttyImageLayer.GHOSTTY_IMAGE_LAYER_ABOVE_TEXT),
+            GhosttyVtNative.GHOSTTY_IMAGE_LAYER_MASK_ABOVE_TEXT);
 
-        Assert.Equal((int)GhosttyTerminalCursorStyle.GHOSTTY_TERMINAL_CURSOR_STYLE_BAR, (int)CursorStyle.Bar);
-        Assert.Equal((int)GhosttyTerminalCursorStyle.GHOSTTY_TERMINAL_CURSOR_STYLE_BLOCK, (int)CursorStyle.Block);
-        Assert.Equal((int)GhosttyTerminalCursorStyle.GHOSTTY_TERMINAL_CURSOR_STYLE_UNDERLINE, (int)CursorStyle.Underline);
-        Assert.Equal((int)GhosttyTerminalCursorStyle.GHOSTTY_TERMINAL_CURSOR_STYLE_BLOCK_HOLLOW, (int)CursorStyle.BlockHollow);
+        Assert.Equal((int)CursorStyle.Bar, (int)GhosttyCursorStyle.GHOSTTY_CURSOR_STYLE_BAR);
+        Assert.Equal((int)CursorStyle.Block, (int)GhosttyCursorStyle.GHOSTTY_CURSOR_STYLE_BLOCK);
+        Assert.Equal((int)CursorStyle.Underline, (int)GhosttyCursorStyle.GHOSTTY_CURSOR_STYLE_UNDERLINE);
+        Assert.Equal((int)CursorStyle.BlockHollow, (int)GhosttyCursorStyle.GHOSTTY_CURSOR_STYLE_BLOCK_HOLLOW);
     }
 }

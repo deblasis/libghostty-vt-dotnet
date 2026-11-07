@@ -91,9 +91,11 @@ public unsafe class RawSurfaceLegacyFunctionsTests
 
             var behavior = new GhosttyTerminalScrollViewport
             {
-                tag = GhosttyTerminalScrollViewportTag.GHOSTTY_SCROLL_VIEWPORT_TOP,
+                tag = GhosttyTerminalScrollViewportTag.GHOSTTY_TERMINAL_SCROLL_VIEWPORT_TOP,
             };
-            GhosttyVtNative.ghostty_terminal_scroll_viewport(terminal, behavior);
+            Assert.Equal(
+                GhosttyResult.GHOSTTY_SUCCESS,
+                GhosttyVtNative.ghostty_terminal_scroll_viewport(terminal, behavior));
             GhosttyVtNative.ghostty_terminal_reset(terminal);
         }
         finally
@@ -119,13 +121,15 @@ public unsafe class RawSurfaceLegacyFunctionsTests
             byte altPrefix = 1;
             Assert.Equal(
                 GhosttyResult.GHOSTTY_SUCCESS,
-                GhosttyVtNative.ghostty_key_encoder_setopt(
+                GhosttyVtNative.ghostty_key_encoder_set(
                     keyEncoder, GhosttyKeyEncoderOption.GHOSTTY_KEY_ENCODER_OPT_ALT_ESC_PREFIX, &altPrefix));
             Assert.Equal(
                 GhosttyResult.GHOSTTY_UNSUPPORTED,
-                GhosttyVtNative.ghostty_key_encoder_setopt(
+                GhosttyVtNative.ghostty_key_encoder_set(
                     keyEncoder, (GhosttyKeyEncoderOption)9999, &altPrefix));
-            GhosttyVtNative.ghostty_key_encoder_setopt_from_terminal(keyEncoder, terminal);
+            Assert.Equal(
+                GhosttyResult.GHOSTTY_SUCCESS,
+                GhosttyVtNative.ghostty_key_encoder_set_from_terminal(keyEncoder, terminal));
 
             Assert.Equal(GhosttyResult.GHOSTTY_SUCCESS, GhosttyVtNative.ghostty_key_event_new(null, &keyEvent));
             Assert.Equal(
@@ -142,7 +146,7 @@ public unsafe class RawSurfaceLegacyFunctionsTests
                 Assert.Equal(
                     GhosttyResult.GHOSTTY_SUCCESS,
                     GhosttyVtNative.ghostty_key_encoder_encode(
-                        keyEncoder, keyEvent, (sbyte*)buffer, (nuint)keyBuffer.Length, &keyLen));
+                        keyEncoder, keyEvent, buffer, (nuint)keyBuffer.Length, &keyLen));
             }
 
             Assert.Equal(
@@ -151,13 +155,15 @@ public unsafe class RawSurfaceLegacyFunctionsTests
             var format = GhosttyMouseFormat.GHOSTTY_MOUSE_FORMAT_SGR;
             Assert.Equal(
                 GhosttyResult.GHOSTTY_SUCCESS,
-                GhosttyVtNative.ghostty_mouse_encoder_setopt(
+                GhosttyVtNative.ghostty_mouse_encoder_set(
                     mouseEncoder, GhosttyMouseEncoderOption.GHOSTTY_MOUSE_ENCODER_OPT_FORMAT, &format));
             Assert.Equal(
                 GhosttyResult.GHOSTTY_UNSUPPORTED,
-                GhosttyVtNative.ghostty_mouse_encoder_setopt(
+                GhosttyVtNative.ghostty_mouse_encoder_set(
                     mouseEncoder, (GhosttyMouseEncoderOption)9999, &format));
-            GhosttyVtNative.ghostty_mouse_encoder_setopt_from_terminal(mouseEncoder, terminal);
+            Assert.Equal(
+                GhosttyResult.GHOSTTY_SUCCESS,
+                GhosttyVtNative.ghostty_mouse_encoder_set_from_terminal(mouseEncoder, terminal));
 
             Assert.Equal(GhosttyResult.GHOSTTY_SUCCESS, GhosttyVtNative.ghostty_mouse_event_new(null, &mouseEvent));
             Assert.Equal(
@@ -174,7 +180,7 @@ public unsafe class RawSurfaceLegacyFunctionsTests
             {
                 nuint mouseLen = 0;
                 var result = GhosttyVtNative.ghostty_mouse_encoder_encode(
-                    mouseEncoder, mouseEvent, (sbyte*)buffer, (nuint)mouseBuffer.Length, &mouseLen);
+                    mouseEncoder, mouseEvent, buffer, (nuint)mouseBuffer.Length, &mouseLen);
                 Assert.True(result is GhosttyResult.GHOSTTY_SUCCESS or GhosttyResult.GHOSTTY_NO_VALUE or GhosttyResult.GHOSTTY_INVALID_VALUE);
             }
             GhosttyVtNative.ghostty_mouse_encoder_reset(mouseEncoder);

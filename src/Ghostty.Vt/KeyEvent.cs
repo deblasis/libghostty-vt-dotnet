@@ -44,7 +44,11 @@ public sealed class KeyEvent : IDisposable
     public ushort Modifiers
     {
         get => _modifiers;
-        set { _modifiers = value; NativeMethods.ghostty_key_event_set_mods(_handle, value); }
+        set
+        {
+            GhosttyException.ThrowIfFailure(NativeMethods.ghostty_key_event_set_mods(_handle, value));
+            _modifiers = value;
+        }
     }
 
     public unsafe string? Text
@@ -52,13 +56,21 @@ public sealed class KeyEvent : IDisposable
         get => _text;
         set
         {
-            _text = value;
             if (value != null)
             {
                 var bytes = Encoding.UTF8.GetBytes(value);
                 fixed (byte* ptr = bytes)
-                    NativeMethods.ghostty_key_event_set_utf8(_handle, ptr, (nuint)bytes.Length);
+                {
+                    var result = NativeMethods.ghostty_key_event_set_utf8(_handle, ptr, (nuint)bytes.Length);
+                    GhosttyException.ThrowIfFailure(result);
+                }
             }
+            else
+            {
+                var result = NativeMethods.ghostty_key_event_set_utf8(_handle, null, 0);
+                GhosttyException.ThrowIfFailure(result);
+            }
+            _text = value;
         }
     }
     private string? _text;

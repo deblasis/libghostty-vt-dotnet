@@ -25,11 +25,16 @@ public sealed class SgrParser : IDisposable
         Span<byte> seps = parameters.Length > 0 ? new byte[parameters.Length] : [];
         for (int i = 0; i < seps.Length; i++) seps[i] = (byte)';';
 
+        // Upstream requires a non-null params pointer even when len is zero.
+        // An empty span fixes to null, so pass a pointer to a throwaway value
+        // to keep `SetParameters([])` (ESC[m, equivalent to SGR 0) working.
+        ushort emptyParameter = 0;
         fixed (ushort* ptr = parameters)
         fixed (byte* sepPtr = seps)
         {
+            var paramsPtr = parameters.Length == 0 ? &emptyParameter : ptr;
             var result = NativeMethods.ghostty_sgr_set_params(
-                _handle.DangerousGetHandle(), ptr, sepPtr, (nuint)parameters.Length);
+                _handle.DangerousGetHandle(), paramsPtr, sepPtr, (nuint)parameters.Length);
             GhosttyException.ThrowIfFailure(result);
         }
         _lastTag = 0;
