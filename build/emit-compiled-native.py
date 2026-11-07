@@ -105,6 +105,15 @@ def main() -> None:
         if line.strip() in {"using System;", "using System.Diagnostics;"}
     )
 
+    # A `using static` for a generated enum brings its members into scope for
+    # macro constants (for example the image-layer masks). It must follow the
+    # rewritten namespace or it names a type that no longer exists here.
+    static_using = f"using static {NAMESPACE}."
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith(static_using):
+            lines[i] = f"using static {OUTPUT_NAMESPACE}." + stripped[len(static_using):]
+
     body = [line for i, line in enumerate(lines) if i not in remove]
 
     # Keep the directives the generated code needs at the file header.
@@ -135,6 +144,15 @@ def main() -> None:
     )
     text = text.replace("return ((mode >> 15) != 0) != 0;", "return (mode >> 15) != 0;")
     text = text.replace("return mode & 0x7FFF;", "return (ushort)(mode & 0x7FFF);")
+
+    # Shift counts must be integers in C#. ClangSharp emits C macro constants
+    # such as `(1u << GHOSTTY_IMAGE_LAYER_BELOW_BACKGROUND)` with the enum
+    # member as the count, which C accepts through its integer promotion.
+    text = re.sub(
+        r"\(1U << (GHOSTTY_IMAGE_LAYER_[A-Z0-9_]+)\)",
+        r"(1U << (int)\1)",
+        text,
+    )
 
     if not re.search(
         rf"(?m)^\s*public\s+static\s+unsafe\s+partial\s+class\s+{OUTPUT_CLASS}\b",

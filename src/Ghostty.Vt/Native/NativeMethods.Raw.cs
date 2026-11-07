@@ -56,9 +56,9 @@ internal static unsafe class NativeMethods
         return (int)GhosttyVtNative.ghostty_terminal_point_from_grid_ref(terminal, (GhosttyGridRef*)grid_ref, (GhosttyPointTag)tag, (GhosttyPointCoordinate*)@out);
     }
 
-    internal static void ghostty_terminal_scroll_viewport(nint terminal, GhosttyTerminalScrollViewportNative behavior)
+    internal static int ghostty_terminal_scroll_viewport(nint terminal, GhosttyTerminalScrollViewportNative behavior)
     {
-        GhosttyVtNative.ghostty_terminal_scroll_viewport(terminal, *(GhosttyTerminalScrollViewport*)&behavior);
+        return (int)GhosttyVtNative.ghostty_terminal_scroll_viewport(terminal, *(GhosttyTerminalScrollViewport*)&behavior);
     }
 
     internal static int ghostty_render_state_new(nint allocator, nint* state)
@@ -166,19 +166,19 @@ internal static unsafe class NativeMethods
         GhosttyVtNative.ghostty_key_encoder_free(encoder);
     }
 
-    internal static int ghostty_key_encoder_setopt(nint encoder, int option, void* value)
+    internal static int ghostty_key_encoder_set(nint encoder, int option, void* value)
     {
-        return (int)GhosttyVtNative.ghostty_key_encoder_setopt(encoder, (GhosttyKeyEncoderOption)option, value);
+        return (int)GhosttyVtNative.ghostty_key_encoder_set(encoder, (GhosttyKeyEncoderOption)option, value);
     }
 
-    internal static void ghostty_key_encoder_setopt_from_terminal(nint encoder, nint terminal)
+    internal static int ghostty_key_encoder_set_from_terminal(nint encoder, nint terminal)
     {
-        GhosttyVtNative.ghostty_key_encoder_setopt_from_terminal(encoder, terminal);
+        return (int)GhosttyVtNative.ghostty_key_encoder_set_from_terminal(encoder, terminal);
     }
 
     internal static int ghostty_key_encoder_encode(nint encoder, nint key_event, byte* out_buf, nuint out_buf_size, nuint* out_len)
     {
-        return (int)GhosttyVtNative.ghostty_key_encoder_encode(encoder, (GhosttyKeyEventImpl*)key_event, (sbyte*)out_buf, out_buf_size, out_len);
+        return (int)GhosttyVtNative.ghostty_key_encoder_encode(encoder, (GhosttyKeyEventImpl*)key_event, out_buf, out_buf_size, out_len);
     }
 
     internal static int ghostty_mouse_encoder_new(nint allocator, nint* encoder)
@@ -191,24 +191,24 @@ internal static unsafe class NativeMethods
         GhosttyVtNative.ghostty_mouse_encoder_free(encoder);
     }
 
-    internal static int ghostty_mouse_encoder_setopt(nint encoder, int option, void* value)
+    internal static int ghostty_mouse_encoder_set(nint encoder, int option, void* value)
     {
-        return (int)GhosttyVtNative.ghostty_mouse_encoder_setopt(encoder, (GhosttyMouseEncoderOption)option, value);
+        return (int)GhosttyVtNative.ghostty_mouse_encoder_set(encoder, (GhosttyMouseEncoderOption)option, value);
     }
 
-    internal static void ghostty_mouse_encoder_setopt_from_terminal(nint encoder, nint terminal)
+    internal static int ghostty_mouse_encoder_set_from_terminal(nint encoder, nint terminal)
     {
-        GhosttyVtNative.ghostty_mouse_encoder_setopt_from_terminal(encoder, terminal);
+        return (int)GhosttyVtNative.ghostty_mouse_encoder_set_from_terminal(encoder, terminal);
     }
 
-    internal static void ghostty_mouse_encoder_reset(nint encoder)
+    internal static int ghostty_mouse_encoder_reset(nint encoder)
     {
-        GhosttyVtNative.ghostty_mouse_encoder_reset(encoder);
+        return (int)GhosttyVtNative.ghostty_mouse_encoder_reset(encoder);
     }
 
     internal static int ghostty_mouse_encoder_encode(nint encoder, nint mouse_event, byte* out_buf, nuint out_buf_size, nuint* out_len)
     {
-        return (int)GhosttyVtNative.ghostty_mouse_encoder_encode(encoder, (GhosttyMouseEventImpl*)mouse_event, (sbyte*)out_buf, out_buf_size, out_len);
+        return (int)GhosttyVtNative.ghostty_mouse_encoder_encode(encoder, (GhosttyMouseEventImpl*)mouse_event, out_buf, out_buf_size, out_len);
     }
 
     internal static int ghostty_mouse_event_new(nint allocator, nint* mouse_event)
@@ -231,19 +231,19 @@ internal static unsafe class NativeMethods
         return (int)GhosttyVtNative.ghostty_mouse_event_set_button((GhosttyMouseEventImpl*)mouse_event, (GhosttyMouseButton)button);
     }
 
-    internal static void ghostty_mouse_event_clear_button(nint mouse_event)
+    internal static int ghostty_mouse_event_clear_button(nint mouse_event)
     {
-        GhosttyVtNative.ghostty_mouse_event_clear_button((GhosttyMouseEventImpl*)mouse_event);
+        return (int)GhosttyVtNative.ghostty_mouse_event_clear_button((GhosttyMouseEventImpl*)mouse_event);
     }
 
-    internal static void ghostty_mouse_event_set_mods(nint mouse_event, int mods)
+    internal static int ghostty_mouse_event_set_mods(nint mouse_event, int mods)
     {
-        GhosttyVtNative.ghostty_mouse_event_set_mods((GhosttyMouseEventImpl*)mouse_event, (ushort)mods);
+        return (int)GhosttyVtNative.ghostty_mouse_event_set_mods((GhosttyMouseEventImpl*)mouse_event, (ushort)mods);
     }
 
-    internal static void ghostty_mouse_event_set_position(nint mouse_event, GhosttyMousePositionNative position)
+    internal static int ghostty_mouse_event_set_position(nint mouse_event, GhosttyMousePositionNative position)
     {
-        GhosttyVtNative.ghostty_mouse_event_set_position((GhosttyMouseEventImpl*)mouse_event, *(GhosttyMousePosition*)&position);
+        return (int)GhosttyVtNative.ghostty_mouse_event_set_position((GhosttyMouseEventImpl*)mouse_event, *(GhosttyMousePosition*)&position);
     }
 
     internal static int ghostty_key_event_new(nint allocator, nint* key_event)
@@ -266,14 +266,15 @@ internal static unsafe class NativeMethods
         return (int)GhosttyVtNative.ghostty_key_event_set_key((GhosttyKeyEventImpl*)key_event, (GhosttyKey)key);
     }
 
-    internal static void ghostty_key_event_set_mods(nint key_event, ushort mods)
+    internal static int ghostty_key_event_set_mods(nint key_event, ushort mods)
     {
-        GhosttyVtNative.ghostty_key_event_set_mods((GhosttyKeyEventImpl*)key_event, mods);
+        return (int)GhosttyVtNative.ghostty_key_event_set_mods((GhosttyKeyEventImpl*)key_event, mods);
     }
 
-    internal static void ghostty_key_event_set_utf8(nint key_event, byte* utf8, nuint len)
+    internal static int ghostty_key_event_set_utf8(nint key_event, byte* utf8, nuint len)
     {
-        GhosttyVtNative.ghostty_key_event_set_utf8((GhosttyKeyEventImpl*)key_event, (sbyte*)utf8, len);
+        var value = new GhosttyString { ptr = utf8, len = len };
+        return (int)GhosttyVtNative.ghostty_key_event_set_utf8((GhosttyKeyEventImpl*)key_event, value);
     }
 
     internal static int ghostty_osc_new(nint allocator, nint* parser)
@@ -306,9 +307,9 @@ internal static unsafe class NativeMethods
         return (int)GhosttyVtNative.ghostty_osc_command_type((GhosttyOscCommandImpl*)command);
     }
 
-    internal static bool ghostty_osc_command_data(nint command, int data, void* @out)
+    internal static int ghostty_osc_command_data(nint command, int data, void* @out)
     {
-        return GhosttyVtNative.ghostty_osc_command_data((GhosttyOscCommandImpl*)command, (GhosttyOscCommandData)data, @out) != 0;
+        return (int)GhosttyVtNative.ghostty_osc_command_data((GhosttyOscCommandImpl*)command, (GhosttyOscCommandData)data, @out);
     }
 
     internal static int ghostty_sgr_new(nint allocator, nint* parser)
@@ -453,7 +454,7 @@ internal static unsafe class NativeMethods
 
     internal static int ghostty_focus_encode(int @event, byte* buf, nuint buf_len, nuint* out_written)
     {
-        return (int)GhosttyVtNative.ghostty_focus_encode((GhosttyFocusEvent)@event, (sbyte*)buf, buf_len, out_written);
+        return (int)GhosttyVtNative.ghostty_focus_encode((GhosttyFocusEvent)@event, buf, buf_len, out_written);
     }
 
     internal static bool ghostty_paste_is_safe(byte* data, nuint len)
@@ -463,12 +464,12 @@ internal static unsafe class NativeMethods
 
     internal static int ghostty_paste_encode(byte* data, nuint data_len, bool bracketed, byte* buf, nuint buf_len, nuint* out_written)
     {
-        return (int)GhosttyVtNative.ghostty_paste_encode((sbyte*)data, data_len, (byte)(bracketed ? 1 : 0), (sbyte*)buf, buf_len, out_written);
+        return (int)GhosttyVtNative.ghostty_paste_encode((sbyte*)data, data_len, (byte)(bracketed ? 1 : 0), buf, buf_len, out_written);
     }
 
     internal static int ghostty_size_report_encode(int style, GhosttySizeReportSizeNative* size, byte* buf, nuint buf_len, nuint* out_written)
     {
-        return (int)GhosttyVtNative.ghostty_size_report_encode((GhosttySizeReportStyle)style, (GhosttySizeReportSize*)size, (sbyte*)buf, buf_len, out_written);
+        return (int)GhosttyVtNative.ghostty_size_report_encode((GhosttySizeReportStyle)style, (GhosttySizeReportSize*)size, buf, buf_len, out_written);
     }
 
 }

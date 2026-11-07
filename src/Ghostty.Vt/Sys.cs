@@ -27,9 +27,9 @@ public static unsafe class Sys
         public byte[] Data { get; init; }
     }
 
-    // Sys option constants. If tests fail, try adjusting these values.
-    private const int SYS_OPT_LOG = 0;
-    private const int SYS_OPT_DECODE_PNG = 1;
+    // Sys option constants, mirrored from the generated GhosttySysOption enum.
+    private const int SYS_OPT_LOG = (int)Ghostty.Vt.Raw.GhosttySysOption.GHOSTTY_SYS_OPT_LOG;
+    private const int SYS_OPT_DECODE_PNG = (int)Ghostty.Vt.Raw.GhosttySysOption.GHOSTTY_SYS_OPT_DECODE_PNG;
 
     private static LogFn? _logFn;
     private static DecodePngFn? _decodePngFn;

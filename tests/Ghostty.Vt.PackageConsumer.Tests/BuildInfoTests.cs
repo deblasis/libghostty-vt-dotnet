@@ -23,12 +23,10 @@ public class BuildInfoTests
     public void Query_ReportsMinorVersionGreaterThanZero()
     {
         // BuildInfo.Query() reports the libghostty-vt library's own version
-        // (currently 0.1.0-dev — distinct from the Ghostty application version
-        // tracked in ghostty-upstream.json). VersionMajor is 0 today, so the
-        // plan's original "> 0" assertion would always fail and be useless as a
-        // canary; asserting on VersionMinor > 0 preserves the intent (prove the
-        // int round-tripped via P/Invoke) without a permanently-red trap. Flip
-        // to VersionMajor once libghostty-vt ships 1.x.
+        // (currently 1.1.0-dev — distinct from the Ghostty application version
+        // tracked in ghostty-upstream.json). Asserting on VersionMinor > 0
+        // proves the int round-tripped via P/Invoke without tying the test to
+        // an exact minor bump.
         var info = BuildInfo.Query();
 
         Assert.True(

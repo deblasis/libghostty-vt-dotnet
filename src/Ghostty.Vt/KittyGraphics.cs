@@ -197,9 +197,24 @@ public ref struct KittyGraphicsPlacementIterator
     public unsafe void SetLayer(Enums.KittyPlacementLayer layer)
     {
         ThrowIfDisposed();
-        uint value = (uint)layer;
-        NativeMethods.ghostty_kitty_graphics_placement_iterator_set(
-            _iterator, 1 /* ITERATOR_SET_LAYER */, &value);
+        // Upstream replaced the single-layer enum with an image-layer mask.
+        // Keep the curated enum values stable and translate to the mask here.
+        uint value = layer switch
+        {
+            Enums.KittyPlacementLayer.All => 0, // zero mask disables the filter
+            Enums.KittyPlacementLayer.BelowBackground =>
+                GhosttyVtNative.GHOSTTY_IMAGE_LAYER_MASK_BELOW_BACKGROUND,
+            Enums.KittyPlacementLayer.BelowText =>
+                GhosttyVtNative.GHOSTTY_IMAGE_LAYER_MASK_BELOW_TEXT,
+            Enums.KittyPlacementLayer.AboveText =>
+                GhosttyVtNative.GHOSTTY_IMAGE_LAYER_MASK_ABOVE_TEXT,
+            _ => 0,
+        };
+        var result = NativeMethods.ghostty_kitty_graphics_placement_iterator_set(
+            _iterator,
+            (int)GhosttyKittyGraphicsPlacementIteratorOption.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_ITERATOR_OPT_LAYER,
+            &value);
+        GhosttyException.ThrowIfFailure(result);
     }
 
     public unsafe bool MoveNext()

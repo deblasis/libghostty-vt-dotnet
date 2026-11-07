@@ -97,7 +97,7 @@ public unsafe partial class RawSurfaceCoverageTests
                 GhosttyVtNative.ghostty_terminal_select_all(terminal, &all));
 
             GhosttySelection output;
-            var outputResult = GhosttyVtNative.ghostty_terminal_select_output(terminal, first, &output);
+            var outputResult = GhosttyVtNative.ghostty_terminal_select_output(terminal, &first, &output);
             Assert.True(outputResult is GhosttyResult.GHOSTTY_SUCCESS or GhosttyResult.GHOSTTY_NO_VALUE);
 
             bool contains = false;
@@ -128,32 +128,44 @@ public unsafe partial class RawSurfaceCoverageTests
                 GhosttyVtNative.ghostty_terminal_selection_adjust(
                     terminal, &word, GhosttySelectionAdjust.GHOSTTY_SELECTION_ADJUST_RIGHT));
 
-            var formatOptions = default(GhosttyTerminalSelectionFormatOptions);
-            SizedInit(&formatOptions);
-            formatOptions.emit = GhosttyFormatterFormat.GHOSTTY_FORMATTER_FORMAT_PLAIN;
-            formatOptions.unwrap = 1;
-            formatOptions.trim = 1;
-            formatOptions.selection = &all;
-            Span<byte> formatted = stackalloc byte[128];
-            nuint written = 0;
-            fixed (byte* buffer = formatted)
-            {
-                Assert.Equal(
-                    GhosttyResult.GHOSTTY_SUCCESS,
-                    GhosttyVtNative.ghostty_terminal_selection_format_buf(
-                        terminal, &formatOptions, buffer, (nuint)formatted.Length, &written));
-            }
-            Assert.True(written > 0);
-
-            byte* allocated = null;
-            nuint allocatedLen = 0;
+            nint formatter = 0;
             Assert.Equal(
                 GhosttyResult.GHOSTTY_SUCCESS,
-                GhosttyVtNative.ghostty_terminal_selection_format_alloc(
-                    terminal, null, &formatOptions, &allocated, &allocatedLen));
-            Assert.True(allocated != null);
-            Assert.True(allocatedLen > 0);
-            GhosttyVtNative.ghostty_free(null, allocated, allocatedLen);
+                GhosttyVtNative.ghostty_formatter_terminal_new(null, &formatter, terminal));
+            try
+            {
+                ConfigureFormatter(
+                    formatter, GhosttyFormatterFormat.GHOSTTY_FORMATTER_FORMAT_PLAIN, unwrap: 1, trim: 1);
+                Assert.Equal(
+                    GhosttyResult.GHOSTTY_SUCCESS,
+                    GhosttyVtNative.ghostty_formatter_set(
+                        formatter, GhosttyFormatterOption.GHOSTTY_FORMATTER_OPT_SELECTION, &all));
+
+                Span<byte> formatted = stackalloc byte[128];
+                nuint written = 0;
+                fixed (byte* buffer = formatted)
+                {
+                    Assert.Equal(
+                        GhosttyResult.GHOSTTY_SUCCESS,
+                        GhosttyVtNative.ghostty_formatter_format_buf(
+                            formatter, buffer, (nuint)formatted.Length, &written));
+                }
+                Assert.True(written > 0);
+
+                byte* allocated = null;
+                nuint allocatedLen = 0;
+                Assert.Equal(
+                    GhosttyResult.GHOSTTY_SUCCESS,
+                    GhosttyVtNative.ghostty_formatter_format_alloc(
+                        formatter, null, &allocated, &allocatedLen));
+                Assert.True(allocated != null);
+                Assert.True(allocatedLen > 0);
+                GhosttyVtNative.ghostty_free(null, allocated, allocatedLen);
+            }
+            finally
+            {
+                GhosttyVtNative.ghostty_formatter_free(formatter);
+            }
 
             GhosttyTrackedGridRefImpl* tracked = null;
             Assert.Equal(
@@ -309,6 +321,16 @@ public unsafe partial class RawSurfaceCoverageTests
                 GhosttyVtNative.ghostty_search_get(
                     search, GhosttySearchData.GHOSTTY_SEARCH_DATA_TOTAL_MATCHES, &total));
             Assert.True(total >= 2);
+
+            // With at least one match, selecting the next and previous match
+            // succeeds and updates the selected-match data.
+            Assert.Equal(GhosttyResult.GHOSTTY_SUCCESS, GhosttyVtNative.ghostty_search_select_next(search));
+            GhosttySelection selected;
+            Assert.Equal(
+                GhosttyResult.GHOSTTY_SUCCESS,
+                GhosttyVtNative.ghostty_search_get(
+                    search, GhosttySearchData.GHOSTTY_SEARCH_DATA_SELECTED_MATCH, &selected));
+            Assert.Equal(GhosttyResult.GHOSTTY_SUCCESS, GhosttyVtNative.ghostty_search_select_prev(search));
 
             Assert.Equal(GhosttyResult.GHOSTTY_SUCCESS, GhosttyVtNative.ghostty_search_tick(search, &status));
 
@@ -503,7 +525,7 @@ public unsafe partial class RawSurfaceCoverageTests
                 Assert.Equal(
                     GhosttyResult.GHOSTTY_SUCCESS,
                     GhosttyVtNative.ghostty_render_state_set(
-                        state, GhosttyRenderStateOption.GHOSTTY_RENDER_STATE_OPTION_DIRTY, &dirty));
+                        state, GhosttyRenderStateOption.GHOSTTY_RENDER_STATE_OPT_DIRTY, &dirty));
                 Assert.Equal(
                     GhosttyResult.GHOSTTY_SUCCESS,
                     GhosttyVtNative.ghostty_render_state_end_update(state));
@@ -541,7 +563,7 @@ public unsafe partial class RawSurfaceCoverageTests
                     Assert.Equal(
                         GhosttyResult.GHOSTTY_SUCCESS,
                         GhosttyVtNative.ghostty_render_state_row_set(
-                            rowIterator, GhosttyRenderStateRowOption.GHOSTTY_RENDER_STATE_ROW_OPTION_DIRTY, &rowDirtyValue));
+                            rowIterator, GhosttyRenderStateRowOption.GHOSTTY_RENDER_STATE_ROW_OPT_DIRTY, &rowDirtyValue));
 
                     nint cells = 0;
                     Assert.Equal(
@@ -683,9 +705,9 @@ public unsafe partial class RawSurfaceCoverageTests
                 Assert.Equal(
                     GhosttyResult.GHOSTTY_SUCCESS,
                     GhosttyVtNative.ghostty_kitty_graphics_image_get(
-                        image, GhosttyKittyGraphicsImageData.GHOSTTY_KITTY_IMAGE_DATA_FORMAT, &format));
+                        image, GhosttyKittyGraphicsImageData.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_FORMAT, &format));
                 var imageKeys = stackalloc GhosttyKittyGraphicsImageData[1];
-                imageKeys[0] = GhosttyKittyGraphicsImageData.GHOSTTY_KITTY_IMAGE_DATA_FORMAT;
+                imageKeys[0] = GhosttyKittyGraphicsImageData.GHOSTTY_KITTY_GRAPHICS_IMAGE_DATA_FORMAT;
                 var imageValues = stackalloc void*[1];
                 imageValues[0] = &format;
                 nuint imageWritten = 0;
@@ -705,11 +727,12 @@ public unsafe partial class RawSurfaceCoverageTests
                     graphics, GhosttyKittyGraphicsData.GHOSTTY_KITTY_GRAPHICS_DATA_PLACEMENT_ITERATOR, &iterator));
             try
             {
-                var layer = GhosttyKittyPlacementLayer.GHOSTTY_KITTY_PLACEMENT_LAYER_ALL;
+                // A zero mask disables the layer filter and visits every placement.
+                uint layer = 0;
                 Assert.Equal(
                     GhosttyResult.GHOSTTY_SUCCESS,
                     GhosttyVtNative.ghostty_kitty_graphics_placement_iterator_set(
-                        iterator, GhosttyKittyGraphicsPlacementIteratorOption.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_ITERATOR_OPTION_LAYER,
+                        iterator, GhosttyKittyGraphicsPlacementIteratorOption.GHOSTTY_KITTY_GRAPHICS_PLACEMENT_ITERATOR_OPT_LAYER,
                         &layer));
                 Assert.Equal((byte)1, GhosttyVtNative.ghostty_kitty_graphics_placement_next(iterator));
                 uint imageId = 0;

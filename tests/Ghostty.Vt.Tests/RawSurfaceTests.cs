@@ -30,7 +30,7 @@ public class RawSurfaceTests
             GhosttyVtNative.ghostty_build_info(
                 GhosttyBuildInfo.GHOSTTY_BUILD_INFO_VERSION_STRING, &version));
         var text = Encoding.UTF8.GetString(version.ptr, checked((int)version.len));
-        Assert.StartsWith("0.1.0", text, StringComparison.Ordinal);
+        Assert.StartsWith("1.1.0", text, StringComparison.Ordinal);
 
         nuint major = 0;
         nuint minor = 0;
@@ -47,7 +47,7 @@ public class RawSurfaceTests
             GhosttyResult.GHOSTTY_SUCCESS,
             GhosttyVtNative.ghostty_build_info(
                 GhosttyBuildInfo.GHOSTTY_BUILD_INFO_VERSION_PATCH, &patch));
-        Assert.Equal((nuint)0, major);
+        Assert.Equal((nuint)1, major);
         Assert.Equal((nuint)1, minor);
         Assert.Equal((nuint)0, patch);
 
@@ -128,7 +128,7 @@ public class RawSurfaceTests
                 GhosttyResult.GHOSTTY_SUCCESS,
                 GhosttyVtNative.ghostty_focus_encode(
                     GhosttyFocusEvent.GHOSTTY_FOCUS_GAINED,
-                    (sbyte*)buffer, (nuint)focusBuffer.Length, &written));
+                    buffer, (nuint)focusBuffer.Length, &written));
             Assert.Equal((nuint)3, written);
             Assert.Equal("\x1b[I", Encoding.ASCII.GetString(buffer, (int)written));
 
@@ -136,7 +136,7 @@ public class RawSurfaceTests
                 GhosttyResult.GHOSTTY_SUCCESS,
                 GhosttyVtNative.ghostty_focus_encode(
                     GhosttyFocusEvent.GHOSTTY_FOCUS_LOST,
-                    (sbyte*)buffer, (nuint)focusBuffer.Length, &written));
+                    buffer, (nuint)focusBuffer.Length, &written));
             Assert.Equal("\x1b[O", Encoding.ASCII.GetString(buffer, (int)written));
         }
 
@@ -149,7 +149,7 @@ public class RawSurfaceTests
                 GhosttyResult.GHOSTTY_SUCCESS,
                 GhosttyVtNative.ghostty_paste_encode(
                     (sbyte*)data, (nuint)paste.Length, 1,
-                    (sbyte*)buffer, (nuint)pasteBuffer.Length, &written));
+                    buffer, (nuint)pasteBuffer.Length, &written));
             Assert.Equal(
                 "\x1b[200~hello\x1b[201~",
                 Encoding.ASCII.GetString(buffer, (int)written));
@@ -258,7 +258,7 @@ public class RawSurfaceTests
 
             RawString content = default;
             Assert.Equal(
-                (byte)1,
+                GhosttyResult.GHOSTTY_SUCCESS,
                 GhosttyVtNative.ghostty_osc_command_data(
                     command,
                     GhosttyOscCommandData.GHOSTTY_OSC_DATA_UNKNOWN_CONTENT,
@@ -269,7 +269,7 @@ public class RawSurfaceTests
 
             byte truncated = 255;
             Assert.Equal(
-                (byte)1,
+                GhosttyResult.GHOSTTY_SUCCESS,
                 GhosttyVtNative.ghostty_osc_command_data(
                     command,
                     GhosttyOscCommandData.GHOSTTY_OSC_DATA_UNKNOWN_TRUNCATED,
@@ -278,7 +278,7 @@ public class RawSurfaceTests
 
             GhosttyOscTerminator terminator = default;
             Assert.Equal(
-                (byte)1,
+                GhosttyResult.GHOSTTY_SUCCESS,
                 GhosttyVtNative.ghostty_osc_command_data(
                     command,
                     GhosttyOscCommandData.GHOSTTY_OSC_DATA_UNKNOWN_TERMINATOR,

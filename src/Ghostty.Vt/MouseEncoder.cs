@@ -1,5 +1,6 @@
 using Ghostty.Vt.Internals;
 using Ghostty.Vt.Native;
+using Ghostty.Vt.Raw;
 
 namespace Ghostty.Vt;
 
@@ -18,8 +19,9 @@ public sealed class MouseEncoder : IDisposable
     public void ConfigureFromTerminal(Terminal terminal)
     {
         ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
-        NativeMethods.ghostty_mouse_encoder_setopt_from_terminal(
+        var result = NativeMethods.ghostty_mouse_encoder_set_from_terminal(
             _handle.DangerousGetHandle(), terminal.NativeHandle);
+        GhosttyException.ThrowIfFailure(result);
     }
 
     /// <summary>
@@ -43,8 +45,8 @@ public sealed class MouseEncoder : IDisposable
         *(uint*)(buf + 28) = (uint)paddingBottom;
         *(uint*)(buf + 32) = (uint)paddingRight;
         *(uint*)(buf + 36) = (uint)paddingLeft;
-        var result = NativeMethods.ghostty_mouse_encoder_setopt(
-            _handle.DangerousGetHandle(), 2 /* GHOSTTY_MOUSE_ENCODER_OPT_SIZE */, buf);
+        var result = NativeMethods.ghostty_mouse_encoder_set(
+            _handle.DangerousGetHandle(), (int)GhosttyMouseEncoderOption.GHOSTTY_MOUSE_ENCODER_OPT_SIZE, buf);
         GhosttyException.ThrowIfFailure(result);
     }
 
@@ -65,7 +67,8 @@ public sealed class MouseEncoder : IDisposable
     public void Reset()
     {
         ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
-        NativeMethods.ghostty_mouse_encoder_reset(_handle.DangerousGetHandle());
+        var result = NativeMethods.ghostty_mouse_encoder_reset(_handle.DangerousGetHandle());
+        GhosttyException.ThrowIfFailure(result);
     }
 
     public void Dispose() => _handle.Dispose();

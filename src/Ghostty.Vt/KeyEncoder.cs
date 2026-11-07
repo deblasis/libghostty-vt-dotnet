@@ -18,8 +18,9 @@ public sealed class KeyEncoder : IDisposable
     public void ConfigureFromTerminal(Terminal terminal)
     {
         ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
-        NativeMethods.ghostty_key_encoder_setopt_from_terminal(
+        var result = NativeMethods.ghostty_key_encoder_set_from_terminal(
             _handle.DangerousGetHandle(), terminal.NativeHandle);
+        GhosttyException.ThrowIfFailure(result);
     }
 
     public unsafe ReadOnlySpan<byte> Encode(KeyEvent keyEvent)

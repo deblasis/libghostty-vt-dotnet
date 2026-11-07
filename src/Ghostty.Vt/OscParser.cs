@@ -49,8 +49,8 @@ public sealed class OscParser : IDisposable
         {
             ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
             nint strPtr;
-            if (!NativeMethods.ghostty_osc_command_data(
-                _lastCommand, (int)OscCommandData.ChangeWindowTitleStr, &strPtr))
+            if (NativeMethods.ghostty_osc_command_data(
+                _lastCommand, (int)OscCommandData.ChangeWindowTitleStr, &strPtr) != 0)
             {
                 return new GhosttyString(nint.Zero, 0);
             }

@@ -31,10 +31,10 @@ public sealed class MouseEvent : IDisposable
         get => _button;
         set
         {
-            if (value < 0)
-                NativeMethods.ghostty_mouse_event_clear_button(_handle);
-            else
-                GhosttyException.ThrowIfFailure(NativeMethods.ghostty_mouse_event_set_button(_handle, value));
+            var result = value < 0
+                ? NativeMethods.ghostty_mouse_event_clear_button(_handle)
+                : NativeMethods.ghostty_mouse_event_set_button(_handle, value);
+            GhosttyException.ThrowIfFailure(result);
             _button = value;
         }
     }
@@ -43,21 +43,37 @@ public sealed class MouseEvent : IDisposable
     public int Modifiers
     {
         get => _modifiers;
-        set { _modifiers = value; NativeMethods.ghostty_mouse_event_set_mods(_handle, value); }
+        set
+        {
+            GhosttyException.ThrowIfFailure(NativeMethods.ghostty_mouse_event_set_mods(_handle, value));
+            _modifiers = value;
+        }
     }
 
     private float _x;
     public float X
     {
         get => _x;
-        set { _x = value; NativeMethods.ghostty_mouse_event_set_position(_handle, new GhosttyMousePositionNative { X = value, Y = _y }); }
+        set
+        {
+            var result = NativeMethods.ghostty_mouse_event_set_position(
+                _handle, new GhosttyMousePositionNative { X = value, Y = _y });
+            GhosttyException.ThrowIfFailure(result);
+            _x = value;
+        }
     }
 
     private float _y;
     public float Y
     {
         get => _y;
-        set { _y = value; NativeMethods.ghostty_mouse_event_set_position(_handle, new GhosttyMousePositionNative { X = _x, Y = value }); }
+        set
+        {
+            var result = NativeMethods.ghostty_mouse_event_set_position(
+                _handle, new GhosttyMousePositionNative { X = _x, Y = value });
+            GhosttyException.ThrowIfFailure(result);
+            _y = value;
+        }
     }
 
     internal nint NativeHandle => _handle;

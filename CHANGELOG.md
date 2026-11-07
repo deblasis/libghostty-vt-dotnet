@@ -25,15 +25,33 @@ the package version does not mirror the upstream version.
   `GhosttyStyleColor` is 4 bytes with a `byte tag` and a 3-byte union.
   `GhosttyGridRef` and `GhosttySelection` lost their size fields.
   `GhosttyAllocatorVtable` gained a four-pointer `reserved` area.
-  `ghostty_size_report_encode` and `ghostty_terminal_selection_format_buf`/`alloc`
-  now take pointers. Key, mouse, and encoder option setters return
-  `GhosttyResult`.
+  `ghostty_size_report_encode` now takes a pointer. Key, mouse, and encoder
+  option setters return `GhosttyResult`.
+- Raw: `GhosttyKittyPlacementLayer`, `GhosttyTerminalCursorStyle`,
+  `GhosttyRenderStateCursorVisualStyle`, and `GhosttyRenderStateImageLayer`
+  were removed. Use the `GhosttyImageLayer` masks with
+  `GHOSTTY_KITTY_GRAPHICS_PLACEMENT_ITERATOR_OPT_LAYER`, and
+  `GhosttyCursorStyle` for cursor visuals. `ghostty_terminal_selection_format_buf`
+  and `ghostty_terminal_selection_format_alloc` were removed; format a
+  selection with the formatter and `GHOSTTY_FORMATTER_OPT_SELECTION`.
+  `ghostty_key_encoder_setopt*` and `ghostty_mouse_encoder_setopt*` are now
+  `ghostty_*_encoder_set*`; `ghostty_search_select_next`/`prev` replace the
+  removed search selection options; `ghostty_key_event_set_utf8` takes a
+  `GhosttyString`; and `ghostty_osc_command_data`, mouse-event getters, and
+  key/mouse-event setters return `GhosttyResult`.
 
 ### Changed
 
-- Upstream pin moved from `cec8b92f` to `e95bed63` (Ghostty `1.4.1-dev`). The
-  curated `FormatterOptions` mapping keeps the previous all-off defaults
-  despite the new upstream formatter defaults.
+- Upstream pin moved from `cec8b92f` to `e95bed63` and then to `5813c946`
+  (Ghostty `1.4.1-dev`, libghostty-vt `1.1.0-dev`). The curated
+  `FormatterOptions` mapping keeps the previous all-off defaults despite the
+  new upstream formatter defaults.
+- Curated `KittyGraphicsAccessor.SetLayer` now translates its stable layer
+  names to the upstream `GhosttyImageLayer` mask, and `SgrParser.SetParameters([])`
+  still represents SGR 0 even though upstream requires a non-null parameter
+  pointer. Render-state graphemes use the new `GhosttyCodepointBuffer`.
+- Added raw coverage for `ghostty_search_select_next` and
+  `ghostty_search_select_prev`.
 - The curated key/mouse setters, grid-ref lookup, point lookup, and render-state
   style read now throw `GhosttyException` when the native call fails instead of
   returning a zeroed or stale value.
