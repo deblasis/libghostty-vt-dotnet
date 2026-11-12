@@ -285,6 +285,85 @@ def main() -> int:
                     f"README calls an absent RID {claim!r}", result, accepted=False
                 )
 
+            # The runtime also reaches the README as a bare table cell and as
+            # "Windows ARM64". Neither shape may describe the omitted tree as
+            # shipped just because it omits the backticked token.
+            for name, text in (
+                (
+                    "bare-table-cell",
+                    "# Package\n`win-x64` is included.\n\n"
+                    "| Platform | RID | Native library |\n| --- | --- | --- |\n"
+                    "| Windows ARM64 | win-arm64 | ghostty-vt.dll |\n",
+                ),
+                (
+                    "arch-prose",
+                    "# Package\n`win-x64` is included. "
+                    "Windows ARM64 is bundled and needs no extra setup.\n",
+                ),
+                (
+                    "anaphoric-sentence",
+                    "# Package\n`win-x64` is included. "
+                    "`win-arm64` is included when the ARM64 build succeeds. "
+                    "All four natives are bundled.\n",
+                ),
+            ):
+                result = run(
+                    package(
+                        root,
+                        f"unconditional-{name}.nupkg",
+                        {"win-x64": x64},
+                        readme=text,
+                    ),
+                    *optional,
+                )
+                expect(
+                    f"README describes an absent RID unconditionally ({name})",
+                    result,
+                    accepted=False,
+                )
+
+            # Prose about how the runtime is tested is not a shipping claim.
+            prose = (
+                "# Package\n`win-x64` is included. "
+                "Windows ARM64 is built from the same pinned source as the other "
+                "runtimes, but its runtime test is a manual spot check on ARM64 "
+                "hardware rather than part of nightly CI.\n"
+            )
+            expect(
+                "README does not treat test prose as a shipping claim",
+                run(
+                    package(
+                        root,
+                        "prose-arm64.nupkg",
+                        {"win-x64": x64},
+                        readme=prose,
+                    ),
+                    *optional,
+                ),
+                accepted=True,
+            )
+
+            # `osx-arm64` is not the optional Windows runtime. The machine name
+            # must not match inside another RID.
+            other_arch = (
+                "# Package\nNative runtimes for `win-x64`, `linux-x64`, and "
+                "`osx-arm64` are bundled — no extra setup.\n"
+                "`win-arm64` is included when the ARM64 build succeeds.\n"
+            )
+            expect(
+                "README does not confuse osx-arm64 with the Windows ARM64 run",
+                run(
+                    package(
+                        root,
+                        "other-arch-arm64.nupkg",
+                        {"win-x64": x64},
+                        readme=other_arch,
+                    ),
+                    *optional,
+                ),
+                accepted=True,
+            )
+
             partial = package(
                 root, "partial-arm64.nupkg", {"win-x64": x64, "win-arm64": {DLL: arm64[DLL]}}
             )

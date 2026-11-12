@@ -78,6 +78,12 @@ def chained?(command)
     command.rstrip.end_with?("&")
 end
 
+# A gate command can be present as its own logical command and still be skipped
+# by a shell condition. That is proven behaviourally (the stub must record the
+# invocation under both expression substitutions), so there is no static
+# rejection of `if`/`for`/`while` here: a condition on files the probe stages is
+# legitimate and would otherwise be reported as a bypass.
+
 def disables_errexit?(body)
   body.to_s.lines.any? do |line|
     line.match?(/^\s*set\s+\+e\b/) ||
@@ -103,9 +109,17 @@ def windows_job?(job)
 end
 
 # Execute a step body the way Actions does (`bash -e`) with python/dotnet
-# replaced by a stub that exits `code`. A step whose status does not follow the
-# stub is not a gate, whatever its text says.
-def probe(body, env, code)
+# replaced by a stub that logs its invocation and exits `code`.
+#
+# Actions substitutes every `${{ ... }}` before the shell sees the body, and
+# the check cannot know the runtime value. Each body is therefore run twice,
+# once with every expression empty and once with a non-empty literal. A step
+# that only reaches its gate for one of those values can be skipped on the
+# runner by a condition the probe would otherwise never exercise.
+#
+# The stub records the command line so the caller can require the gate to have
+# been reached, not merely that the step failed for some other reason.
+def probe(body, env, code, substitute:)
   Dir.mktmpdir("gate-probe-") do |directory|
     bin = File.join(directory, "bin")
     work = File.join(directory, "work")
@@ -119,19 +133,16 @@ def probe(body, env, code)
     FileUtils.mkdir_p(File.join(work, "runtimes", "win-arm64", "native"))
     FileUtils.mkdir_p(File.join(directory, "tmp"))
 
+    log = File.join(directory, "invoked.log")
+    File.write(log, "")
     STUBBED.each do |name|
       path = File.join(bin, name)
-      File.write(path, "#!/bin/sh\nexit #{code}\n")
+      File.write(path, "#!/bin/sh\nprintf '%s\\n' \"$0 $*\" >> \"$PROBE_LOG\"\nexit #{code}\n")
       File.chmod(0o755, path)
     end
 
     script = File.join(directory, "step.sh")
-    # Actions substitutes `${{ ... }}` before the shell runs; without that a
-    # condition on an expression would be a bash syntax error rather than the
-    # branch the runner takes. A literal that matches neither side is chosen
-    # deliberately: no expression may make a gate run in the probe unless it
-    # also runs on the runner.
-    File.write(script, body.to_s.gsub(/\$\{\{[^}]*\}\}/, "probe-expression"))
+    File.write(script, body.to_s.gsub(/\$\{\{[^}]*\}\}/, substitute))
 
     probe_env = {
       "PATH" => "#{bin}:#{ENV.fetch("PATH", "")}",
@@ -142,8 +153,10 @@ def probe(body, env, code)
       "GITHUB_ENV" => File.join(directory, "env"),
       "RUNNER_TEMP" => File.join(directory, "tmp"),
       "PKG_VERSION" => "0.0.0",
+      "PROBE_LOG" => log,
     }.merge(env)
-    system(probe_env, "bash", "-e", script, chdir: work, out: File::NULL, err: File::NULL)
+    ok = system(probe_env, "bash", "-e", script, chdir: work, out: File::NULL, err: File::NULL)
+    [ok, File.read(log)]
   end
 end
 
@@ -185,6 +198,7 @@ files.each do |file|
   end
 
   found = Hash.new(false)
+  job_gates = Hash.new { |hash, key| hash[key] = [] }
   tree = false
   download = false
 
@@ -208,16 +222,21 @@ files.each do |file|
       body = step["run"].to_s
       commands = logical_commands(body)
       invoked = GATES.select { |script| commands.any? { |command| gate_command(command, script) } }
+      mentioned = GATES.select { |script| commands.any? { |command| command.include?(script) } }
       consumer = commands.any? { |command| consumer_command(command) }
+      consumer_mentioned = commands.any? { |command| command.include?(CONSUMER_PROJECT) }
 
       if consumer
         unless body.include?("GhosttyVtVersionOverride")
           red << "#{file}: the #{CONSUMER_LABEL} step does not set GhosttyVtVersionOverride"
         end
       end
-      next if invoked.empty? && !consumer
+      next if mentioned.empty? && !consumer && !consumer_mentioned
 
-      invoked.each { |script| found[script] = true }
+      invoked.each do |script|
+        found[script] = true
+        job_gates[name] << script
+      end
 
       if step.key?("if")
         if consumer
@@ -226,7 +245,7 @@ files.each do |file|
           red << "#{file}: the #{name} step is behind a constant-false if: (#{step["if"]})"
         end
       end
-      label = consumer ? CONSUMER_LABEL : invoked.join(", ")
+      label = consumer ? CONSUMER_LABEL : (invoked + mentioned).uniq.join(", ")
       red << "#{file}: the #{label} step is continue-on-error" if step["continue-on-error"]
       if step.key?("shell")
         red << "#{file}: the #{label} step overrides the shell (#{step["shell"]})"
@@ -234,6 +253,36 @@ files.each do |file|
       if disables_errexit?(body)
         red << "#{file}: the #{label} step disables errexit (set +e / set +o errexit / trap EXIT)"
       end
+
+      # `dotnet test --list-tests` exits 0 without running a test, so the step
+      # is green on a package that does not load.
+      if consumer && body.match?(/--list-tests\b/)
+        red << "#{file}: the #{CONSUMER_LABEL} step lists tests instead of running them"
+      end
+
+      # The invocation must be the whole command. `if [ ... ]; then python3
+      # gate.py; fi` is one logical command that contains the script and is
+      # therefore invisible to a rule that only looks for commands starting
+      # with the interpreter.
+      mentioned.each do |script|
+        commands.each do |command|
+          next unless command.include?(script)
+          next if gate_command(command, script)
+
+          red << "#{file}: the #{script} invocation is wrapped instead of run as its own command: " \
+                 "#{command.strip}"
+        end
+      end
+      if consumer_mentioned
+        commands.each do |command|
+          next unless command.include?(CONSUMER_PROJECT)
+          next if consumer_command(command)
+
+          red << "#{file}: the #{CONSUMER_LABEL} invocation is wrapped instead of run as its own " \
+                 "command: #{command.strip}"
+        end
+      end
+
       commands.each_with_index do |command, index|
         next unless invoked.any? { |script| gate_command(command, script) } ||
                     (consumer && consumer_command(command))
@@ -247,11 +296,30 @@ files.each do |file|
       end
 
       # Static checks are a fast fail; this is the actual proof that the step
-      # fails when the command it runs fails.
+      # fails when the command it runs fails. Both expression substitutions are
+      # required, and the stub must record that the gate was reached: a step
+      # that exits 0 early, or one whose condition is false only for the value
+      # the runner supplies, is not a gate even when its body contains one.
       step_env = job_env.merge(step["env"] || {})
-      red << "#{file}: the #{label} step does not fail when its gate fails" if probe(body, step_env, 1)
-      unless probe(body, step_env, 0)
-        red << "#{file}: the #{label} step fails when its gate succeeds"
+      expected = invoked + (consumer ? [CONSUMER_PROJECT] : [])
+      { "" => "expressions empty", "probe-expression" => "expressions non-empty" }.each do |substitute, flavour|
+        ok, calls = probe(body, step_env, 1, substitute: substitute)
+        if ok
+          red << "#{file}: the #{label} step does not fail when its gate fails (#{flavour})"
+        elsif expected.any? && expected.none? { |needle| calls.include?(needle) }
+          red << "#{file}: the #{label} step fails before reaching its gate (#{flavour})"
+        end
+        # The failure probe stops at the first failing gate, so only the success
+        # probe can require every gate in the step to have been reached.
+        ok, calls = probe(body, step_env, 0, substitute: substitute)
+        unless ok
+          red << "#{file}: the #{label} step fails when its gate succeeds (#{flavour})"
+        end
+        missing = expected.reject { |needle| calls.include?(needle) }
+        unless missing.empty?
+          red << "#{file}: the #{label} step does not reach #{missing.join(', ')} " \
+                 "(#{flavour}), so a condition can skip it on the runner"
+        end
       end
 
       if invoked.include?("build/check-nupkg.py") && body.include?("runtimes/win-arm64/native")
@@ -269,6 +337,17 @@ files.each do |file|
 
   GATES.each do |script|
     red << "#{file}: publish chain never runs #{script}" unless found[script]
+  end
+  # Each job that runs the ABI check must also run the self-test that proves the
+  # check can fail. Keeping the pair in one job means deleting either one of
+  # several per-file invocations is visible, and a job that skips the check
+  # cannot rely on the other job's self-test.
+  job_gates.each do |name, scripts|
+    next unless scripts.include?("build/check-windows-abi.py")
+    next if scripts.include?("build/selftest-windows-abi.py")
+
+    red << "#{file}: job #{name} runs build/check-windows-abi.py without " \
+           "build/selftest-windows-abi.py, so the check is unverified there"
   end
   red << "#{file}: the nupkg gate does not look for the win-arm64 tree" unless tree
   red << "#{file}: the win-arm64 artifact download is not allowed to fail" unless download
@@ -288,7 +367,16 @@ files.each do |file|
       condition = jobs.dig(publish, "if").to_s
       next unless condition.match?(/!\s*cancelled\(\)|always\(\)/)
 
-      unless condition.match?(/needs\.#{Regexp.escape(consumer)}\.result\s*==\s*'success'/)
+      # The result term must be a top-level conjunct of a plain conjunction.
+      # `A || term`, `term || true`, or `(term || B)` all let the publish run
+      # while the consumer job failed. Parentheses around the status functions
+      # are part of the allowed shape, so strip those two before looking for
+      # grouping.
+      residual = condition.gsub(/!?\s*cancelled\s*\(\s*\)/, "").gsub(/always\s*\(\s*\)/, "")
+      grouped = residual.include?("||") || residual.include?("(") || residual.include?(")")
+      required = "needs.#{consumer}.result == 'success'"
+      conjuncts = condition.split("&&").map { |term| term.strip.gsub(/\s+/, " ") }
+      unless !grouped && conjuncts.include?(required)
         red << "#{file}: publish can run after #{consumer} fails; add " \
                "needs.#{consumer}.result == 'success' to its if:"
       end

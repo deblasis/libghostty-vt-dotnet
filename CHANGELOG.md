@@ -74,8 +74,9 @@ the package version does not mirror the upstream version.
   tree, rejects any Windows-resolvable RID it does not ship (including the
   `win`, `any`, and `base` fallbacks, `windows*`, and `win<digit>*`), an extra
   file in a checked tree, or a repeated entry name. It requires the packaged
-  README to name every Windows RID present, and requires every line that names
-  an optional RID to describe it as conditional, so the README cannot promise
+  README to name every Windows RID present, and requires every clause that
+  names an optional RID to describe it as conditional, including a bare table
+  cell or "Windows ARM64", so the README cannot promise
   a tree the package omits. It applies
   the same ABI and PDB rules to each pair (it requires `win-arm64` whenever
   that build produced one). The symbol package carries only the managed
@@ -96,11 +97,14 @@ the package version does not mirror the upstream version.
   `build/check-package-gate-wiring.rb` fails when either publish chain stops
   invoking `check-nupkg.py`, `check-snupkg.py`, or their self-tests, when the
   Windows x64 consumer test is removed, silenced, or run against another
-  project, when `publish` no longer waits for that job, or when a gate step is
-  skipped by a condition or a nested shell. It fails too when a gate's exit
-  status is discarded by `|| true`, a backslash continuation, `set +e`, or a
-  command after the gate, and it runs the extracted step with a failing gate to
-  prove the failure reaches the step. `ci.yml` runs it.
+  project, when `publish` no longer waits for that job, when the consumer
+  result is one branch of an `||`, or when a gate is wrapped in another
+  command or a shell condition. It runs each gate step twice, with workflow
+  expressions empty and non-empty, and requires the stub to record that the
+  gate was reached, so a condition that skips the gate on the runner cannot
+  pass. It fails too when a gate's exit status is discarded by `|| true`, a
+  backslash continuation, `set +e`, or a command after the gate. `ci.yml` runs
+  it.
 - `build/select-nupkg.py` matches the version `dotnet pack` writes, which has
   build metadata removed, so a version such as `1.2.3+abc` selects
   `…1.2.3.nupkg` instead of reporting the package as missing.

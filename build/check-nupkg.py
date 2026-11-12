@@ -213,6 +213,33 @@ README_ABSOLUTE = (
     re.compile(r"\balways\b", re.IGNORECASE),
     re.compile(r"\ball four\b", re.IGNORECASE),
 )
+# A clause is about shipping when it names a native file or uses a shipping
+# verb. Prose that only says ARM64 is tested does not make a shipping claim, so
+# it does not have to be conditional.
+README_SHIPPING = re.compile(
+    r"\b(?:bundled|included|shipped|packaged|available|present|ships?)\b"
+    r"|ghostty-vt\.(?:dll|pdb)"
+    r"|\bin the package\b",
+    re.IGNORECASE,
+)
+
+
+def readme_names(claim: str, rid: str) -> bool:
+    """Whether a clause names one runtime.
+
+    A RID reaches the README in more than one shape: backticked in prose, as a
+    bare table cell, and as the machine name ("Windows ARM64"). Keying only on
+    the backticked token let a row that dropped the backticks, or a sentence
+    that said "Windows ARM64", describe the optional tree as unconditional.
+    """
+    arch = rid.rsplit("-", 1)[-1]
+    return bool(
+        re.search(rf"\b{re.escape(rid)}\b", claim, re.IGNORECASE)
+        # "Windows ARM64" is a name for the runtime; the `-arm64` in
+        # `osx-arm64` is a different runtime, so a preceding hyphen or word
+        # character disqualifies the machine name.
+        or re.search(rf"(?<![\w-]){re.escape(arch)}\b", claim, re.IGNORECASE)
+    )
 
 
 def check_readme(
@@ -244,27 +271,38 @@ def check_readme(
         )
     lines = text.splitlines()
     for rid in optional:
-        token = f"`{rid}`"
-        mentions = [line for line in lines if token in line]
+        mentions = [line for line in lines if readme_names(line, rid)]
         if not mentions:
             raise PackageError(
                 f"{README} does not mention {rid}, which this package may omit"
             )
         for line in mentions:
+            named = False
             for claim in re.split(r"(?<=[.!?])\s+", line):
-                if token not in claim:
-                    continue
+                names_rid = readme_names(claim, rid)
                 conditional = any(
                     pattern.search(claim) for pattern in README_CONDITIONAL
                 )
                 absolute = any(pattern.search(claim) for pattern in README_ABSOLUTE)
-                if absolute or not conditional:
+                shipping = README_SHIPPING.search(claim)
+                # A trailing sentence on the same line can carry the claim
+                # without repeating the name ("All four natives are bundled.").
+                anaphoric = named and not names_rid and bool(absolute)
+                if absolute and (names_rid or anaphoric):
                     raise PackageError(
                         f"{README} describes {rid} as unconditional in a package "
                         f"that omits it: {claim.strip()!r}. Mark every clause that "
                         f"names it conditional, e.g. \"`{rid}` "
                         f'{README_OPTIONAL_MARKER} the ARM64 build succeeds."'
                     )
+                if names_rid and shipping and not conditional:
+                    raise PackageError(
+                        f"{README} describes {rid} as unconditional in a package "
+                        f"that omits it: {claim.strip()!r}. Mark every clause that "
+                        f"names it conditional, e.g. \"`{rid}` "
+                        f'{README_OPTIONAL_MARKER} the ARM64 build succeeds."'
+                    )
+                named = named or names_rid
 
 
 def check_rid(package: zipfile.ZipFile, rid: str, machine: str, root: Path) -> None:
