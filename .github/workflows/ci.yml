@@ -160,6 +160,13 @@ jobs:
       - name: Check the API-delta body builder
         run: bash build/check-binding-delta-behaviour.sh
 
+      # The constants are generated from the pinned headers; the tests are what
+      # fails when a pin bump leaves them disagreeing with the native library.
+      # A test that only mentions the constants proves nothing, so this reads
+      # each assertion instead of grepping for the name.
+      - name: Check the version assertions
+        run: python3 build/check-version-assertions.py tests
+
   bindings-drift:
     runs-on: ubuntu-latest
     steps:
