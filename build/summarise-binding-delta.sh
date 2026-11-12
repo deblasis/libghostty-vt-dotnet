@@ -45,7 +45,11 @@ function is_declaration(line,    text) {
     text = substr(text, RSTART + RLENGTH)
   }
   if (text ~ /(^|[[:space:]])extern([[:space:]]|\(|$)/) return 1
-  if (text ~ /(^|[[:space:]])static[[:space:]]+partial([[:space:]]|$)/ && text ~ /\(/) return 1
+  # A `[LibraryImport]` declaration is often split after `static partial`, with
+  # the name and `(` on the next changed line. Requiring `(` on the same line
+  # made the body say no signature changed while the diff added one, so the
+  # split shape counts as a declaration on its own.
+  if (text ~ /(^|[[:space:]])static[[:space:]]+partial([[:space:]]|$)/) return 1
   return 0
 }
 /^[+-]/ { if (is_declaration($0)) print }
@@ -75,8 +79,13 @@ run_url=$3
 # and must fail rather than file an issue that shows nothing.
 LC_ALL=C grep -q '[^[:space:]]' "$diff_file" \
   || die "diff file has only whitespace: $diff_file"
-LC_ALL=C grep -qE '^@@|^[+-][^+-]' "$diff_file" \
-  || die "diff file has no hunk or changed line: $diff_file"
+# A hunk header alone is not a change: a diff with only `@@ -1 +1 @@` and no
+# changed line renders a full-diff block that shows nothing to review. Require
+# a hunk and at least one changed line that is not a file header.
+LC_ALL=C grep -q '^@@' "$diff_file" \
+  || die "diff file has no hunk: $diff_file"
+LC_ALL=C grep -qE '^[+-]($|[^+-])' "$diff_file" \
+  || die "diff file has no changed line: $diff_file"
 
 # The body is posted as UTF-8. Invalid bytes make the request invalid, and the
 # tracker step runs with continue-on-error, so a rejection would leave no red

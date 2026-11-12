@@ -17,7 +17,9 @@
 # broken builders to prove it can fail.
 #
 # Usage: build/check-binding-delta-behaviour.sh
-#   BUILDER=<path>  run a different builder (used to prove this check can fail)
+#   BUILDER=<path>            run a different builder (used to prove this check
+#                             can fail)
+#   MIN_BEHAVIOUR_CASES=<n>   minimum case count (default 22)
 
 set -uo pipefail
 
@@ -120,6 +122,8 @@ diff --git a/x b/x
 +    public static unsafe extern int ghostty_unsafe();
 +    [DllImport("libghostty-vt")] public static extern int ghostty_attribute();
 +    [LibraryImport("libghostty-vt")] public static partial int ghostty_partial();
++    public static partial int ghostty_split_partial
++        ();
 +    public static extern
 -    // this line used to read: static extern int ghostty_old();
 DIFF
@@ -137,6 +141,8 @@ count_is "$tmp/shapes.md" 'ghostty_attribute' 2 \
   'a declaration with an attribute is shown in the summary'
 count_is "$tmp/shapes.md" 'ghostty_partial' 2 \
   'a static partial declaration is shown in the summary'
+count_is "$tmp/shapes.md" 'ghostty_split_partial' 2 \
+  'a static partial declaration split before the argument list is shown'
 count_is "$tmp/shapes.md" 'this line used to read' 1 \
   'a comment that mentions static extern is only in the full diff'
 
@@ -156,6 +162,13 @@ rename to new
 DIFF
 build "$tmp/header.diff" "$tmp/header.md"
 expect_rc 2 "$?" 'a header-only diff is refused'
+
+# A hunk header with no changed line renders a full-diff block that shows
+# nothing to review. The header alone must not satisfy the content check.
+printf 'diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n' \
+  > "$tmp/hunk-only.diff"
+build "$tmp/hunk-only.diff" "$tmp/hunk-only.md"
+expect_rc 2 "$?" 'a hunk-only diff is refused'
 
 # 400 lines of about 200 bytes each exceed the 20000-byte full-diff budget.
 {
@@ -218,6 +231,12 @@ expect_rc 2 "$?" 'invalid UTF-8 is refused'
 printf '  \n\n\t\n' > "$tmp/blank.diff"
 build "$tmp/blank.diff" "$tmp/blank.md"
 expect_rc 2 "$?" 'whitespace-only input is refused'
+
+# A deleted fixture block would otherwise leave this check green with fewer
+# cases, and every gate that runs it would still report a clean run.
+if [ "$checks" -lt "${MIN_BEHAVIOUR_CASES:-22}" ]; then
+  bad "at least ${MIN_BEHAVIOUR_CASES:-22} behaviour cases run"
+fi
 
 printf '\nbuilder behaviour: %s checks, %s failed\n' "$checks" "$failures"
 [ "$failures" -eq 0 ]

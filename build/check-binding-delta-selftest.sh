@@ -17,13 +17,16 @@
 # Usage: build/check-binding-delta-selftest.sh
 #   SELFTEST=<path>  run a different self-test (used to prove this gate rejects
 #                    a stub); defaults to build/selftest-binding-delta.sh
-#   MIN_CASES=<n>    minimum number of executed cases (default 30)
+#   MIN_CASES=<n>    minimum number of executed self-test cases (default 30)
+#   MIN_BEHAVIOUR_CASES=<n>
+#                    minimum number of executed behaviour cases (default 20)
 
 set -uo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 SELFTEST=${SELFTEST:-$HERE/selftest-binding-delta.sh}
 MIN_CASES=${MIN_CASES:-30}
+MIN_BEHAVIOUR_CASES=${MIN_BEHAVIOUR_CASES:-20}
 
 if [ ! -f "$SELFTEST" ]; then
   echo "self-test not found: $SELFTEST"
@@ -67,8 +70,35 @@ fi
 # The count above comes from the self-test's own output. Check the builder
 # directly as well: this fails on the body, so a self-test that prints a
 # plausible count cannot stand in for the behaviour.
-if ! bash "$HERE/check-binding-delta-behaviour.sh"; then
+bout=$(bash "$HERE/check-binding-delta-behaviour.sh" 2>&1)
+brc=$?
+printf '%s\n' "$bout"
+if [ "$brc" -ne 0 ]; then
   echo "the builder behaviour check failed; see the FAIL lines above"
+  exit 1
+fi
+
+# Count the behaviour check's own result lines. Without this, deleting its
+# fixtures would leave it green with fewer cases while every gate still
+# reported a clean run.
+breported=$(printf '%s\n' "$bout" \
+  | sed -n 's/^builder behaviour: \([0-9][0-9]*\) checks, 0 failed$/\1/p')
+bran=$(printf '%s\n' "$bout" | grep -c '^  ok    ')
+bfailed=$(printf '%s\n' "$bout" | grep -c '^  FAIL  ')
+if [ -z "$breported" ]; then
+  echo "the builder behaviour check did not report a clean case count"
+  exit 1
+fi
+if [ "$bfailed" -ne 0 ]; then
+  echo "$bfailed builder behaviour cases reported FAIL"
+  exit 1
+fi
+if [ "$bran" -ne "$breported" ]; then
+  echo "the builder behaviour check reported $breported cases but emitted $bran"
+  exit 1
+fi
+if [ "$bran" -lt "$MIN_BEHAVIOUR_CASES" ]; then
+  echo "only $bran behaviour cases ran; keep at least $MIN_BEHAVIOUR_CASES"
   exit 1
 fi
 

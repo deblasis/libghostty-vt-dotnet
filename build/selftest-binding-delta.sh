@@ -190,6 +190,7 @@ awk 'BEGIN {
   print "diff --git a/x b/x"
   print "--- a/x"
   print "+++ b/x"
+  print "@@ -1,4000 +1,4000 @@"
   for (i = 1; i <= 4000; i++) printf "+%04d aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n", i
 }' > "$TMP/huge.diff"
 bash "$SCRIPT" "$TMP/huge.diff" "$COMMIT" "$RUN_URL" > "$TMP/huge.body"
@@ -205,6 +206,7 @@ awk 'BEGIN {
   print "diff --git a/x b/x"
   print "--- a/x"
   print "+++ b/x"
+  print "@@ -1 +1 @@"
   printf "+"
   for (i = 0; i < 200000; i++) printf "a"
   printf "\n"
@@ -222,11 +224,15 @@ fi
 # If even the first line exceeds the budget the block must say why it is
 # empty rather than rendering as an empty fence.
 awk 'BEGIN {
+  print "diff --git a/x b/x"
+  print "--- a/x"
+  print "+++ b/x"
+  print "@@ -1 +1 @@"
   printf "+"
   for (i = 0; i < 200000; i++) printf "a"
   printf "\n"
 }' > "$TMP/first-line-huge.diff"
-MAX_DIFF_BYTES=100 bash "$SCRIPT" "$TMP/first-line-huge.diff" "$COMMIT" "$RUN_URL" > "$TMP/first-line-huge.body"
+MAX_DIFF_BYTES=1 bash "$SCRIPT" "$TMP/first-line-huge.diff" "$COMMIT" "$RUN_URL" > "$TMP/first-line-huge.body"
 check_rc "first oversized line renders" 0 "$?"
 check_contains "first oversized line is explained" "$TMP/first-line-huge.body" 'no complete line within the byte budget'
 
@@ -253,6 +259,7 @@ awk 'BEGIN {
   print "diff --git a/x b/x"
   print "--- a/x"
   print "+++ b/x"
+  print "@@ -1 +1 @@"
   printf "+"
   for (i = 0; i < 5000; i++) printf "`"
   printf " end\n"
