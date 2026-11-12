@@ -63,6 +63,14 @@ the package version does not mirror the upstream version.
   `ghostty_formatter_set`, and `ghostty_formatter_get`. The raw surface is now
   209 entry points.
 
+### Fixed
+
+- `OscParser.CommandData` no longer corrupts the caller's stack. The native
+  `ghostty_osc_command_data` out parameter is a `GhosttyString` (pointer plus
+  length); the wrapper passed an 8-byte pointer local, so the native side
+  wrote 16 bytes over it. Reading a window title crashed the process on
+  Windows x64.
+
 ## 1.4.1 (2026-10-22)
 
 - The curated `Ghostty.Vt` API now forwards to the generated raw ABI layer.
