@@ -144,6 +144,77 @@ else
   bad "huge delta stays under the issue limit (${size} bytes)"
 fi
 
+# --- A single enormous line cannot produce an empty block or blow the cap --
+awk 'BEGIN {
+  print "diff --git a/x b/x"
+  print "--- a/x"
+  print "+++ b/x"
+  printf "+"
+  for (i = 0; i < 200000; i++) printf "a"
+  printf "\n"
+}' > "$TMP/one-line.diff"
+bash "$SCRIPT" "$TMP/one-line.diff" "$COMMIT" "$RUN_URL" > "$TMP/one-line.body"
+check_rc "single oversized line renders" 0 "$?"
+check_contains "single oversized line is marked truncated" "$TMP/one-line.body" 'The diff is truncated here.'
+size=$(wc -c < "$TMP/one-line.body" | tr -d ' ')
+if [ "$size" -lt 65536 ]; then
+  ok "single oversized line stays under the issue limit (${size} bytes)"
+else
+  bad "single oversized line stays under the issue limit (${size} bytes)"
+fi
+
+# If even the first line exceeds the budget the block must say why it is
+# empty rather than rendering as an empty fence.
+awk 'BEGIN {
+  printf "+"
+  for (i = 0; i < 200000; i++) printf "a"
+  printf "\n"
+}' > "$TMP/first-line-huge.diff"
+MAX_DIFF_BYTES=100 bash "$SCRIPT" "$TMP/first-line-huge.diff" "$COMMIT" "$RUN_URL" > "$TMP/first-line-huge.body"
+check_rc "first oversized line renders" 0 "$?"
+check_contains "first oversized line is explained" "$TMP/first-line-huge.body" 'no complete line within the byte budget'
+
+# --- Backticks in the diff cannot close the fence early --------------------
+cat > "$TMP/injection.diff" <<'EOF'
+diff --git a/x b/x
+--- a/x
++++ b/x
+@@ -1,2 +1,2 @@
++        // ```uh oh```
++        public static extern int ghostty_new_entry();
+EOF
+bash "$SCRIPT" "$TMP/injection.diff" "$COMMIT" "$RUN_URL" > "$TMP/injection.body"
+check_contains "diff keeps the backtick line" "$TMP/injection.body" '// ```uh oh```'
+if grep -qx '````diff' "$TMP/injection.body" && grep -qx '````' "$TMP/injection.body"; then
+  ok "fence grows past the backticks in the diff"
+else
+  bad "fence grows past the backticks in the diff"
+fi
+
+# A pathological run cannot stretch the fence past the cap; the run itself is
+# replaced so the fence still closes where the body says it does.
+awk 'BEGIN {
+  print "diff --git a/x b/x"
+  print "--- a/x"
+  print "+++ b/x"
+  printf "+"
+  for (i = 0; i < 5000; i++) printf "`"
+  printf " end\n"
+}' > "$TMP/huge-run.diff"
+bash "$SCRIPT" "$TMP/huge-run.diff" "$COMMIT" "$RUN_URL" > "$TMP/huge-run.body"
+check_contains "long backtick run is neutralised" "$TMP/huge-run.body" '[backticks removed]'
+if grep -qx '``````````' "$TMP/huge-run.body"; then
+  ok "fence stops at the cap"
+else
+  bad "fence stops at the cap"
+fi
+size=$(wc -c < "$TMP/huge-run.body" | tr -d ' ')
+if [ "$size" -lt 65536 ]; then
+  ok "long backtick run stays under the issue limit (${size} bytes)"
+else
+  bad "long backtick run stays under the issue limit (${size} bytes)"
+fi
+
 # --- Bad input fails loudly instead of filing a broken issue --------------
 bash "$SCRIPT" "$TMP/missing.diff" "$COMMIT" "$RUN_URL" >/dev/null 2>&1
 check_rc "missing diff file is refused" 2 "$?"
