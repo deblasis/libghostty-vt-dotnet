@@ -109,6 +109,52 @@ check_contains "signature body shows the added entry point" "$TMP/signature.body
 check_contains "signature body shows the removed entry point" "$TMP/signature.body" '-        public static extern int ghostty_old_entry();'
 check_contains "signature body still carries the full diff" "$TMP/signature.body" '+        // MARKER_NON_SIGNATURE_LINE'
 
+# --- A comment that mentions `static extern` is not a signature change -----
+cat > "$TMP/comment-static.diff" <<'EOF'
+diff --git a/x b/x
+--- a/x
++++ b/x
+@@ -1,1 +1,2 @@
++        // see public static extern int ghostty_x(); for details
++        public const int GHOSTTY_VT_VERSION_MINOR = 0;
+EOF
+
+bash "$SCRIPT" "$TMP/comment-static.diff" "$COMMIT" "$RUN_URL" \
+  > "$TMP/comment-static.body"
+check_rc "comment-only delta renders" 0 "$?"
+check_contains "comment-only delta says no signature changed" \
+  "$TMP/comment-static.body" 'No `static extern` signature lines changed.'
+check_not_contains "comment-only delta has no signature section" \
+  "$TMP/comment-static.body" 'Signature-level changes:'
+
+# --- A capped signature summary says how much it is showing ---------------
+awk 'BEGIN {
+  print "diff --git a/x b/x"
+  print "--- a/x"
+  print "+++ b/x"
+  print "@@ -1,120 +1,120 @@"
+  for (i = 1; i <= 120; i++) {
+    printf "+        public static extern int ghostty_sig_%03d();\n", i
+  }
+}' > "$TMP/many-signatures.diff"
+
+bash "$SCRIPT" "$TMP/many-signatures.diff" "$COMMIT" "$RUN_URL" \
+  > "$TMP/many-signatures.body"
+check_rc "many signatures render" 0 "$?"
+check_contains "line-capped summary reports the omitted count" \
+  "$TMP/many-signatures.body" 'Showing the first 50 of 120 changed signature lines'
+
+# The byte cap binds before the line cap when the lines are long.
+MAX_SIGNATURE_BYTES=400 bash "$SCRIPT" "$TMP/many-signatures.diff" "$COMMIT" "$RUN_URL" \
+  > "$TMP/byte-capped.body"
+check_rc "byte-capped summary renders" 0 "$?"
+if grep -qE 'Showing the first [0-9]+ of 120 changed signature lines' \
+  "$TMP/byte-capped.body"; then
+  ok "byte-capped summary reports the omitted count"
+else
+  bad "byte-capped summary reports the omitted count"
+fi
+
 # --- A large diff is truncated on a line boundary, not mid-character -------
 awk 'BEGIN {
   print "diff --git a/x b/x"
@@ -238,6 +284,13 @@ rename to new
 EOF
 bash "$SCRIPT" "$TMP/header-only.diff" "$COMMIT" "$RUN_URL" >/dev/null 2>&1
 check_rc "diff with no hunk or changed line is refused" 2 "$?"
+
+# The body is posted as UTF-8; a byte that cannot decode is refused here
+# rather than failing the request after the step went green.
+printf 'diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n+caf\351 latin1\n' \
+  > "$TMP/invalid-utf8.diff"
+bash "$SCRIPT" "$TMP/invalid-utf8.diff" "$COMMIT" "$RUN_URL" >/dev/null 2>&1
+check_rc "diff that is not valid UTF-8 is refused" 2 "$?"
 
 bash "$SCRIPT" >/dev/null 2>&1
 check_rc "missing arguments are refused" 2 "$?"

@@ -15,12 +15,23 @@
 #
 # MAX_DIFF_BYTES and MAX_SIGNATURE_BYTES may be overridden for testing. GitHub
 # caps an issue body at 65536 characters, so both payloads are bounded.
+#
+# The input diff must be valid UTF-8: the body is posted as UTF-8 and invalid
+# bytes would make the request fail without a red build.
 
 set -euo pipefail
 
 MAX_DIFF_BYTES=${MAX_DIFF_BYTES:-20000}
 MAX_SIGNATURE_BYTES=${MAX_SIGNATURE_BYTES:-10000}
 MAX_SIGNATURE_LINES=${MAX_SIGNATURE_LINES:-50}
+
+# A changed declaration, not any added or removed line that happens to mention
+# `static extern`. A diff line that adds or removes a comment containing the
+# words would otherwise be reported as a signature change and would suppress
+# the honest "none changed" sentence. The marker must be followed by an
+# optional accessibility modifier and then the declaration itself, so
+# commented-out code and doc lines fail to match.
+SIGNATURE_PATTERN='^[+-][[:space:]]*((public|internal|private|protected)[[:space:]]+)?static[[:space:]]+extern[[:space:]]'
 
 die() {
   echo "summarise-binding-delta: $*" >&2
@@ -48,6 +59,13 @@ LC_ALL=C grep -q '[^[:space:]]' "$diff_file" \
   || die "diff file has only whitespace: $diff_file"
 LC_ALL=C grep -qE '^@@|^[+-][^+-]' "$diff_file" \
   || die "diff file has no hunk or changed line: $diff_file"
+
+# The body is posted as UTF-8. Invalid bytes make the request invalid, and the
+# tracker step runs with continue-on-error, so a rejection would leave no red
+# build and no issue. Refuse the input here instead. The generator compares
+# UTF-8 C# sources, so a genuine diff always passes.
+iconv -f UTF-8 -t UTF-8 < "$diff_file" > /dev/null 2>&1 \
+  || die "diff file is not valid UTF-8: $diff_file"
 
 # Print complete lines until the byte budget is reached. Byte-accurate `head
 # -c` truncation can split a multi-byte character, which makes the request
@@ -130,20 +148,37 @@ size=$(wc -c < "$diff_file" | tr -d ' ')
 fence_len=$(fence_length_for "$diff_file")
 fence=$(fence_of_length "$fence_len")
 
-signatures=$(grep -E '^[+-].*static extern' "$diff_file" | head -n "$MAX_SIGNATURE_LINES" || true)
+signature_total=$(grep -cE "$SIGNATURE_PATTERN" "$diff_file" || true)
+signatures=$(grep -E "$SIGNATURE_PATTERN" "$diff_file" \
+  | head -n "$MAX_SIGNATURE_LINES" || true)
+signature_shown=0
 if [ -n "$signatures" ]; then
   signature_payload=$(printf '%s\n' "$signatures" \
     | within_bytes_stream "$MAX_SIGNATURE_BYTES" \
     | neutralise_backtick_runs "$fence_len")
+  if [ -n "$signature_payload" ]; then
+    signature_shown=$(printf '%s\n' "$signature_payload" | wc -l | tr -d ' ')
+  fi
 fi
 
 printf 'Upstream `%s` generates a different pinned binding reference — [run](%s).\n\n' \
   "$commit" "$run_url"
 printf 'The pinned reference and raw ABI layer are refreshed automatically with the pin.\n\n'
 
-if [ -n "$signatures" ]; then
-  printf 'Signature-level changes:\n\n%sdiff\n%s\n%s\n\n' \
-    "$fence" "$signature_payload" "$fence"
+if [ "$signature_total" -gt 0 ]; then
+  if [ -n "${signature_payload:-}" ]; then
+    printf 'Signature-level changes:\n\n%sdiff\n%s\n%s\n\n' \
+      "$fence" "$signature_payload" "$fence"
+  else
+    printf 'Signature-level changes: the changed lines are longer than the %s-byte summary budget, so they are shown only in the full diff below.\n\n' \
+      "$MAX_SIGNATURE_BYTES"
+  fi
+  # The section is a subset whenever a cap bites. Say so instead of letting a
+  # reader assume the list is complete.
+  if [ "$signature_shown" -lt "$signature_total" ]; then
+    printf 'Showing the first %s of %s changed signature lines; the rest are in the full diff below or in the `regenerated-bindings` artifact.\n\n' \
+      "$signature_shown" "$signature_total"
+  fi
 else
   printf 'No `static extern` signature lines changed. The delta is in generated constants, attributes, or other declarations. The full diff is the record; it follows.\n\n'
 fi
