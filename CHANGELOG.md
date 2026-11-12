@@ -62,16 +62,21 @@ the package version does not mirror the upstream version.
 - Windows packages now include `ghostty-vt.pdb` beside `ghostty-vt.dll`. A
   build copies only the native tree for the RID being built, so
   `dotnet publish -r win-x64` copies the x64 DLL and PDB even when the source
-  tree also holds `win-arm64`, and a Windows publish fails when the matching
-  tree is not staged instead of producing an assembly that cannot load. The PDB
+  tree also holds `win-arm64`, and a publish for any Windows RID fails when
+  `runtimes/<rid>/native/` does not hold both `ghostty-vt.dll` and
+  `ghostty-vt.pdb`, instead of producing an assembly that cannot load. The RID
+  comparison ignores case and covers `win10-x64`/`win7-x64`, so `WIN-X64` and
+  the legacy spellings reach the same check. The PDB
   adds 9.0 MiB unpacked and 2.4 MiB to the
   `.nupkg`. The build checks that the PDB is named by the DLL's CodeView debug
   entry, that it is an MSF 7.00 file, and that its GUID and age match the DLL.
-  A second check reads the packed `.nupkg`, enumerates every `runtimes/win-*/`
-  tree, rejects an unknown Windows RID or an extra file in a checked tree, and
-  rejects the `win` and `any` fallback trees that NuGet's RID graph would
-  otherwise resolve for a Windows RID whose own tree is absent. It requires the
-  packaged README to name every Windows RID present, and applies
+  A second check reads the packed `.nupkg`, enumerates every `runtimes/win*`
+  tree, rejects any Windows-resolvable RID it does not ship (including the
+  `win`, `any`, and `base` fallbacks, `windows*`, and `win<digit>*`), an extra
+  file in a checked tree, or a repeated entry name. It requires the packaged
+  README to name every Windows RID present, and requires every line that names
+  an optional RID to describe it as conditional, so the README cannot promise
+  a tree the package omits. It applies
   the same ABI and PDB rules to each pair (it requires `win-arm64` whenever
   that build produced one). The symbol package carries only the managed
   Portable PDB; the native PDBs stay in the main package because nuget.org
@@ -88,10 +93,14 @@ the package version does not mirror the upstream version.
   `.nupkg` on Windows x64 before `publish`. A package whose Windows natives do
   not load no longer reaches the feed.
 - The workflows that pack for Windows are checked for the gates they must run.
-  `build/check-package-gate-wiring.rb` fails when either chain stops invoking
-  `check-nupkg.py`, `check-snupkg.py`, or their self-tests, when a gate step is
-  conditional or `continue-on-error`, or when the gate command is piped or
-  chained so a failure cannot reach the step. `ci.yml` runs it.
+  `build/check-package-gate-wiring.rb` fails when either publish chain stops
+  invoking `check-nupkg.py`, `check-snupkg.py`, or their self-tests, when the
+  Windows x64 consumer test is removed, silenced, or run against another
+  project, when `publish` no longer waits for that job, or when a gate step is
+  skipped by a condition or a nested shell. It fails too when a gate's exit
+  status is discarded by `|| true`, a backslash continuation, `set +e`, or a
+  command after the gate, and it runs the extracted step with a failing gate to
+  prove the failure reaches the step. `ci.yml` runs it.
 - `build/select-nupkg.py` matches the version `dotnet pack` writes, which has
   build metadata removed, so a version such as `1.2.3+abc` selects
   `…1.2.3.nupkg` instead of reporting the package as missing.
