@@ -13,6 +13,16 @@ fixed list: an unexpected Windows RID, or an extra file inside a checked tree,
 fails the gate. The embedded README must name every Windows RID the package
 ships, so the package never advertises less than it contains.
 
+Entry names are classified case-insensitively and with backslashes treated as
+separators, so a differently spelled tree cannot slip past the enumeration.
+A non-canonical spelling is then rejected outright rather than accepted: NuGet
+writes `runtimes/<rid>/native/<file>` in lowercase with forward slashes, and on
+Windows a backslash is a path separator, so such an entry would land beside the
+files this gate inspects while remaining invisible to an exact-name match.
+Entry names with an absolute path, a drive prefix, or a `..` segment fail before
+classification, because an extractor can map them somewhere other than the tree
+their name implies.
+
 By default both Windows RIDs are required. `--allow-missing-rid` relaxes one
 with a warning, for the case where the ARM64 build leg failed and the x64
 package must still ship. A partially present tree is still checked, so the
@@ -56,13 +66,56 @@ def read_member(package: zipfile.ZipFile, name: str) -> bytes:
     return package.read(info)
 
 
+def check_entry_name(name: str) -> None:
+    """Reject entry names no NuGet package should contain.
+
+    A leading slash, a drive prefix, or a `..` segment can make an entry land
+    outside the tree implied by its name once an extractor normalizes it. The
+    gate must not print success for a package whose paths it cannot map.
+    """
+    normalized = name.replace("\\", "/")
+    parts = normalized.split("/")
+    if normalized.startswith("/") or (
+        len(parts[0]) == 2 and parts[0][1] == ":"
+    ):
+        raise PackageError(f"package entry has an absolute path: {name}")
+    if ".." in parts:
+        raise PackageError(f"package entry escapes its directory: {name}")
+
+
 def windows_trees(names: set[str]) -> dict[str, set[str]]:
-    """Map every Windows runtime RID to the files under its native directory."""
+    """Map every Windows runtime RID to the files under its native directory.
+
+    Matching ignores case and treats backslashes as separators so no spelling
+    escapes the enumeration, but every entry under runtimes/ must still use the
+    canonical lowercase forward-slash form that NuGet writes. Anything else is
+    payload the package gate cannot safely reason about, so it fails.
+    """
     trees: dict[str, set[str]] = {}
     for name in names:
-        parts = name.split("/")
-        if len(parts) < 4 or parts[0] != "runtimes" or parts[2] != "native":
+        check_entry_name(name)
+        normalized = name.replace("\\", "/")
+        parts = normalized.split("/")
+        if not parts or parts[0].lower() != "runtimes":
             continue
+        if name != normalized:
+            raise PackageError(
+                "package entry under runtimes/ uses a backslash path "
+                f"separator: {name}"
+            )
+        if normalized in ("runtimes", "runtimes/"):
+            continue
+        if (
+            parts[0] != "runtimes"
+            or len(parts) < 4
+            or parts[2] != "native"
+            or parts[1] != parts[1].lower()
+            or any(part in ("", ".", "..") for part in parts[3:])
+        ):
+            raise PackageError(
+                "package entry under runtimes/ is not canonically named "
+                f"runtimes/<rid>/native/<file>: {name}"
+            )
         rid = parts[1]
         if not rid.startswith(WINDOWS_PREFIX):
             continue

@@ -9,6 +9,11 @@ Builds throwaway `.snupkg` files and asserts:
 4. a package with no PDB at all: must fail
 5. a lib/ PDB without the `BSJB` signature: must fail
 6. an encrypted member: must fail with an annotated error, not a traceback
+7. a backslash-separated native PDB: must fail (it is a path separator on Windows)
+8. an uppercase `RUNTIMES/` path: must fail
+9. an absolute native path: must fail
+10. a drive-prefixed native path: must fail
+11. a `..` segment: must fail
 
 Usage: selftest-check-snupkg.py
 """
@@ -82,6 +87,20 @@ def main() -> int:
             native_pdb = root / "native-pdb.snupkg"
             write_package(native_pdb, {MANAGED: PORTABLE, NATIVE: b"Microsoft C/C++ MSF 7.00\r\n\x1aDS\0\0\0"})
             expect("native PDB under runtimes/", run(native_pdb), accepted=False)
+
+            for case, entry in (
+                ("backslash native PDB", "runtimes\\win-x64\\native\\ghostty-vt.pdb"),
+                ("uppercase runtimes", "RUNTIMES/win-x64/native/ghostty-vt.pdb"),
+                ("absolute path", "/runtimes/win-x64/native/ghostty-vt.pdb"),
+                ("drive prefix", "C:/runtimes/win-x64/native/ghostty-vt.pdb"),
+                ("escaping path", "runtimes/win-x64/native/../../ghostty-vt.pdb"),
+            ):
+                mutated = root / f"{case.replace(' ', '-')}.snupkg"
+                write_package(
+                    mutated,
+                    {MANAGED: PORTABLE, entry: b"Microsoft C/C++ MSF 7.00\r\n\x1aDS\0\0\0"},
+                )
+                expect(f"{case} spelling", run(mutated), accepted=False)
 
             native_file = root / "native-file.snupkg"
             write_package(

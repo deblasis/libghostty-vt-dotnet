@@ -12,6 +12,13 @@ This opens the produced `.snupkg` and requires:
 - the managed Portable PDB under `lib/`, starting with `BSJB`
 - no native payload under `runtimes/` at all
 
+Entry names are matched with backslashes treated as separators and without
+regard to case, so a differently spelled native PDB cannot ride through. NuGet
+writes canonical lowercase forward-slash paths; any other spelling of a
+`runtimes/` entry is still native payload and is rejected. An entry with an
+absolute path, a drive prefix, or a `..` segment is rejected as well, because
+an extractor can map it somewhere other than the tree its name implies.
+
 Usage: check-snupkg.py <snupkg>
 """
 
@@ -28,11 +35,33 @@ class SymbolPackageError(Exception):
     pass
 
 
+def check_entry_name(name: str) -> None:
+    normalized = name.replace("\\", "/")
+    parts = normalized.split("/")
+    if normalized.startswith("/") or (
+        len(parts[0]) == 2 and parts[0][1] == ":"
+    ):
+        raise SymbolPackageError(
+            f"symbol package entry has an absolute path: {name}"
+        )
+    if ".." in parts:
+        raise SymbolPackageError(
+            f"symbol package entry escapes its directory: {name}"
+        )
+
+
 def check(path: Path) -> list[str]:
     with zipfile.ZipFile(path) as package:
         names = [info.filename for info in package.infolist()]
 
-    native = sorted(name for name in names if name.startswith("runtimes/"))
+    for name in names:
+        check_entry_name(name)
+
+    native = sorted(
+        name
+        for name in names
+        if name.replace("\\", "/").lower().startswith("runtimes/")
+    )
     if native:
         raise SymbolPackageError(
             "symbol package contains native payload, which nuget.org cannot "

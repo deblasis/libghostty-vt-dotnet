@@ -16,6 +16,14 @@ Builds throwaway .nupkg files from real DLL/PDB fixtures and asserts:
 10. a README that omits a packaged Windows RID: must fail
 11. the same RID both required and allowed to be missing: must fail
 12. an encrypted member: must fail with an annotated error, not a traceback
+13. a backslash-separated extra file: must fail (it is a path separator on Windows)
+14. a backslash-separated unknown RID: must fail
+15. a backslash-separated duplicate of a canonical native file: must fail
+16. an uppercase RID: must fail
+17. an uppercase native segment: must fail
+18. an absolute path: must fail
+19. a drive-prefixed path: must fail
+20. a `..` segment: must fail
 
 Usage: selftest-check-nupkg.py --x64-dir DIR --arm64-dir DIR
 """
@@ -184,6 +192,25 @@ def main() -> int:
             with zipfile.ZipFile(extra_file, "a") as archive:
                 archive.writestr("runtimes/win-x64/native/vcruntime140.dll", b"MZ")
             expect("extra file in a checked tree", run(extra_file), accepted=False)
+
+            for case, entry in (
+                ("backslash extra file", "runtimes\\win-x64\\native\\vcruntime140.dll"),
+                ("backslash unknown RID", "runtimes\\win-x86\\native\\" + DLL),
+                ("backslash duplicate", "runtimes\\win-x64\\native\\" + DLL),
+                ("uppercase RID", "runtimes/WIN-X86/native/" + DLL),
+                ("uppercase native segment", "runtimes/win-x64/Native/vcruntime140.dll"),
+                ("absolute path", "/runtimes/win-x64/native/vcruntime140.dll"),
+                ("drive prefix", "C:/runtimes/win-x64/native/vcruntime140.dll"),
+                ("escaping path", "runtimes/win-x64/native/../../vcruntime140.dll"),
+            ):
+                mutated = package(
+                    root,
+                    f"spelling-{case.replace(' ', '-')}.nupkg",
+                    {"win-x64": x64, "win-arm64": arm64},
+                )
+                with zipfile.ZipFile(mutated, "a") as archive:
+                    archive.writestr(entry, b"MZ")
+                expect(f"{case} spelling", run(mutated), accepted=False)
 
             quiet_readme = package(
                 root,

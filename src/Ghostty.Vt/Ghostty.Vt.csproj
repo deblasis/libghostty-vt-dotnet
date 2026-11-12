@@ -101,7 +101,9 @@
     an MSF native PDB makes the symbol push fail validation asynchronously,
     long after the job went green. So the SDK packs them, and this target
     removes the runtimes/ entries from the symbol package before it leaves the
-    build. The managed Portable PDB stays.
+    build. The managed Portable PDB stays. The match treats backslashes as
+    separators and ignores case, so a differently spelled native entry is
+    removed as well.
 
     check-snupkg.py asserts the resulting shape, and its self-test proves the
     checker rejects a symbol package that still carries native PDBs.
@@ -122,13 +124,13 @@
         using (var archive = ZipFile.Open(SymbolPackage, ZipArchiveMode.Update))
         {
             var native = archive.Entries
-                .Where(e => e.FullName.StartsWith("runtimes/", StringComparison.OrdinalIgnoreCase)
+                .Where(e => e.FullName.Replace('\\', '/')
+                                .StartsWith("runtimes/", StringComparison.OrdinalIgnoreCase)
                             && e.FullName.EndsWith(".pdb", StringComparison.OrdinalIgnoreCase))
-                .Select(e => e.FullName)
                 .ToList();
-            foreach (var name in native)
+            foreach (var entry in native)
             {
-                archive.GetEntry(name)?.Delete();
+                entry.Delete();
             }
         }
       ]]></Code>
