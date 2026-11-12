@@ -55,6 +55,10 @@ the package version does not mirror the upstream version.
 - The curated key/mouse setters, grid-ref lookup, point lookup, and render-state
   style read now throw `GhosttyException` when the native call fails instead of
   returning a zeroed or stale value.
+- Windows native builds use the `x86_64-windows-gnu` target, matching the
+  upstream release. The packaged DLL no longer imports `VCRUNTIME140.dll`;
+  `build/check-windows-abi.py` fails the build if a non-system runtime import
+  comes back.
 - Added raw coverage for `ghostty_sized_init`, `ghostty_version`,
   `ghostty_formatter_set`, and `ghostty_formatter_get`. The raw surface is now
   209 entry points.

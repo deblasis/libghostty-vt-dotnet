@@ -4,23 +4,27 @@
 set dotenv-load := false
 set positional-arguments := true
 
-# Default host triple (override with: just build-native target=x86_64-linux)
-target   := "x86_64-windows"
-rid      := if target == "x86_64-windows" { "win-x64" } \
+# Default host triple (override with: just target=x86_64-linux build-native)
+# The Windows default is the GNU ABI, matching the upstream release. Zig's
+# plain `x86_64-windows` picks MSVC and adds a VCRUNTIME140.dll dependency.
+target   := "x86_64-windows-gnu"
+rid      := if target == "x86_64-windows-gnu" { "win-x64" } \
+         else if target == "x86_64-windows" { "win-x64" } \
+         else if target == "aarch64-windows-gnu" { "win-arm64" } \
          else if target == "x86_64-linux"   { "linux-x64" } \
          else if target == "aarch64-macos"  { "osx-arm64" } \
          else { "unknown" }
 
-artifact := if target == "x86_64-windows" { "ghostty-vt.dll" } \
+artifact := if target =~ "windows" { "ghostty-vt.dll" } \
          else if target == "x86_64-linux"   { "libghostty-vt.so" } \
          else if target == "aarch64-macos"  { "libghostty-vt.dylib" } \
          else { "ghostty-vt.unknown" }
 
 # Zig puts shared libs in bin/ on Windows, lib/ elsewhere
-artifact_dir := if target == "x86_64-windows" { "bin" } else { "lib" }
+artifact_dir := if target =~ "windows" { "bin" } else { "lib" }
 
 # .NET expects libghostty-vt.* naming; zig produces ghostty-vt.dll on Windows
-dotnet_artifact := if target == "x86_64-windows" { "ghostty-vt.dll" } \
+dotnet_artifact := if target =~ "windows" { "ghostty-vt.dll" } \
                 else if target == "x86_64-linux"   { "libghostty-vt.so" } \
                 else if target == "aarch64-macos"  { "libghostty-vt.dylib" } \
                 else { "ghostty-vt.unknown" }

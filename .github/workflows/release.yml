@@ -211,8 +211,9 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            zig_target: x86_64-windows
+            zig_target: x86_64-windows-gnu
             rid: win-x64
+            machine: x64
             artifact: ghostty-vt.dll
             src_dir: bin
           - os: ubuntu-latest
@@ -262,6 +263,18 @@ jobs:
           mkdir -p "${{ github.workspace }}/runtimes/${{ matrix.rid }}/native"
           cp "zig-out/${{ matrix.src_dir }}/${{ matrix.artifact }}" \
             "${{ github.workspace }}/runtimes/${{ matrix.rid }}/native/"
+
+      # The MSVC ABI silently adds a VCRUNTIME140.dll dependency. Keep the
+      # GNU build honest: this fails on the import table, not on a rebuild.
+      - name: Check Windows ABI
+        if: matrix.machine
+        run: |
+          python build/check-windows-abi.py \
+            "runtimes/${{ matrix.rid }}/native/ghostty-vt.dll" \
+            --machine "${{ matrix.machine }}"
+          python build/selftest-windows-abi.py \
+            "runtimes/${{ matrix.rid }}/native/ghostty-vt.dll" \
+            --machine "${{ matrix.machine }}"
 
       - name: Upload native artifact
         uses: actions/upload-artifact@v7

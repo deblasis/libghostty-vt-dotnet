@@ -97,6 +97,8 @@ The library ships as [`DeBlasis.GhosttyVt`](https://www.nuget.org/packages/DeBla
 | Linux x64 | `linux-x64` | `libghostty-vt.so` |
 | macOS ARM64 | `osx-arm64` | `libghostty-vt.dylib` |
 
+The Windows build uses the GNU ABI and needs no Visual C++ redistributable.
+
 ## Versioning
 
 Package versions use independent SemVer. `version.json` is the source of truth. Every build pins the upstream Ghostty commit in [`ghostty-upstream.json`](https://github.com/deblasis/libghostty-vt-dotnet/blob/main/ghostty-upstream.json); release notes name the upstream version and commit. Nightly builds use `<version>-ci.<timestamp>.g<sha>`, release candidates use `<version>-rc.<n>`, and stable releases use `<version>`.
@@ -112,7 +114,7 @@ Package versions use independent SemVer. `version.json` is the source of truth. 
 just ci
 
 # Build native for a specific target
-just build-native target=x86_64-linux
+just target=x86_64-linux build-native
 
 # Pack a NuGet package at the version in version.json
 just pack version=$(jq -r .version version.json)
