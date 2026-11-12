@@ -223,6 +223,22 @@ check_rc "missing diff file is refused" 2 "$?"
 bash "$SCRIPT" "$TMP/empty.diff" "$COMMIT" "$RUN_URL" >/dev/null 2>&1
 check_rc "empty diff file is refused" 2 "$?"
 
+# `-s` accepts a newline-only file, which would render an empty block.
+printf '\n' > "$TMP/blank.diff"
+bash "$SCRIPT" "$TMP/blank.diff" "$COMMIT" "$RUN_URL" >/dev/null 2>&1
+check_rc "whitespace-only diff file is refused" 2 "$?"
+
+# A bare header block has no content to show; refusing it beats filing an
+# issue whose diff section is empty.
+cat > "$TMP/header-only.diff" <<'EOF'
+diff --git a/old b/new
+similarity index 100%
+rename from old
+rename to new
+EOF
+bash "$SCRIPT" "$TMP/header-only.diff" "$COMMIT" "$RUN_URL" >/dev/null 2>&1
+check_rc "diff with no hunk or changed line is refused" 2 "$?"
+
 bash "$SCRIPT" >/dev/null 2>&1
 check_rc "missing arguments are refused" 2 "$?"
 

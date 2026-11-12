@@ -66,9 +66,10 @@ the package version does not mirror the upstream version.
   Upstream moves its libghostty-vt version independently of the package
   version, so the literal assertions failed on a pin bump that was otherwise
   correct.
-- The nightly API-delta issue always carries the generated diff. A delta made
-  only of constants used to produce an empty code block, so the issue asked
-  for a review and showed nothing to review.
+- The nightly API-delta issue carries the generated diff, truncated on a line
+  boundary when it is larger than the body budget. A delta made only of
+  constants used to produce an empty code block, so the issue asked for a
+  review and showed nothing to review.
 
 ## 1.4.1 (2026-10-22)
 

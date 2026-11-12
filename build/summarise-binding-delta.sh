@@ -38,6 +38,17 @@ run_url=$3
 [ -f "$diff_file" ] || die "diff file not found: $diff_file"
 [ -s "$diff_file" ] || die "diff file is empty: $diff_file"
 
+# `-s` only proves the file is non-empty, so a file holding a single newline
+# passes it and renders an empty code block: the exact shape this script
+# exists to prevent. Require a non-blank line, and require the file to look
+# like a diff of content rather than a bare header block. The tracker only
+# ever receives the generated source diff, so anything else is a wrong input
+# and must fail rather than file an issue that shows nothing.
+LC_ALL=C grep -q '[^[:space:]]' "$diff_file" \
+  || die "diff file has only whitespace: $diff_file"
+LC_ALL=C grep -qE '^@@|^[+-][^+-]' "$diff_file" \
+  || die "diff file has no hunk or changed line: $diff_file"
+
 # Print complete lines until the byte budget is reached. Byte-accurate `head
 # -c` truncation can split a multi-byte character, which makes the request
 # body invalid UTF-8, so the cut happens between lines.

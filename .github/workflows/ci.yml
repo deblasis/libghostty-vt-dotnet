@@ -146,7 +146,23 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Self-test the API-delta issue body
-        run: bash build/selftest-binding-delta.sh
+        # Exit status alone is not enough: a self-test reduced to `exit 0`
+        # passes it. Require the reported case count so deleting assertions
+        # lowers the number and fails here.
+        run: |
+          set -euo pipefail
+          out=$(bash build/selftest-binding-delta.sh)
+          printf '%s\n' "$out"
+          cases=$(printf '%s\n' "$out" \
+            | sed -n 's/.*selftest: \([0-9][0-9]*\) passed, 0 failed$/\1/p')
+          if [ -z "$cases" ]; then
+            echo "::error::the self-test did not report a clean run"
+            exit 1
+          fi
+          if [ "$cases" -lt 30 ]; then
+            echo "::error::only $cases self-test cases ran; keep at least 30"
+            exit 1
+          fi
 
   bindings-drift:
     runs-on: ubuntu-latest
