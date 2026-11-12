@@ -155,6 +155,16 @@ else
   bad "byte-capped summary reports the omitted count"
 fi
 
+# When no signature line fits the budget at all, the block holds a placeholder
+# rather than a changed line. The notice must not count it as one.
+MAX_SIGNATURE_BYTES=1 bash "$SCRIPT" "$TMP/many-signatures.diff" \
+  "$COMMIT" "$RUN_URL" > "$TMP/no-fit.body"
+check_rc "no-fit signature summary renders" 0 "$?"
+check_contains "no-fit summary says nothing fits" "$TMP/no-fit.body" \
+  'no changed signature line fits the 1-byte summary budget'
+check_not_contains "no-fit summary does not claim to show a line" \
+  "$TMP/no-fit.body" 'Showing the first'
+
 # --- A large diff is truncated on a line boundary, not mid-character -------
 awk 'BEGIN {
   print "diff --git a/x b/x"

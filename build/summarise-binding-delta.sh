@@ -152,12 +152,23 @@ signature_total=$(grep -cE "$SIGNATURE_PATTERN" "$diff_file" || true)
 signatures=$(grep -E "$SIGNATURE_PATTERN" "$diff_file" \
   | head -n "$MAX_SIGNATURE_LINES" || true)
 signature_shown=0
+signature_placeholder=0
 if [ -n "$signatures" ]; then
   signature_payload=$(printf '%s\n' "$signatures" \
     | within_bytes_stream "$MAX_SIGNATURE_BYTES" \
     | neutralise_backtick_runs "$fence_len")
   if [ -n "$signature_payload" ]; then
-    signature_shown=$(printf '%s\n' "$signature_payload" | wc -l | tr -d ' ')
+    # `within_bytes_stream` emits a placeholder when no complete line fits.
+    # Counting that as a shown signature line would make the notice claim a
+    # changed line that is not there.
+    case $signature_payload in
+      *'(the content has no complete line within the byte budget'*)
+        signature_placeholder=1
+        ;;
+      *)
+        signature_shown=$(printf '%s\n' "$signature_payload" | wc -l | tr -d ' ')
+        ;;
+    esac
   fi
 fi
 
@@ -166,18 +177,21 @@ printf 'Upstream `%s` generates a different pinned binding reference — [run](%
 printf 'The pinned reference and raw ABI layer are refreshed automatically with the pin.\n\n'
 
 if [ "$signature_total" -gt 0 ]; then
-  if [ -n "${signature_payload:-}" ]; then
+  if [ "$signature_placeholder" -eq 1 ]; then
+    printf 'Signature-level changes: no changed signature line fits the %s-byte summary budget, so they are shown only in the full diff below.\n\n' \
+      "$MAX_SIGNATURE_BYTES"
+  elif [ -n "${signature_payload:-}" ]; then
     printf 'Signature-level changes:\n\n%sdiff\n%s\n%s\n\n' \
       "$fence" "$signature_payload" "$fence"
+    # The section is a subset whenever a cap bites. Say so instead of letting a
+    # reader assume the list is complete.
+    if [ "$signature_shown" -lt "$signature_total" ]; then
+      printf 'Showing the first %s of %s changed signature lines; the rest are in the full diff below or in the `regenerated-bindings` artifact.\n\n' \
+        "$signature_shown" "$signature_total"
+    fi
   else
     printf 'Signature-level changes: the changed lines are longer than the %s-byte summary budget, so they are shown only in the full diff below.\n\n' \
       "$MAX_SIGNATURE_BYTES"
-  fi
-  # The section is a subset whenever a cap bites. Say so instead of letting a
-  # reader assume the list is complete.
-  if [ "$signature_shown" -lt "$signature_total" ]; then
-    printf 'Showing the first %s of %s changed signature lines; the rest are in the full diff below or in the `regenerated-bindings` artifact.\n\n' \
-      "$signature_shown" "$signature_total"
   fi
 else
   printf 'No `static extern` signature lines changed. The delta is in generated constants, attributes, or other declarations. The full diff is the record; it follows.\n\n'
