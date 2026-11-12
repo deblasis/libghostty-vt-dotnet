@@ -154,6 +154,12 @@ try {
         Fail "-Version '$Version' does not match '$($identity.Version)' in '$packageFile'."
     }
     $packageVersion = $identity.Version
+    # The version text comes from the package's nuspec, so it is untrusted
+    # input to the generated MSBuild project. Reject anything that is not a
+    # NuGet version before it can reach the XML.
+    if ($packageVersion -notmatch '^[0-9]+(\.[0-9]+){1,3}(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$') {
+        Fail "'$packageFile' has an invalid package version '$packageVersion'."
+    }
     Write-Host "package: $($identity.Id) $packageVersion"
     Write-Host "file: $packageFile"
 
@@ -183,6 +189,8 @@ try {
 "@
     [System.IO.File]::WriteAllText((Join-Path $project "NuGet.config"), $nugetConfig, (New-Object System.Text.UTF8Encoding($false)))
 
+    $escapedPackageId = [System.Security.SecurityElement]::Escape($PackageId)
+    $escapedPackageVersion = [System.Security.SecurityElement]::Escape($packageVersion)
     $csproj = @"
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
@@ -192,7 +200,7 @@ try {
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="$PackageId" Version="$packageVersion" />
+    <PackageReference Include="$escapedPackageId" Version="$escapedPackageVersion" />
   </ItemGroup>
 </Project>
 "@

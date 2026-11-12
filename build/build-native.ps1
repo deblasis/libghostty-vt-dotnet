@@ -27,6 +27,9 @@ if (-not $GhosttySource) {
     if (-not (Test-Path $GhosttySource)) {
         Write-Host "Cloning ghostty to $GhosttySource..."
         git clone https://github.com/ghostty-org/ghostty.git $GhosttySource
+        if ($LASTEXITCODE -ne 0) {
+            throw "git clone failed with exit code $LASTEXITCODE"
+        }
     }
 }
 
@@ -59,6 +62,11 @@ Push-Location $GhosttySource
 try {
     zig build install -Demit-lib-vt=true -Demit-xcframework=false `
         -Dtarget=$Target -Doptimize=ReleaseSafe
+    # $ErrorActionPreference does not treat a native exit code as fatal, so a
+    # failed build would otherwise fall through and copy yesterday's zig-out.
+    if ($LASTEXITCODE -ne 0) {
+        throw "zig build failed with exit code $LASTEXITCODE"
+    }
 } finally {
     Pop-Location
 }

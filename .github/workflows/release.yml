@@ -210,17 +210,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # win-arm64 runs in `build-native-arm64` so a failure there cannot
+          # block x64 packaging or the release.
           - os: windows-latest
             zig_target: x86_64-windows-gnu
             rid: win-x64
             machine: x64
-            artifact: ghostty-vt.dll
-            pdb: ghostty-vt.pdb
-            src_dir: bin
-          - os: windows-latest
-            zig_target: aarch64-windows-gnu
-            rid: win-arm64
-            machine: arm64
             artifact: ghostty-vt.dll
             pdb: ghostty-vt.pdb
             src_dir: bin
@@ -280,8 +275,9 @@ jobs:
 
       # The MSVC ABI silently adds a VCRUNTIME140.dll dependency. Keep the
       # GNU build honest: this fails on the import table, not on a rebuild.
+      # Keyed on the RID, not on the optional `machine` field.
       - name: Check Windows ABI
-        if: matrix.machine
+        if: startsWith(matrix.rid, 'win-')
         run: |
           python build/check-windows-abi.py \
             "runtimes/${{ matrix.rid }}/native/ghostty-vt.dll" \
@@ -298,8 +294,71 @@ jobs:
           name: native-${{ matrix.rid }}
           path: runtimes/${{ matrix.rid }}/native
 
+  # Windows ARM64 is built separately so a failure here does not block the
+  # x64 package or the release. `pack` requires only `build-native` success
+  # and records whether this job produced an artifact.
+  build-native-arm64:
+    needs: preflight
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Setup Zig
+        uses: ./.github/actions/setup-zig
+        with:
+          ghostty-ref: ${{ needs.preflight.outputs.upstream_commit }}
+
+      - name: Clone Ghostty at pinned commit
+        env:
+          UPSTREAM_COMMIT: ${{ needs.preflight.outputs.upstream_commit }}
+        run: |
+          git init ghostty-src
+          cd ghostty-src
+          git remote add origin https://github.com/ghostty-org/ghostty.git
+          git fetch --depth 1 origin "$UPSTREAM_COMMIT"
+          git checkout FETCH_HEAD
+
+      - name: Build native libghostty-vt (win-arm64)
+        run: |
+          cd ghostty-src
+          zig build install -Demit-lib-vt=true -Demit-xcframework=false -Dtarget=aarch64-windows-gnu -Doptimize=ReleaseSafe
+          mkdir -p "${{ github.workspace }}/runtimes/win-arm64/native"
+          cp "zig-out/bin/ghostty-vt.dll" \
+            "${{ github.workspace }}/runtimes/win-arm64/native/"
+          cp "zig-out/bin/ghostty-vt.pdb" \
+            "${{ github.workspace }}/runtimes/win-arm64/native/"
+
+      - name: Check Windows ABI
+        run: |
+          python build/check-windows-abi.py \
+            "runtimes/win-arm64/native/ghostty-vt.dll" \
+            --machine arm64 \
+            --pdb "runtimes/win-arm64/native/ghostty-vt.pdb"
+          python build/selftest-windows-abi.py \
+            "runtimes/win-arm64/native/ghostty-vt.dll" \
+            --machine arm64 \
+            --pdb "runtimes/win-arm64/native/ghostty-vt.pdb"
+
+      - name: Upload native artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-win-arm64
+          path: runtimes/win-arm64/native
+
   pack:
-    needs: [preflight, build-native]
+    needs: [preflight, build-native, build-native-arm64]
+    # A failed ARM64 leg is a follow-up, not an x64 release blocker. The
+    # package-content check below then requires win-arm64 only when this job
+    # produced one.
+    if: |
+      !cancelled() &&
+      needs.preflight.result == 'success' &&
+      needs.build-native.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -318,6 +377,7 @@ jobs:
           path: runtimes/win-x64/native
 
       - name: Download native (win-arm64)
+        if: needs.build-native-arm64.result == 'success'
         uses: actions/download-artifact@v8
         with:
           name: native-win-arm64
@@ -369,6 +429,27 @@ jobs:
           bash build/assert-packed-version.sh \
             "$(find artifacts -name '*.nupkg' -print -quit)" \
             "$PKG_VERSION"
+
+      # `dotnet pack` never proves the Windows trees are in the package. Check
+      # the exact bytes that would publish, including the import table and the
+      # PDB identity. If the ARM64 leg failed, require x64 only and say so.
+      - name: Check Windows natives in the package
+        env:
+          ARM64_RESULT: ${{ needs.build-native-arm64.result }}
+        run: |
+          NUPKG=$(find artifacts -name '*.nupkg' -print -quit)
+          if [ -z "$NUPKG" ]; then
+            echo "::error::no .nupkg under artifacts/"
+            exit 1
+          fi
+          if [ "$ARM64_RESULT" = "success" ]; then
+            python3 build/check-nupkg.py "$NUPKG" \
+              --require-rid win-x64 --require-rid win-arm64
+          else
+            echo "::warning title=Windows ARM64::build-native-arm64 did not succeed; this package is x64-only"
+            python3 build/check-nupkg.py "$NUPKG" \
+              --require-rid win-x64 --allow-missing-rid win-arm64
+          fi
 
       - name: Upload package
         uses: actions/upload-artifact@v7

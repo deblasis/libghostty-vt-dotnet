@@ -1,8 +1,8 @@
-// The package ships ghostty-vt.pdb beside ghostty-vt.dll. A NuGet consumer
-// without a RuntimeIdentifier loads the native library from the extracted
-// package folder rather than from bin/, so the PDB has to be checked next to
-// the module the runtime actually loaded. This test is a no-op on platforms
-// that ship no PDB.
+// The package ships ghostty-vt.pdb beside ghostty-vt.dll. NuGet copies the
+// package's native asset into bin/<config>/<tfm>/runtimes/<rid>/native/, and
+// default P/Invoke probing resolves it there, so the PDB has to be checked
+// next to the module the runtime actually loaded. This test is a no-op on
+// platforms that ship no PDB.
 using System;
 using System.Diagnostics;
 using System.IO;
