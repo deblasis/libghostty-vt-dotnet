@@ -8,9 +8,15 @@ produced package and requires, for every expected RID, a non-empty
 `check-windows-abi.py` on the extracted pair. The import table and the PDB
 identity are therefore checked against the exact bytes that would publish.
 
+It also enumerates every `runtimes/win-*/native/` tree rather than trusting a
+fixed list: an unexpected Windows RID, or an extra file inside a checked tree,
+fails the gate. The embedded README must name every Windows RID the package
+ships, so the package never advertises less than it contains.
+
 By default both Windows RIDs are required. `--allow-missing-rid` relaxes one
 with a warning, for the case where the ARM64 build leg failed and the x64
-package must still ship.
+package must still ship. A partially present tree is still checked, so the
+relaxation cannot hide a broken or wrong-architecture pair.
 
 Usage: check-nupkg.py <nupkg> [--require-rid RID]... [--allow-missing-rid RID]...
 """
@@ -26,8 +32,9 @@ from pathlib import Path
 
 DEFAULT_RIDS = ("win-x64", "win-arm64")
 MACHINES = {"win-x64": "x64", "win-arm64": "arm64"}
-DLL = "ghostty-vt.dll"
-PDB = "ghostty-vt.pdb"
+NATIVE_FILES = ("ghostty-vt.dll", "ghostty-vt.pdb")
+WINDOWS_PREFIX = "win-"
+README = "README.md"
 CHECKER = Path(__file__).with_name("check-windows-abi.py")
 
 
@@ -49,14 +56,56 @@ def read_member(package: zipfile.ZipFile, name: str) -> bytes:
     return package.read(info)
 
 
+def windows_trees(names: set[str]) -> dict[str, set[str]]:
+    """Map every Windows runtime RID to the files under its native directory."""
+    trees: dict[str, set[str]] = {}
+    for name in names:
+        parts = name.split("/")
+        if len(parts) < 4 or parts[0] != "runtimes" or parts[2] != "native":
+            continue
+        rid = parts[1]
+        if not rid.startswith(WINDOWS_PREFIX):
+            continue
+        trees.setdefault(rid, set()).add("/".join(parts[3:]))
+    return trees
+
+
+def check_trees(trees: dict[str, set[str]]) -> None:
+    unknown = sorted(rid for rid in trees if rid not in MACHINES)
+    if unknown:
+        raise PackageError(
+            "package ships Windows runtime trees this gate does not know: "
+            + ", ".join(unknown)
+        )
+    for rid, files in sorted(trees.items()):
+        extra = sorted(files - set(NATIVE_FILES))
+        if extra:
+            raise PackageError(
+                f"package has unexpected files under {rid}/native: "
+                + ", ".join(extra)
+            )
+
+
+def check_readme(package: zipfile.ZipFile, names: set[str], rids: list[str]) -> None:
+    if README not in names:
+        raise PackageError(f"package is missing {README}")
+    text = read_member(package, README).decode("utf-8", errors="replace")
+    missing = [rid for rid in rids if rid not in text]
+    if missing:
+        raise PackageError(
+            f"{README} does not name the packaged Windows runtime(s): "
+            + ", ".join(missing)
+        )
+
+
 def check_rid(package: zipfile.ZipFile, rid: str, machine: str, root: Path) -> None:
-    dll = read_member(package, native_path(rid, DLL))
-    pdb = read_member(package, native_path(rid, PDB))
+    dll = read_member(package, native_path(rid, "ghostty-vt.dll"))
+    pdb = read_member(package, native_path(rid, "ghostty-vt.pdb"))
 
     directory = root / rid
     directory.mkdir(parents=True, exist_ok=True)
-    dll_path = directory / DLL
-    pdb_path = directory / PDB
+    dll_path = directory / "ghostty-vt.dll"
+    pdb_path = directory / "ghostty-vt.pdb"
     dll_path.write_bytes(dll)
     pdb_path.write_bytes(pdb)
 
@@ -83,7 +132,7 @@ def member_names(package: zipfile.ZipFile) -> set[str]:
     return {info.filename for info in package.infolist()}
 
 
-def main() -> int:
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("nupkg", type=Path)
     parser.add_argument(
@@ -100,7 +149,11 @@ def main() -> int:
         metavar="RID",
         help="Windows RID that may be absent, e.g. when its build leg failed",
     )
-    args = parser.parse_args()
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
 
     if not args.nupkg.is_file():
         print(f"::error::package not found: {args.nupkg}", file=sys.stderr)
@@ -113,9 +166,19 @@ def main() -> int:
     allowed_missing = set(args.allow_missing_rid)
 
     unknown = [rid for rid in required if rid not in MACHINES]
+    unknown.extend(rid for rid in allowed_missing if rid not in MACHINES)
     if unknown:
         print(
-            f"::error::unknown Windows RID(s): {', '.join(unknown)}",
+            f"::error::unknown Windows RID(s): {', '.join(sorted(set(unknown)))}",
+            file=sys.stderr,
+        )
+        return 1
+
+    overlap = sorted(set(args.require_rid) & allowed_missing)
+    if overlap:
+        print(
+            "::error::RID(s) both required and allowed to be missing: "
+            + ", ".join(overlap),
             file=sys.stderr,
         )
         return 1
@@ -126,23 +189,43 @@ def main() -> int:
         ) as directory:
             root = Path(directory)
             names = member_names(package)
+            trees = windows_trees(names)
+            check_trees(trees)
+
             checked = []
+            present = []
             for rid in required:
-                present = {
-                    name: native_path(rid, name) in names for name in (DLL, PDB)
-                }
-                if rid in allowed_missing and not any(present.values()):
+                if rid in trees:
+                    # A partially present tree is still checked: skipping the
+                    # RID must not turn a broken or wrong-architecture pair into
+                    # a silent pass.
+                    check_rid(package, rid, MACHINES[rid], root)
+                    checked.append(rid)
+                    present.append(rid)
+                elif rid in allowed_missing:
                     print(
                         f"::warning::{rid} is allowed to be missing; "
                         "the package will not claim that architecture"
                     )
-                    continue
-                # A partially present tree is still checked: skipping the RID
-                # must not turn a broken or wrong-architecture pair into a
-                # silent pass.
-                check_rid(package, rid, MACHINES[rid], root)
-                checked.append(rid)
-    except (OSError, zipfile.BadZipFile, PackageError) as error:
+                else:
+                    raise PackageError(
+                        f"package is missing the {rid} native tree "
+                        f"({native_path(rid, 'ghostty-vt.dll')})"
+                    )
+
+            if not checked:
+                raise PackageError(
+                    "no Windows native tree was checked; the gate proved nothing"
+                )
+
+            check_readme(package, names, present)
+    except (
+        OSError,
+        RuntimeError,
+        NotImplementedError,
+        zipfile.BadZipFile,
+        PackageError,
+    ) as error:
         print(f"::error::{args.nupkg}: {error}", file=sys.stderr)
         return 1
 

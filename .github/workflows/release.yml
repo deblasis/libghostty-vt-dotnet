@@ -300,6 +300,9 @@ jobs:
   build-native-arm64:
     needs: preflight
     runs-on: windows-latest
+    # A hung ARM64 runner must not hold the x64 release for the 6-hour default.
+    # ARM64 is a non-blocking follow-up, so cap it well below the x64 path.
+    timeout-minutes: 30
     defaults:
       run:
         shell: bash
@@ -377,7 +380,11 @@ jobs:
           path: runtimes/win-x64/native
 
       - name: Download native (win-arm64)
-        if: needs.build-native-arm64.result == 'success'
+        # A failed or timed-out ARM64 build is a follow-up, not an x64 blocker.
+        # The package check below reads the extracted tree, not the upstream
+        # job result, so a missing artifact cannot make an x64-only package
+        # look complete.
+        continue-on-error: true
         uses: actions/download-artifact@v8
         with:
           name: native-win-arm64
@@ -432,23 +439,48 @@ jobs:
 
       # `dotnet pack` never proves the Windows trees are in the package. Check
       # the exact bytes that would publish, including the import table and the
-      # PDB identity. If the ARM64 leg failed, require x64 only and say so.
+      # PDB identity. Whether win-arm64 is required is read from the extracted
+      # tree, not from the upstream job result: a missing artifact must produce
+      # an x64-only package, never an unchecked one.
       - name: Check Windows natives in the package
-        env:
-          ARM64_RESULT: ${{ needs.build-native-arm64.result }}
         run: |
           NUPKG=$(find artifacts -name '*.nupkg' -print -quit)
           if [ -z "$NUPKG" ]; then
             echo "::error::no .nupkg under artifacts/"
             exit 1
           fi
-          if [ "$ARM64_RESULT" = "success" ]; then
-            python3 build/check-nupkg.py "$NUPKG" \
-              --require-rid win-x64 --require-rid win-arm64
+          rids=(--require-rid win-x64)
+          if [ -n "$(ls -A runtimes/win-arm64/native 2>/dev/null)" ]; then
+            rids+=(--require-rid win-arm64)
           else
-            echo "::warning title=Windows ARM64::build-native-arm64 did not succeed; this package is x64-only"
-            python3 build/check-nupkg.py "$NUPKG" \
-              --require-rid win-x64 --allow-missing-rid win-arm64
+            echo "::warning title=Windows ARM64::no win-arm64 native tree; this package is x64-only"
+            rids+=(--allow-missing-rid win-arm64)
+          fi
+          python3 build/check-nupkg.py "$NUPKG" "${rids[@]}"
+
+      # The symbol package is pushed automatically beside the .nupkg, so its
+      # shape must be checked before the push too. nuget.org rejects native
+      # MSF PDBs asynchronously, long after `dotnet nuget push` exits 0.
+      - name: Check symbol package shape
+        run: |
+          SNUPKG=$(find artifacts -name '*.snupkg' -print -quit)
+          if [ -z "$SNUPKG" ]; then
+            echo "::error::no .snupkg under artifacts/"
+            exit 1
+          fi
+          python3 build/check-snupkg.py "$SNUPKG"
+
+      # The gates above are only trustworthy if they reject the inputs they
+      # exist for. Run their self-tests against real packaged bytes.
+      - name: Prove the package gates reject bad input
+        run: |
+          python3 build/selftest-check-snupkg.py
+          if [ -d runtimes/win-x64/native ] && [ -d runtimes/win-arm64/native ]; then
+            python3 build/selftest-check-nupkg.py \
+              --x64-dir runtimes/win-x64/native \
+              --arm64-dir runtimes/win-arm64/native
+          else
+            echo "Skipping the Windows package self-test: both native trees are required."
           fi
 
       - name: Upload package
@@ -484,9 +516,12 @@ jobs:
           path: artifacts
 
       - name: Validate pack (real NuGet consumer)
+        env:
+          PKG_VERSION: ${{ needs.preflight.outputs.package_version }}
         run: |
           dotnet test tests/Ghostty.Vt.PackageConsumer.Tests/Ghostty.Vt.PackageConsumer.Tests.csproj \
             --configuration Release \
+            -p:GhosttyVtVersionOverride="$PKG_VERSION" \
             --logger "trx"
 
   publish:

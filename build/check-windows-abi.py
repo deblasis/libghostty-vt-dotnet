@@ -139,10 +139,17 @@ def directory_names(
     entry = data_directory + index * 8
     rva = read_u32(data, entry)
     size = read_u32(data, entry + 4)
-    if rva == 0 or size == 0:
+    if rva == 0:
+        if size != 0:
+            raise PeError(f"PE data directory {index} has a size but no address")
         if required:
             raise PeError("PE has no import table")
         return []
+    if size == 0:
+        # A non-zero address with a zero size is malformed or truncated. The
+        # table may exist, so treating it as absent would let imports through
+        # unread. Fail closed instead.
+        raise PeError(f"PE data directory {index} has an address but no size")
 
     descriptor_offset = rva_to_offset(data, sections, rva)
     names: list[str] = []

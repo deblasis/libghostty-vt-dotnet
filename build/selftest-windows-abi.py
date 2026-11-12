@@ -7,7 +7,8 @@ Runs the checker against copies of a real DLL:
 2. one allowed import renamed to vcruntime140.dll: must fail
 3. machine field changed to ARM64: must fail the x64 check
 4. delay-import descriptor walk: a normal entry plus the zero terminator must
-   parse, and a VA-based descriptor must be rejected
+   parse, a VA-based descriptor must be rejected, and a non-zero table address
+   with `SizeOfData == 0` must fail closed
 
 With --pdb, also proves the PDB gate:
 
@@ -137,8 +138,22 @@ def check_delay_walk() -> None:
             delay_table(0), sections, 0x200, 16, 13, required=False
         )
     except module.PeError:
-        return
-    raise SelftestError("delay-import walk accepted a VA-based descriptor")
+        pass
+    else:
+        raise SelftestError("delay-import walk accepted a VA-based descriptor")
+
+    zero_size = bytearray(delay_table(1))
+    struct.pack_into("<I", zero_size, 0x200 + 13 * 8 + 4, 0)
+    try:
+        module.directory_names(
+            bytes(zero_size), sections, 0x200, 16, 13, required=False
+        )
+    except module.PeError:
+        pass
+    else:
+        raise SelftestError(
+            "delay-import walk accepted a non-zero address with SizeOfData == 0"
+        )
 
 
 def expect(name: str, result: subprocess.CompletedProcess[str], accepted: bool) -> None:

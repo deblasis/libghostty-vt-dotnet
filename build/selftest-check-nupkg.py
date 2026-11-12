@@ -11,6 +11,11 @@ Builds throwaway .nupkg files from real DLL/PDB fixtures and asserts:
 6. win-x64 pair only, with win-arm64 allowed to be missing: must pass
 7. win-arm64 DLL only, with win-arm64 allowed to be missing: must fail
    (a skipped RID must not hide a partial or wrong-architecture tree)
+8. an extra Windows runtime tree (win-x86): must fail
+9. an extra file inside a checked native directory: must fail
+10. a README that omits a packaged Windows RID: must fail
+11. the same RID both required and allowed to be missing: must fail
+12. an encrypted member: must fail with an annotated error, not a traceback
 
 Usage: selftest-check-nupkg.py --x64-dir DIR --arm64-dir DIR
 """
@@ -18,6 +23,7 @@ Usage: selftest-check-nupkg.py --x64-dir DIR --arm64-dir DIR
 from __future__ import annotations
 
 import argparse
+import struct
 import subprocess
 import sys
 import tempfile
@@ -27,6 +33,7 @@ from pathlib import Path
 CHECKER = Path(__file__).with_name("check-nupkg.py")
 DLL = "ghostty-vt.dll"
 PDB = "ghostty-vt.pdb"
+README = "README.md"
 
 
 class SelftestError(Exception):
@@ -41,11 +48,30 @@ def pair(directory: Path) -> dict[str, bytes]:
     return {DLL: dll.read_bytes(), PDB: pdb.read_bytes()}
 
 
-def write_package(path: Path, natives: dict[str, dict[str, bytes]]) -> None:
+def write_package(path: Path, entries: dict[str, bytes]) -> None:
     with zipfile.ZipFile(path, "w") as package:
-        for rid, files in natives.items():
-            for name, data in files.items():
-                package.writestr(f"runtimes/{rid}/native/{name}", data)
+        for name, data in entries.items():
+            package.writestr(name, data)
+
+
+def compile_image(natives: dict[str, dict[str, bytes]], rids: list[str]) -> dict[str, bytes]:
+    entries: dict[str, bytes] = {}
+    for rid, files in natives.items():
+        for name, data in files.items():
+            entries[f"runtimes/{rid}/native/{name}"] = data
+    entries[README] = "\n".join(["# Package"] + rids).encode("utf-8")
+    return entries
+
+
+def encrypt(path: Path) -> None:
+    data = bytearray(path.read_bytes())
+    for magic, offset in ((b"PK\x03\x04", 6), (b"PK\x01\x02", 8)):
+        position = 0
+        while (position := data.find(magic, position)) >= 0:
+            field = struct.unpack_from("<H", data, position + offset)[0]
+            struct.pack_into("<H", data, position + offset, field | 1)
+            position += 4
+    path.write_bytes(data)
 
 
 def run(package: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -69,6 +95,17 @@ def expect(name: str, result: subprocess.CompletedProcess[str], accepted: bool) 
     )
 
 
+def package(
+    root: Path,
+    name: str,
+    natives: dict[str, dict[str, bytes]],
+    rids: list[str] | None = None,
+) -> Path:
+    path = root / name
+    write_package(path, compile_image(natives, rids if rids is not None else list(natives)))
+    return path
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--x64-dir", type=Path, required=True)
@@ -87,20 +124,21 @@ def main() -> int:
             root = Path(directory)
 
             empty = root / "empty.nupkg"
-            write_package(empty, {})
+            write_package(empty, {README: b"# Package"})
             expect("no natives", run(empty), accepted=False)
 
-            x64_only = root / "x64-only.nupkg"
-            write_package(x64_only, {"win-x64": x64})
-            expect("missing win-arm64", run(x64_only), accepted=False)
+            expect(
+                "missing win-arm64",
+                run(package(root, "x64-only.nupkg", {"win-x64": x64})),
+                accepted=False,
+            )
 
-            complete = root / "complete.nupkg"
-            write_package(complete, {"win-x64": x64, "win-arm64": arm64})
+            complete = package(root, "complete.nupkg", {"win-x64": x64, "win-arm64": arm64})
             expect("complete package", run(complete), accepted=True)
 
-            wrong_pdb = root / "wrong-pdb.nupkg"
-            write_package(
-                wrong_pdb,
+            wrong_pdb = package(
+                root,
+                "wrong-pdb.nupkg",
                 {
                     "win-x64": x64,
                     "win-arm64": {DLL: arm64[DLL], PDB: x64[PDB]},
@@ -108,9 +146,9 @@ def main() -> int:
             )
             expect("foreign win-arm64 PDB", run(wrong_pdb), accepted=False)
 
-            wrong_dll = root / "wrong-dll.nupkg"
-            write_package(
-                wrong_dll,
+            wrong_dll = package(
+                root,
+                "wrong-dll.nupkg",
                 {
                     "win-x64": x64,
                     "win-arm64": {DLL: x64[DLL], PDB: arm64[PDB]},
@@ -118,6 +156,7 @@ def main() -> int:
             )
             expect("wrong win-arm64 machine", run(wrong_dll), accepted=False)
 
+            x64_only = package(root, "optional-x64.nupkg", {"win-x64": x64})
             optional = ("--allow-missing-rid", "win-arm64")
             expect(
                 "arm64 absent and allowed",
@@ -125,13 +164,47 @@ def main() -> int:
                 accepted=True,
             )
 
-            partial = root / "partial-arm64.nupkg"
-            write_package(partial, {"win-x64": x64, "win-arm64": {DLL: arm64[DLL]}})
+            partial = package(
+                root, "partial-arm64.nupkg", {"win-x64": x64, "win-arm64": {DLL: arm64[DLL]}}
+            )
             expect(
                 "arm64 DLL without its PDB, even when optional",
                 run(partial, *optional),
                 accepted=False,
             )
+
+            stray = package(
+                root,
+                "stray-tree.nupkg",
+                {"win-x64": x64, "win-arm64": arm64, "win-x86": x64},
+            )
+            expect("unknown Windows runtime tree", run(stray), accepted=False)
+
+            extra_file = package(root, "extra-file.nupkg", {"win-x64": x64, "win-arm64": arm64})
+            with zipfile.ZipFile(extra_file, "a") as archive:
+                archive.writestr("runtimes/win-x64/native/vcruntime140.dll", b"MZ")
+            expect("extra file in a checked tree", run(extra_file), accepted=False)
+
+            quiet_readme = package(
+                root,
+                "quiet-readme.nupkg",
+                {"win-x64": x64, "win-arm64": arm64},
+                rids=["win-x64"],
+            )
+            expect("README omits a packaged RID", run(quiet_readme), accepted=False)
+
+            overlap = ("--require-rid", "win-arm64", "--allow-missing-rid", "win-arm64")
+            expect("RID both required and optional", run(complete, *overlap), accepted=False)
+
+            encrypted = package(root, "encrypted.nupkg", {"win-x64": x64, "win-arm64": arm64})
+            encrypt(encrypted)
+            result = run(encrypted)
+            expect("encrypted member", result, accepted=False)
+            if "Traceback" in result.stderr:
+                raise SelftestError(
+                    "encrypted member produced a traceback instead of an "
+                    f"annotated error:\n{result.stderr.strip()}"
+                )
     except (OSError, SelftestError) as error:
         print(f"::error::{error}", file=sys.stderr)
         return 1

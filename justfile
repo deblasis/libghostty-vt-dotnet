@@ -180,8 +180,10 @@ pack version="0.0.1-dev":
     @echo "Package created: artifacts/DeBlasis.GhosttyVt.{{ version }}.nupkg"
 
 # Validate the packed NuGet package by consuming it as a real client would.
-# Requires a fresh `just pack` to have populated artifacts/ first.
-validate-pack:
+# Requires `just pack version=<same version>` to have populated artifacts/
+# first. The version is explicit so the content gate and the consumer restore
+# can never disagree about which package is under test.
+validate-pack version="0.0.1-dev":
     #!/bin/bash
     set -euo pipefail
     # Scrub per-project package cache + build outputs so a stale nupkg with a
@@ -189,14 +191,15 @@ validate-pack:
     rm -rf tests/Ghostty.Vt.PackageConsumer.Tests/packages \
            tests/Ghostty.Vt.PackageConsumer.Tests/bin \
            tests/Ghostty.Vt.PackageConsumer.Tests/obj
+    # Select the exact package this run packed, by version, not by mtime.
+    nupkg=$(python3 build/select-nupkg.py \
+        --directory artifacts \
+        --version "{{ version }}")
+    snupkg="${nupkg%.nupkg}.snupkg"
+    python3 build/check-snupkg.py "$snupkg"
     # Check the package contents before restoring it: a nupkg that is missing
     # a Windows runtime fails to load, and a wrong-architecture or stale pair
     # only shows up in the import table / PDB identity.
-    nupkg=$(ls -t artifacts/*.nupkg 2>/dev/null | head -n 1 || true)
-    if [ -z "$nupkg" ]; then
-        echo "ERROR: no .nupkg in artifacts/; run 'just pack' first." >&2
-        exit 1
-    fi
     rids=(--require-rid win-x64)
     if [ -d runtimes/win-arm64/native ]; then
         rids+=(--require-rid win-arm64)
@@ -206,7 +209,27 @@ validate-pack:
     python3 build/check-nupkg.py "$nupkg" "${rids[@]}"
     dotnet test tests/Ghostty.Vt.PackageConsumer.Tests/Ghostty.Vt.PackageConsumer.Tests.csproj \
         --configuration Release \
+        -p:GhosttyVtVersionOverride="{{ version }}" \
         --logger "trx"
+
+# Prove the package and runtime gates reject the inputs they exist for. The
+# Windows cases need both native trees staged; the rest run anywhere.
+validate-gates:
+    #!/bin/bash
+    set -euo pipefail
+    python3 build/selftest-check-snupkg.py
+    python3 build/selftest-select-nupkg.py
+    if [ -d runtimes/win-x64/native ] && [ -d runtimes/win-arm64/native ]; then
+        python3 build/selftest-check-nupkg.py \
+            --x64-dir runtimes/win-x64/native \
+            --arm64-dir runtimes/win-arm64/native
+        python3 build/selftest-windows-abi.py \
+            runtimes/win-x64/native/ghostty-vt.dll \
+            --machine x64 \
+            --pdb runtimes/win-x64/native/ghostty-vt.pdb
+    else
+        echo "Skipping the Windows gate self-tests: both native trees are required."
+    fi
 
 # ──────────────────────────────────────────────
 #  Upstream sync helpers
