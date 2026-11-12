@@ -3,15 +3,16 @@
 # Run build/selftest-binding-delta.sh and refuse a report that is not backed by
 # executed assertions.
 #
-# The self-test prints its own pass count, which makes that count self-certified:
-# a stub that prints "40 passed, 0 failed" satisfies a reader that trusts it.
-# This script cross-checks the printed count against the number of `ok` lines
-# the self-test actually emitted, and rejects any `FAIL` line. A stub that
-# asserts nothing therefore fails even if it prints a plausible total.
+# The self-test prints its own pass count, which makes that count
+# self-certified: a stub that prints "40 passed, 0 failed" satisfies a reader
+# that trusts it. This script cross-checks the printed count against the number
+# of `ok` lines the self-test actually emitted, and rejects any `FAIL` line.
 #
-# Both the CI job and the local regression suite run this script, so the check
-# that guards the body builder has one implementation rather than two that can
-# drift apart.
+# That cross-check is still built from lines the self-test prints, so it is a
+# secondary signal. The authoritative check is
+# `build/check-binding-delta-behaviour.sh`, which runs the builder against
+# fixtures and fails on the body rather than on a report about the body. It runs
+# here so the CI job and the local regression suite both exercise it.
 #
 # Usage: build/check-binding-delta-selftest.sh
 #   SELFTEST=<path>  run a different self-test (used to prove this gate rejects
@@ -60,6 +61,14 @@ if [ "$ran" -ne "$reported" ]; then
 fi
 if [ "$ran" -lt "$MIN_CASES" ]; then
   echo "only $ran self-test cases ran; keep at least $MIN_CASES"
+  exit 1
+fi
+
+# The count above comes from the self-test's own output. Check the builder
+# directly as well: this fails on the body, so a self-test that prints a
+# plausible count cannot stand in for the behaviour.
+if ! bash "$HERE/check-binding-delta-behaviour.sh"; then
+  echo "the builder behaviour check failed; see the FAIL lines above"
   exit 1
 fi
 

@@ -149,7 +149,9 @@ jobs:
         # Running the self-test is not enough on its own: a stub that prints a
         # plausible pass count would satisfy an exit-status check. The script
         # below cross-checks the reported count against the assertions that
-        # actually ran, and prints the captured output when a case fails.
+        # actually ran, and then runs build/check-binding-delta-behaviour.sh,
+        # which fails on the body the builder wrote rather than on a report
+        # about it.
         run: bash build/check-binding-delta-selftest.sh
 
   bindings-drift:

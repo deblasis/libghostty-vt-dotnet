@@ -70,6 +70,11 @@ the package version does not mirror the upstream version.
   boundary when it is larger than the body budget. A delta made only of
   constants used to produce an empty code block, so the issue asked for a
   review and showed nothing to review.
+- The API-delta issue treats a changed declaration as a signature change when
+  it has an accessibility modifier before `static`, an `unsafe` modifier, an
+  attribute on the same line, or is a `static partial` declaration, instead of
+  accepting only `public static extern`. A diff containing a NUL byte is
+  refused rather than rendered as `Binary file … matches`.
 
 ## 1.4.1 (2026-10-22)
 

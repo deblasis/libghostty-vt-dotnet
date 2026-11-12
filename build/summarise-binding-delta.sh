@@ -25,13 +25,31 @@ MAX_DIFF_BYTES=${MAX_DIFF_BYTES:-20000}
 MAX_SIGNATURE_BYTES=${MAX_SIGNATURE_BYTES:-10000}
 MAX_SIGNATURE_LINES=${MAX_SIGNATURE_LINES:-50}
 
-# A changed declaration, not any added or removed line that happens to mention
-# `static extern`. A diff line that adds or removes a comment containing the
-# words would otherwise be reported as a signature change and would suppress
-# the honest "none changed" sentence. The marker must be followed by an
-# optional accessibility modifier and then the declaration itself, so
-# commented-out code and doc lines fail to match.
-SIGNATURE_PATTERN='^[+-][[:space:]]*((public|internal|private|protected)[[:space:]]+)?static[[:space:]]+extern[[:space:]]'
+# A changed line counts as a signature line when, after the diff marker and
+# any leading attributes, it contains an `extern` declaration or a
+# `static partial` declaration (the `[LibraryImport]` shape). Comment lines are
+# skipped, so a doc line that mentions `static extern` cannot suppress the
+# honest "none changed" sentence.
+#
+# The matcher is deliberately broad. Reporting one line that is not a
+# declaration costs a reader a glance; missing a declaration tells them the
+# opposite of what changed. Accessibility modifiers on either side of `static`
+# (`protected internal`, `private protected`), `unsafe`, an attribute on the
+# declaration line, and a declaration split after `extern` all match.
+SIGNATURE_AWK='
+function is_declaration(line,    text) {
+  text = substr(line, 2)
+  sub(/^[[:space:]]+/, "", text)
+  if (text ~ /^(\/\/|\/\*|\*)/) return 0
+  while (match(text, /^\[[^]]*\][[:space:]]*/)) {
+    text = substr(text, RSTART + RLENGTH)
+  }
+  if (text ~ /(^|[[:space:]])extern([[:space:]]|\(|$)/) return 1
+  if (text ~ /(^|[[:space:]])static[[:space:]]+partial([[:space:]]|$)/ && text ~ /\(/) return 1
+  return 0
+}
+/^[+-]/ { if (is_declaration($0)) print }
+'
 
 die() {
   echo "summarise-binding-delta: $*" >&2
@@ -66,6 +84,13 @@ LC_ALL=C grep -qE '^@@|^[+-][^+-]' "$diff_file" \
 # UTF-8 C# sources, so a genuine diff always passes.
 iconv -f UTF-8 -t UTF-8 < "$diff_file" > /dev/null 2>&1 \
   || die "diff file is not valid UTF-8: $diff_file"
+
+# NUL is valid UTF-8, so the check above accepts it, but `grep` treats a file
+# with a NUL as binary and prints its path instead of the matching line, which
+# replaces the summary with a runner path. A generated text diff never holds
+# one, so refuse it here.
+[ "$(LC_ALL=C tr -d '\000' < "$diff_file" | wc -c)" -eq "$(wc -c < "$diff_file")" ] \
+  || die "diff file contains a NUL byte: $diff_file"
 
 # Print complete lines until the byte budget is reached. Byte-accurate `head
 # -c` truncation can split a multi-byte character, which makes the request
@@ -148,8 +173,8 @@ size=$(wc -c < "$diff_file" | tr -d ' ')
 fence_len=$(fence_length_for "$diff_file")
 fence=$(fence_of_length "$fence_len")
 
-signature_total=$(grep -cE "$SIGNATURE_PATTERN" "$diff_file" || true)
-signatures=$(grep -E "$SIGNATURE_PATTERN" "$diff_file" \
+signature_total=$(LC_ALL=C awk "$SIGNATURE_AWK" "$diff_file" | wc -l | tr -d ' ')
+signatures=$(LC_ALL=C awk "$SIGNATURE_AWK" "$diff_file" \
   | head -n "$MAX_SIGNATURE_LINES" || true)
 signature_shown=0
 signature_placeholder=0
@@ -189,9 +214,6 @@ if [ "$signature_total" -gt 0 ]; then
       printf 'Showing the first %s of %s changed signature lines; the rest are in the full diff below or in the `regenerated-bindings` artifact.\n\n' \
         "$signature_shown" "$signature_total"
     fi
-  else
-    printf 'Signature-level changes: the changed lines are longer than the %s-byte summary budget, so they are shown only in the full diff below.\n\n' \
-      "$MAX_SIGNATURE_BYTES"
   fi
 else
   printf 'No `static extern` signature lines changed. The delta is in generated constants, attributes, or other declarations. The full diff is the record; it follows.\n\n'
