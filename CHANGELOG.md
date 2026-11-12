@@ -72,9 +72,11 @@ the package version does not mirror the upstream version.
   review and showed nothing to review.
 - The API-delta issue treats a changed declaration as a signature change when
   it has an accessibility modifier before `static`, an `unsafe` modifier, an
-  attribute on the same line, or is a `static partial` declaration, instead of
-  accepting only `public static extern`. A diff containing a NUL byte is
-  refused rather than rendered as `Binary file … matches`.
+  attribute on the same line, or is a `static partial` declaration (including
+  one split before its argument list), instead of accepting only
+  `public static extern`. A diff with no changed line is refused rather than
+  rendered as an empty block, and a diff containing a NUL byte is refused
+  rather than rendered as `Binary file … matches`.
 
 ## 1.4.1 (2026-10-22)
 
