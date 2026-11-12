@@ -59,6 +59,17 @@ the package version does not mirror the upstream version.
   `ghostty_formatter_set`, and `ghostty_formatter_get`. The raw surface is now
   209 entry points.
 
+### Fixed
+
+- The version tests compare the loaded library with the generated
+  `GHOSTTY_VT_VERSION_*` constants instead of literals such as `1.1.0`.
+  Upstream moves its libghostty-vt version independently of the package
+  version, so the literal assertions failed on a pin bump that was otherwise
+  correct.
+- The nightly API-delta issue always carries the generated diff. A delta made
+  only of constants used to produce an empty code block, so the issue asked
+  for a review and showed nothing to review.
+
 ## 1.4.1 (2026-10-22)
 
 - The curated `Ghostty.Vt` API now forwards to the generated raw ABI layer.

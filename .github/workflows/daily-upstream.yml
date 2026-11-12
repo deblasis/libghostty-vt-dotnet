@@ -303,10 +303,10 @@ jobs:
 
       # The nightly now advances the pinned reference automatically, so the red
       # `ci.yml` signature-change alarm is gone. Replace it with a durable,
-      # non-red tracker: one open issue per condition, with the signature-level
-      # lines and the run link. Best-effort: an issue-tracker outage must not
-      # hold the pin (the step cannot fail the job, and dry runs print the body
-      # instead of posting it).
+      # non-red tracker: one open issue per condition, carrying the
+      # signature-level lines, the full diff, and the run link. Best-effort: an
+      # issue-tracker outage must not hold the pin (the step cannot fail the
+      # job, and dry runs print the body instead of posting it).
       - name: Track API delta in an issue
         continue-on-error: true
         env:
@@ -322,9 +322,8 @@ jobs:
             exit 0
           fi
 
-          SIGNATURES=$(grep -E '^[+-].*static extern' "$RUNNER_TEMP/upstream.diff" | head -50 || true)
-          BODY=$(printf 'Upstream `%s` generates a different pinned binding reference — [run](%s).\n\nThe pinned reference and raw ABI layer are refreshed automatically with the pin. Review the signature delta below.\n\nSignature-level changes:\n\n```diff\n%s\n```\n' \
-            "$COMMIT" "$RUN_URL" "$SIGNATURES")
+          BODY=$(bash build/summarise-binding-delta.sh \
+            "$RUNNER_TEMP/upstream.diff" "$COMMIT" "$RUN_URL")
 
           # Dry runs exercise the body construction but must not mutate the
           # public tracker.

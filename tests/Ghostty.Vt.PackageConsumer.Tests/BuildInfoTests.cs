@@ -3,6 +3,7 @@
 // DllNotFoundException on the first P/Invoke call, producing the exact
 // signal this whole project exists to catch.
 using Ghostty.Vt;
+using Ghostty.Vt.Raw;
 using Xunit;
 
 namespace Ghostty.Vt.PackageConsumer.Tests;
@@ -20,17 +21,25 @@ public class BuildInfoTests
     }
 
     [Fact]
-    public void Query_ReportsMinorVersionGreaterThanZero()
+    public void Query_ReportsTheVersionOfThePackagedBindings()
     {
-        // BuildInfo.Query() reports the libghostty-vt library's own version
-        // (currently 1.1.0-dev — distinct from the Ghostty application version
-        // tracked in ghostty-upstream.json). Asserting on VersionMinor > 0
-        // proves the int round-tripped via P/Invoke without tying the test to
-        // an exact minor bump.
+        // BuildInfo.Query() reads these values from the loaded native library;
+        // the constants are compiled from the same pinned headers that built
+        // it. A mismatch means the package mixed files from two upstream
+        // commits. A literal, or an assertion that the minor version is above
+        // zero, instead fails whenever upstream moves its libghostty-vt
+        // version, which is independent of this repository's package version
+        // and can reset to any number.
         var info = BuildInfo.Query();
 
-        Assert.True(
-            info.VersionMinor > 0,
-            $"Expected VersionMinor > 0, got {info.VersionMinor}");
+        Assert.Equal(GhosttyVtNative.GHOSTTY_VT_VERSION_MAJOR, info.VersionMajor);
+        Assert.Equal(GhosttyVtNative.GHOSTTY_VT_VERSION_MINOR, info.VersionMinor);
+        Assert.Equal(GhosttyVtNative.GHOSTTY_VT_VERSION_PATCH, info.VersionPatch);
+
+        var expected =
+            $"{GhosttyVtNative.GHOSTTY_VT_VERSION_MAJOR}." +
+            $"{GhosttyVtNative.GHOSTTY_VT_VERSION_MINOR}." +
+            $"{GhosttyVtNative.GHOSTTY_VT_VERSION_PATCH}";
+        Assert.StartsWith(expected, info.VersionString, StringComparison.Ordinal);
     }
 }

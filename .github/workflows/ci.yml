@@ -136,6 +136,18 @@ jobs:
       - name: Self-test the release version guards
         run: bash build/selftest-release-guards.sh
 
+  # The nightly's API-delta issue body is the durable record of what changed
+  # upstream when a pin moves. When a delta touched only generated constants
+  # the body used to show an empty code block, so the record said nothing. The
+  # body builder is cheap to test and does not need the headers, unlike the
+  # binding gates below.
+  binding-delta:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Self-test the API-delta issue body
+        run: bash build/selftest-binding-delta.sh
+
   bindings-drift:
     runs-on: ubuntu-latest
     steps:
