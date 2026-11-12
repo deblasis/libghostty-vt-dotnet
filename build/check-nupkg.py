@@ -11,7 +11,16 @@ identity are therefore checked against the exact bytes that would publish.
 It also enumerates every `runtimes/win-*/native/` tree rather than trusting a
 fixed list: an unexpected Windows RID, or an extra file inside a checked tree,
 fails the gate. The embedded README must name every Windows RID the package
-ships, so the package never advertises less than it contains.
+ships, so the package never advertises less than it contains. A RID that may be
+absent must be worded as conditional, so it never advertises more than it
+contains either.
+
+The `win` and `any` trees are rejected outright. They are not in the RID graph
+for decoration: NuGet falls back from `win-x64` to `win` to `any` when the
+specific tree is absent, so a native placed there is resolved for every Windows
+RID while sitting outside every tree this gate inspects. This package ships
+architecture-specific natives, so an arch-neutral fallback is never a shape it
+should accept.
 
 Entry names are classified case-insensitively and with backslashes treated as
 separators, so a differently spelled tree cannot slip past the enumeration.
@@ -44,6 +53,10 @@ DEFAULT_RIDS = ("win-x64", "win-arm64")
 MACHINES = {"win-x64": "x64", "win-arm64": "arm64"}
 NATIVE_FILES = ("ghostty-vt.dll", "ghostty-vt.pdb")
 WINDOWS_PREFIX = "win-"
+# NuGet's RID graph falls back from `win-x64`/`win-arm64` to `win` and then to
+# `any`. A native in either tree resolves on Windows without living in a tree
+# this gate checks, so the package must not contain one.
+FALLBACK_RIDS = ("win", "any")
 README = "README.md"
 CHECKER = Path(__file__).with_name("check-windows-abi.py")
 
@@ -117,6 +130,12 @@ def windows_trees(names: set[str]) -> dict[str, set[str]]:
                 f"runtimes/<rid>/native/<file>: {name}"
             )
         rid = parts[1]
+        if rid in FALLBACK_RIDS:
+            raise PackageError(
+                "package puts a native under the arch-neutral RID fallback "
+                f"runtimes/{rid}/native/, which NuGet resolves for a Windows "
+                f"RID with no specific tree of its own: {name}"
+            )
         if not rid.startswith(WINDOWS_PREFIX):
             continue
         trees.setdefault(rid, set()).add("/".join(parts[3:]))
@@ -139,16 +158,47 @@ def check_trees(trees: dict[str, set[str]]) -> None:
             )
 
 
-def check_readme(package: zipfile.ZipFile, names: set[str], rids: list[str]) -> None:
+README_OPTIONAL_MARKER = "is included when"
+
+
+def check_readme(
+    package: zipfile.ZipFile,
+    names: set[str],
+    present: list[str],
+    optional: list[str],
+) -> None:
+    """Require the packaged README to match the package it is inside.
+
+    Every RID the package ships must be named, or the package page advertises
+    less than it carries. The reverse matters too: a RID that may be absent
+    (the ARM64 leg failed, `--allow-missing-rid`) must be described as
+    conditional, because the same README ships whether or not that tree was
+    staged. A reader of an x64-only package must not be told ARM64 is bundled.
+    """
     if README not in names:
         raise PackageError(f"package is missing {README}")
     text = read_member(package, README).decode("utf-8", errors="replace")
-    missing = [rid for rid in rids if rid not in text]
+    missing = [rid for rid in present if rid not in text]
     if missing:
         raise PackageError(
             f"{README} does not name the packaged Windows runtime(s): "
             + ", ".join(missing)
         )
+    lines = text.splitlines()
+    for rid in optional:
+        if rid not in text:
+            raise PackageError(
+                f"{README} does not mention {rid}, which this package may omit"
+            )
+        conditional = any(
+            f"`{rid}`" in line and README_OPTIONAL_MARKER in line for line in lines
+        )
+        if not conditional:
+            raise PackageError(
+                f"{README} describes {rid} as bundled, but this package omits "
+                f"it; mark it conditional with \"`{rid}` {README_OPTIONAL_MARKER} "
+                'the ARM64 build succeeds."'
+            )
 
 
 def check_rid(package: zipfile.ZipFile, rid: str, machine: str, root: Path) -> None:
@@ -258,7 +308,7 @@ def main() -> int:
                 elif rid in allowed_missing:
                     print(
                         f"::warning::{rid} is allowed to be missing; "
-                        "the package will not claim that architecture"
+                        "the packaged README must describe it as conditional"
                     )
                 else:
                     raise PackageError(
@@ -271,7 +321,12 @@ def main() -> int:
                     "no Windows native tree was checked; the gate proved nothing"
                 )
 
-            check_readme(package, names, present)
+            check_readme(
+                package,
+                names,
+                present,
+                [rid for rid in required if rid not in present],
+            )
     except (
         OSError,
         RuntimeError,

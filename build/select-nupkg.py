@@ -24,7 +24,11 @@ def select(directory: Path, package_id: str, version: str) -> Path:
     if not directory.is_dir():
         raise SelectionError(f"package directory not found: {directory}")
 
-    name = f"{package_id}.{version}.nupkg"
+    # `dotnet pack -p:Version=1.2.3+abc` writes `…1.2.3.nupkg`: NuGet drops the
+    # build metadata from the file name while the nuspec keeps it. Matching the
+    # raw version would report the package as missing while it sits in the
+    # directory.
+    name = f"{package_id}.{version.split('+', 1)[0]}.nupkg"
     path = directory / name
     if path.is_file():
         return path

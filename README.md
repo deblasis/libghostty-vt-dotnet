@@ -94,7 +94,7 @@ The library ships as [`DeBlasis.GhosttyVt`](https://www.nuget.org/packages/DeBla
 | Platform | Runtime ID | Native library |
 |----------|-----------|----------------|
 | Windows x64 | `win-x64` | `ghostty-vt.dll` |
-| Windows ARM64 | `win-arm64` | `ghostty-vt.dll` |
+| Windows ARM64 | `win-arm64` | `ghostty-vt.dll`, when the ARM64 build succeeds |
 | Linux x64 | `linux-x64` | `libghostty-vt.so` |
 | macOS ARM64 | `osx-arm64` | `libghostty-vt.dylib` |
 

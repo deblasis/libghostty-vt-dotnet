@@ -219,6 +219,7 @@ validate-gates:
     set -euo pipefail
     python3 build/selftest-check-snupkg.py
     python3 build/selftest-select-nupkg.py
+    ruby build/check-package-gate-wiring.rb
     if [ -d runtimes/win-x64/native ] && [ -d runtimes/win-arm64/native ]; then
         python3 build/selftest-check-nupkg.py \
             --x64-dir runtimes/win-x64/native \

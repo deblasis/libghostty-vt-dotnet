@@ -94,6 +94,21 @@
   </ItemGroup>
 
   <!--
+    A publish for a Windows RID with no staged tree copies nothing and still
+    exits 0, producing an assembly that throws DllNotFoundException at the
+    first P/Invoke. Everywhere else in this repo a missing native is a gate
+    failure, and a publish is the last point where it can be caught, so fail
+    the build. Only Windows RIDs are checked: the copy glob is RID-specific and
+    other platforms' natives use a different file name in the same layout.
+  -->
+  <Target Name="RequireStagedWindowsNativeForPublish"
+          BeforeTargets="PrepareForBuild"
+          Condition="'$(RuntimeIdentifier)' != '' and $(RuntimeIdentifier.StartsWith('win-'))">
+    <Error Condition="!Exists('$(MSBuildThisFileDirectory)../../runtimes/$(RuntimeIdentifier)/native/ghostty-vt.dll')"
+           Text="publish for $(RuntimeIdentifier) has no staged native: runtimes/$(RuntimeIdentifier)/native/ghostty-vt.dll is missing. Stage the tree with build/build-native.ps1 first." />
+  </Target>
+
+  <!--
     NuGet builds the .snupkg by taking every packed file whose extension is
     .pdb, and there is no item metadata that says "main package only". The
     native PDBs must stay in the .nupkg (they are what a debugger loads beside
@@ -141,6 +156,6 @@
           AfterTargets="Pack"
           Condition="'$(IncludeSymbols)' == 'true' and '$(SymbolPackageFormat)' == 'snupkg'">
     <RemoveNativePdbsFromSymbolPackage
-        SymbolPackage="$(PackageOutputAbsolutePath)/$(PackageId).$(PackageVersion).snupkg" />
+        SymbolPackage="$(PackageOutputAbsolutePath)/$(PackageId).$(PackageVersion.Split('+')[0]).snupkg" />
   </Target>
 </Project>

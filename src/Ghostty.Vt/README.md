@@ -12,7 +12,7 @@ Use this package to parse VT escape sequences, inspect the terminal grid, encode
 dotnet add package DeBlasis.GhosttyVt
 ```
 
-Native runtimes for `win-x64`, `win-arm64`, `linux-x64`, and `osx-arm64` are bundled — no extra setup.
+Native runtimes for `win-x64`, `linux-x64`, and `osx-arm64` are bundled — no extra setup. `win-arm64` is included when the ARM64 build succeeds.
 
 ## Quick example
 
@@ -75,7 +75,7 @@ Enable unsafe blocks in the consuming project. The raw layer returns pointers an
 | Platform | Runtime ID | Native library |
 |----------|-----------|----------------|
 | Windows x64 | `win-x64` | `ghostty-vt.dll` |
-| Windows ARM64 | `win-arm64` | `ghostty-vt.dll` |
+| Windows ARM64 | `win-arm64` | `ghostty-vt.dll`, when the ARM64 build succeeds |
 | Linux x64 (glibc 2.31+) | `linux-x64` | `libghostty-vt.so` |
 | macOS ARM64 | `osx-arm64` | `libghostty-vt.dylib` |
 

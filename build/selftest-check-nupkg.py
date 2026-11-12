@@ -62,12 +62,26 @@ def write_package(path: Path, entries: dict[str, bytes]) -> None:
             package.writestr(name, data)
 
 
-def compile_image(natives: dict[str, dict[str, bytes]], rids: list[str]) -> dict[str, bytes]:
+def compile_image(
+    natives: dict[str, dict[str, bytes]],
+    rids: list[str],
+    readme: str | None = None,
+) -> dict[str, bytes]:
     entries: dict[str, bytes] = {}
     for rid, files in natives.items():
         for name, data in files.items():
             entries[f"runtimes/{rid}/native/{name}"] = data
-    entries[README] = "\n".join(["# Package"] + rids).encode("utf-8")
+    if readme is None:
+        present = [rid for rid in rids if rid in natives]
+        absent = [rid for rid in rids if rid not in natives]
+        listed = ", ".join(f"`{rid}`" for rid in present)
+        lines = ["# Package", f"Native runtimes for {listed} are bundled."]
+        for rid in absent:
+            lines.append(
+                f"`{rid}` is included when the ARM64 build succeeds."
+            )
+        readme = "\n".join(lines)
+    entries[README] = readme.encode("utf-8")
     return entries
 
 
@@ -108,9 +122,17 @@ def package(
     name: str,
     natives: dict[str, dict[str, bytes]],
     rids: list[str] | None = None,
+    readme: str | None = None,
 ) -> Path:
     path = root / name
-    write_package(path, compile_image(natives, rids if rids is not None else list(natives)))
+    write_package(
+        path,
+        compile_image(
+            natives,
+            rids if rids is not None else list(natives),
+            readme,
+        ),
+    )
     return path
 
 
@@ -164,11 +186,54 @@ def main() -> int:
             )
             expect("wrong win-arm64 machine", run(wrong_dll), accepted=False)
 
-            x64_only = package(root, "optional-x64.nupkg", {"win-x64": x64})
+            x64_only = package(
+                root,
+                "optional-x64.nupkg",
+                {"win-x64": x64},
+                rids=["win-x64", "win-arm64"],
+            )
             optional = ("--allow-missing-rid", "win-arm64")
             expect(
                 "arm64 absent and allowed",
                 run(x64_only, *optional),
+                accepted=True,
+            )
+
+            # The same README ships whether or not the ARM64 tree was staged,
+            # so a package that omits it must not describe it as bundled.
+            bundled = (
+                "# Package\nNative runtimes for `win-x64` and `win-arm64` "
+                "are bundled.\n"
+            )
+            claims_arm64 = package(
+                root,
+                "claims-absent.nupkg",
+                {"win-x64": x64},
+                readme=bundled,
+            )
+            result = run(claims_arm64, *optional)
+            expect("README claims an absent RID is bundled", result, accepted=False)
+            if "win-arm64" not in result.stderr:
+                raise SelftestError(
+                    "the absent-RID rejection did not name win-arm64\n"
+                    f"stderr: {result.stderr.strip()}"
+                )
+
+            conditional_readme = (
+                "# Package\nNative runtimes for `win-x64` are bundled. "
+                "`win-arm64` is included when the ARM64 build succeeds.\n"
+            )
+            expect(
+                "README marks the optional RID conditional",
+                run(
+                    package(
+                        root,
+                        "conditional-arm64.nupkg",
+                        {"win-x64": x64},
+                        readme=conditional_readme,
+                    ),
+                    *optional,
+                ),
                 accepted=True,
             )
 
@@ -187,6 +252,29 @@ def main() -> int:
                 {"win-x64": x64, "win-arm64": arm64, "win-x86": x64},
             )
             expect("unknown Windows runtime tree", run(stray), accepted=False)
+
+            # `win` and `any` are not shipped RIDs; they are the RID graph
+            # fallbacks NuGet uses when a specific tree is absent. A native
+            # there would be selected on Windows without ever entering the
+            # trees this gate inspects, so the package must not contain one.
+            for case, entry in (
+                ("win fallback tree", "runtimes/win/native/" + DLL),
+                ("any fallback tree", "runtimes/any/native/" + DLL),
+            ):
+                fallback = package(
+                    root,
+                    f"fallback-{case.split()[0]}.nupkg",
+                    {"win-x64": x64, "win-arm64": arm64},
+                )
+                with zipfile.ZipFile(fallback, "a") as archive:
+                    archive.writestr(entry, x64[DLL])
+                result = run(fallback)
+                expect(case, result, accepted=False)
+                if entry not in result.stderr:
+                    raise SelftestError(
+                        f"{case}: rejection did not name {entry}\n"
+                        f"stderr: {result.stderr.strip()}"
+                    )
 
             extra_file = package(root, "extra-file.nupkg", {"win-x64": x64, "win-arm64": arm64})
             with zipfile.ZipFile(extra_file, "a") as archive:

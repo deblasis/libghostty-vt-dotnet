@@ -135,6 +135,11 @@ jobs:
       - uses: actions/checkout@v7
       - name: Self-test the release version guards
         run: bash build/selftest-release-guards.sh
+      # The package gates only protect a push if the publishing job runs them.
+      # A deleted or neutralised step leaves the YAML parseable, so the wiring
+      # is checked here rather than trusted by inspection.
+      - name: Check the package gates are wired into every publish chain
+        run: ruby build/check-package-gate-wiring.rb
 
   bindings-drift:
     runs-on: ubuntu-latest

@@ -3,8 +3,9 @@
 
 1. two packages present, selecting the older version: must return that file
 2. selecting the newer version: must return that file
-3. selecting a version that was never packed: must fail
-4. a missing directory: must fail
+3. a version with build metadata selects the file NuGet wrote without it
+4. selecting a version that was never packed: must fail
+5. a missing directory: must fail
 
 Usage: selftest-select-nupkg.py
 """
@@ -69,6 +70,10 @@ def main() -> int:
             newer = root / f"{PACKAGE_ID}.0.0.2-current.nupkg"
             older.write_bytes(b"older")
             newer.write_bytes(b"newer")
+            # `dotnet pack` drops build metadata from the file name but the
+            # nuspec keeps it, so the same version has two spellings.
+            metadata = root / f"{PACKAGE_ID}.1.2.3.nupkg"
+            metadata.write_bytes(b"metadata")
             # Make the older file the most recently written one, so any
             # timestamp-based selection would return the wrong package.
             newer.touch()
@@ -76,6 +81,7 @@ def main() -> int:
 
             expect("older packed version", run(root, "0.0.1-stale"), True, older)
             expect("newer packed version", run(root, "0.0.2-current"), True, newer)
+            expect("packed version with build metadata", run(root, "1.2.3+abc"), True, metadata)
             expect("version that was never packed", run(root, "0.0.3-missing"), False)
             expect("missing directory", run(root / "absent", "0.0.1-stale"), False)
     except (OSError, SelftestError) as error:

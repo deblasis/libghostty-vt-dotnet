@@ -62,12 +62,16 @@ the package version does not mirror the upstream version.
 - Windows packages now include `ghostty-vt.pdb` beside `ghostty-vt.dll`. A
   build copies only the native tree for the RID being built, so
   `dotnet publish -r win-x64` copies the x64 DLL and PDB even when the source
-  tree also holds `win-arm64`. The PDB adds 9.0 MiB unpacked and 2.4 MiB to the
+  tree also holds `win-arm64`, and a Windows publish fails when the matching
+  tree is not staged instead of producing an assembly that cannot load. The PDB
+  adds 9.0 MiB unpacked and 2.4 MiB to the
   `.nupkg`. The build checks that the PDB is named by the DLL's CodeView debug
   entry, that it is an MSF 7.00 file, and that its GUID and age match the DLL.
   A second check reads the packed `.nupkg`, enumerates every `runtimes/win-*/`
-  tree, rejects an unknown Windows RID or an extra file in a checked tree,
-  requires the packaged README to name every Windows RID present, and applies
+  tree, rejects an unknown Windows RID or an extra file in a checked tree, and
+  rejects the `win` and `any` fallback trees that NuGet's RID graph would
+  otherwise resolve for a Windows RID whose own tree is absent. It requires the
+  packaged README to name every Windows RID present, and applies
   the same ABI and PDB rules to each pair (it requires `win-arm64` whenever
   that build produced one). The symbol package carries only the managed
   Portable PDB; the native PDBs stay in the main package because nuget.org
@@ -83,6 +87,14 @@ the package version does not mirror the upstream version.
 - The daily workflow runs the package-consumer tests against the packed
   `.nupkg` on Windows x64 before `publish`. A package whose Windows natives do
   not load no longer reaches the feed.
+- The workflows that pack for Windows are checked for the gates they must run.
+  `build/check-package-gate-wiring.rb` fails when either chain stops invoking
+  `check-nupkg.py`, `check-snupkg.py`, or their self-tests, when a gate step is
+  conditional or `continue-on-error`, or when the gate command is piped or
+  chained so a failure cannot reach the step. `ci.yml` runs it.
+- `build/select-nupkg.py` matches the version `dotnet pack` writes, which has
+  build metadata removed, so a version such as `1.2.3+abc` selects
+  `…1.2.3.nupkg` instead of reporting the package as missing.
 - Added raw coverage for `ghostty_sized_init`, `ghostty_version`,
   `ghostty_formatter_set`, and `ghostty_formatter_get`. The raw surface is now
   209 entry points.
