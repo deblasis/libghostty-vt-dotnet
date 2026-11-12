@@ -6,3 +6,5 @@ runtimes/
 .vs/
 artifacts/
 TestResults/
+__pycache__/
+*.pyc

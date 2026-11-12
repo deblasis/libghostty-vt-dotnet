@@ -59,6 +59,19 @@ the package version does not mirror the upstream version.
   upstream release. The packaged DLL no longer imports `VCRUNTIME140.dll`;
   `build/check-windows-abi.py` fails the build if a non-system runtime import
   comes back.
+- Windows packages now include `ghostty-vt.pdb` beside `ghostty-vt.dll`, and
+  `dotnet publish` with a Windows RID copies both to the output. The PDB adds
+  9.0 MiB unpacked and 2.4 MiB to the `.nupkg`. The build checks that the PDB
+  is named by the DLL's CodeView debug entry and starts with the MSF
+  signature; the Windows package-consumer test checks that it lands next to
+  the native library the runtime loads.
+- Added Windows ARM64 (`win-arm64`) native builds for `aarch64-windows-gnu`,
+  with the same ABI check. The package now ships
+  `runtimes/win-arm64/native/ghostty-vt.dll`; runtime testing on ARM64 is a
+  manual spot check.
+- The daily workflow runs the package-consumer tests against the packed
+  `.nupkg` on Windows x64 before `publish`. A package whose Windows natives do
+  not load no longer reaches the feed.
 - Added raw coverage for `ghostty_sized_init`, `ghostty_version`,
   `ghostty_formatter_set`, and `ghostty_formatter_get`. The raw surface is now
   209 entry points.

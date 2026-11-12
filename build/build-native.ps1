@@ -44,6 +44,9 @@ $artifact = switch ($Target) {
     "aarch64-macos"          { "libghostty-vt.dylib" }
 }
 
+# Zig emits a PDB beside the Windows DLL; Unix targets have no symbol file.
+$pdb = if ($Target -like "*windows*") { "ghostty-vt.pdb" } else { $null }
+
 # Zig puts Windows DLLs in zig-out/bin and Unix shared libraries in zig-out/lib.
 $artifactDir = if ($Target -like "*windows*") { "bin" } else { "lib" }
 
@@ -68,3 +71,12 @@ if (-not (Test-Path $source)) {
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 Copy-Item $source $OutputDir -Force
 Write-Host "Copied $artifact to $OutputDir"
+
+if ($pdb) {
+    $pdbSource = Join-Path $GhosttySource "zig-out/$artifactDir/$pdb"
+    if (-not (Test-Path $pdbSource)) {
+        throw "Build succeeded but $pdbSource was not produced"
+    }
+    Copy-Item $pdbSource $OutputDir -Force
+    Write-Host "Copied $pdb to $OutputDir"
+}

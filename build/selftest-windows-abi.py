@@ -1,16 +1,23 @@
 #!/usr/bin/env python3
 """Prove that check-windows-abi.py rejects the regressions it exists to catch.
 
-Runs the checker three times against copies of a real DLL:
+Runs the checker against copies of a real DLL:
 
 1. unmodified: must pass
 2. one allowed import renamed to vcruntime140.dll: must fail
 3. machine field changed to ARM64: must fail the x64 check
 
+With --pdb, also proves the PDB gate:
+
+4. unmodified DLL with its matching PDB: must pass
+5. missing PDB: must fail
+6. PDB with a different basename: must fail
+7. file with the right basename but no MSF signature: must fail
+
 CI runs this next to the green check, so the gate is never trusted just
 because it printed success.
 
-Usage: selftest-windows-abi.py <dll> --machine x64|arm64
+Usage: selftest-windows-abi.py <dll> --machine x64|arm64 [--pdb <pdb>]
 """
 
 from __future__ import annotations
@@ -32,12 +39,13 @@ class SelftestError(Exception):
     pass
 
 
-def run(dll: Path, machine: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [sys.executable, str(CHECKER), str(dll), "--machine", machine],
-        capture_output=True,
-        text=True,
-    )
+def run(
+    dll: Path, machine: str, pdb: Path | None = None
+) -> subprocess.CompletedProcess[str]:
+    command = [sys.executable, str(CHECKER), str(dll), "--machine", machine]
+    if pdb is not None:
+        command.extend(["--pdb", str(pdb)])
+    return subprocess.run(command, capture_output=True, text=True)
 
 
 def with_fake_runtime(source: Path, destination: Path) -> None:
@@ -84,10 +92,19 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("dll", type=Path)
     parser.add_argument("--machine", choices=sorted(MACHINE_VALUES), required=True)
+    parser.add_argument(
+        "--pdb",
+        type=Path,
+        help="matching PDB; also proves the PDB gate rejects bad inputs",
+    )
     args = parser.parse_args()
 
     if not args.dll.is_file():
         print(f"::error::Windows DLL not found: {args.dll}", file=sys.stderr)
+        return 1
+
+    if args.pdb is not None and not args.pdb.is_file():
+        print(f"::error::PDB not found: {args.pdb}", file=sys.stderr)
         return 1
 
     try:
@@ -104,6 +121,37 @@ def main() -> int:
             other = 0xAA64 if args.machine == "x64" else 0x8664
             with_machine(args.dll, wrong, other)
             expect("wrong machine", run(wrong, args.machine), accepted=False)
+
+            if args.pdb is not None:
+                expect(
+                    "matching PDB",
+                    run(args.dll, args.machine, args.pdb),
+                    accepted=True,
+                )
+
+                missing = temp / "missing" / args.pdb.name
+                expect(
+                    "missing PDB",
+                    run(args.dll, args.machine, missing),
+                    accepted=False,
+                )
+
+                mismatched = temp / f"different-{args.pdb.name}"
+                shutil.copyfile(args.pdb, mismatched)
+                expect(
+                    "mismatched PDB name",
+                    run(args.dll, args.machine, mismatched),
+                    accepted=False,
+                )
+
+                corrupt = temp / "corrupt" / args.pdb.name
+                corrupt.parent.mkdir()
+                corrupt.write_bytes(b"not a PDB")
+                expect(
+                    "PDB without MSF signature",
+                    run(args.dll, args.machine, corrupt),
+                    accepted=False,
+                )
     except (OSError, SelftestError) as error:
         print(f"::error::{error}", file=sys.stderr)
         return 1

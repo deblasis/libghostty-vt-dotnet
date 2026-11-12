@@ -94,10 +94,11 @@ The library ships as [`DeBlasis.GhosttyVt`](https://www.nuget.org/packages/DeBla
 | Platform | Runtime ID | Native library |
 |----------|-----------|----------------|
 | Windows x64 | `win-x64` | `ghostty-vt.dll` |
+| Windows ARM64 | `win-arm64` | `ghostty-vt.dll` |
 | Linux x64 | `linux-x64` | `libghostty-vt.so` |
 | macOS ARM64 | `osx-arm64` | `libghostty-vt.dylib` |
 
-The Windows build uses the GNU ABI and needs no Visual C++ redistributable.
+The Windows build uses the GNU ABI and needs no Visual C++ redistributable. Windows packages include `ghostty-vt.pdb` next to `ghostty-vt.dll`; debuggers use it to symbolize native stack traces. Windows ARM64 is built from the same pinned source as the other runtimes, but its runtime test is a manual spot check on Windows ARM64 hardware rather than part of nightly CI.
 
 ## Versioning
 
@@ -122,6 +123,14 @@ just pack version=$(jq -r .version version.json)
 # Check for upstream Ghostty changes
 just check-upstream
 ```
+
+To check that a built package loads on Windows x64 or ARM64:
+
+```powershell
+.\build\spot-test-windows.ps1 -Package .\artifacts\DeBlasis.GhosttyVt.1.4.1.nupkg
+```
+
+The script loads `BuildInfo` and creates a terminal, so it exercises the native library, not just NuGet resolution. It needs no repository checkout; copy the script and the `.nupkg` to any Windows machine with the .NET 9 SDK.
 
 ## CI
 

@@ -29,6 +29,9 @@ dotnet_artifact := if target =~ "windows" { "ghostty-vt.dll" } \
                 else if target == "aarch64-macos"  { "libghostty-vt.dylib" } \
                 else { "ghostty-vt.unknown" }
 
+# Windows builds emit a PDB next to the DLL; the other targets have none.
+pdb := if target =~ "windows" { "ghostty-vt.pdb" } else { "" }
+
 ghostty_dir := env_var_or_default("GHOSTTY_SOURCE", "")
 
 # Default: show available recipes
@@ -86,6 +89,10 @@ build-native: clone-ghostty
     mkdir -p "{{ justfile_directory() }}/runtimes/{{ rid }}/native"
     cp "zig-out/{{ artifact_dir }}/{{ artifact }}" "{{ justfile_directory() }}/runtimes/{{ rid }}/native/{{ dotnet_artifact }}"
     echo "Copied {{ artifact }} → runtimes/{{ rid }}/native/{{ dotnet_artifact }}"
+    if [ -n "{{ pdb }}" ]; then
+        cp "zig-out/{{ artifact_dir }}/{{ pdb }}" "{{ justfile_directory() }}/runtimes/{{ rid }}/native/{{ pdb }}"
+        echo "Copied {{ pdb }} → runtimes/{{ rid }}/native/{{ pdb }}"
+    fi
     # Clean up random tmp clone
     if [ -z "{{ ghostty_dir }}" ]; then
         rm -rf "$dir"
@@ -110,6 +117,10 @@ build-native-ref ref:
     mkdir -p "{{ justfile_directory() }}/runtimes/{{ rid }}/native"
     cp "zig-out/{{ artifact_dir }}/{{ artifact }}" "{{ justfile_directory() }}/runtimes/{{ rid }}/native/{{ dotnet_artifact }}"
     echo "Copied {{ artifact }} → runtimes/{{ rid }}/native/{{ dotnet_artifact }}"
+    if [ -n "{{ pdb }}" ]; then
+        cp "zig-out/{{ artifact_dir }}/{{ pdb }}" "{{ justfile_directory() }}/runtimes/{{ rid }}/native/{{ pdb }}"
+        echo "Copied {{ pdb }} → runtimes/{{ rid }}/native/{{ pdb }}"
+    fi
     rm -rf "$dir"
 
 # ──────────────────────────────────────────────

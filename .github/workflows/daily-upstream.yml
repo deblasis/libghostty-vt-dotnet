@@ -131,6 +131,15 @@ jobs:
             rid: win-x64
             machine: x64
             artifact: ghostty-vt.dll
+            pdb: ghostty-vt.pdb
+            src_dir: bin
+          - os: windows-latest
+            target: aarch64-windows-gnu
+            zig_target: aarch64-windows-gnu
+            rid: win-arm64
+            machine: arm64
+            artifact: ghostty-vt.dll
+            pdb: ghostty-vt.pdb
             src_dir: bin
           - os: ubuntu-latest
             target: x86_64-linux
@@ -183,6 +192,12 @@ jobs:
           mkdir -p "${{ github.workspace }}/runtimes/${{ matrix.rid }}/native"
           cp "zig-out/${{ matrix.src_dir }}/${{ matrix.artifact }}" \
             "${{ github.workspace }}/runtimes/${{ matrix.rid }}/native/"
+          # Symbols are Windows-only; Linux and macOS entries leave matrix.pdb
+          # empty and skip this copy.
+          if [ -n "${{ matrix.pdb }}" ]; then
+            cp "zig-out/${{ matrix.src_dir }}/${{ matrix.pdb }}" \
+              "${{ github.workspace }}/runtimes/${{ matrix.rid }}/native/"
+          fi
 
       # The MSVC ABI silently adds a VCRUNTIME140.dll dependency. Keep the
       # GNU build honest: this fails on the import table, not on a rebuild.
@@ -191,16 +206,18 @@ jobs:
         run: |
           python build/check-windows-abi.py \
             "runtimes/${{ matrix.rid }}/native/ghostty-vt.dll" \
-            --machine "${{ matrix.machine }}"
+            --machine "${{ matrix.machine }}" \
+            --pdb "runtimes/${{ matrix.rid }}/native/ghostty-vt.pdb"
           python build/selftest-windows-abi.py \
             "runtimes/${{ matrix.rid }}/native/ghostty-vt.dll" \
-            --machine "${{ matrix.machine }}"
+            --machine "${{ matrix.machine }}" \
+            --pdb "runtimes/${{ matrix.rid }}/native/ghostty-vt.pdb"
 
       - name: Upload native artifact
         uses: actions/upload-artifact@v7
         with:
           name: native-${{ matrix.rid }}
-          path: runtimes/${{ matrix.rid }}/native/${{ matrix.artifact }}
+          path: runtimes/${{ matrix.rid }}/native
 
   regenerate-bindings:
     # No longer waits on build-native: this job reads headers, never the
@@ -410,6 +427,12 @@ jobs:
           name: native-win-x64
           path: runtimes/win-x64/native
 
+      - name: Download native (win-arm64)
+        uses: actions/download-artifact@v8
+        with:
+          name: native-win-arm64
+          path: runtimes/win-arm64/native
+
       - name: Download native (linux-x64)
         uses: actions/download-artifact@v8
         with:
@@ -557,23 +580,76 @@ jobs:
           overwrite: true
           retention-days: 7
 
+  # The Linux consumer test in `build-package` cannot prove that a package
+  # loads on Windows: a nupkg missing runtimes/win-x64/native/ghostty-vt.dll
+  # restores and tests cleanly on Linux. Run the same consumer project on a
+  # real Windows x64 runner before `publish` can push. Separate from
+  # `build-package` so a Windows-only load failure is isolated and the Linux
+  # job stays unchanged.
+  validate-pack-windows:
+    needs: build-package
+    if: |
+      !cancelled() &&
+      needs.build-package.result == 'success'
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Download package
+        uses: actions/download-artifact@v8
+        with:
+          name: nuget-package
+          path: artifacts
+
+      # Restore must resolve the downloaded nupkg, not a cached copy from an
+      # earlier attempt with the same floating version.
+      - name: Clear consumer restore state
+        run: |
+          rm -rf tests/Ghostty.Vt.PackageConsumer.Tests/packages \
+                 tests/Ghostty.Vt.PackageConsumer.Tests/bin \
+                 tests/Ghostty.Vt.PackageConsumer.Tests/obj
+
+      # BuildInfoTests throws DllNotFoundException if the package has no
+      # loadable runtimes/win-x64/native/ghostty-vt.dll, and NativeFilesTests
+      # fails if the PDB does not land beside the library the runtime loads.
+      - name: Validate packed package loads on Windows x64
+        run: |
+          dotnet test tests/Ghostty.Vt.PackageConsumer.Tests/Ghostty.Vt.PackageConsumer.Tests.csproj \
+            --configuration Release \
+            --logger "trx"
+
   publish:
     # `regenerate-bindings` feeds both the pinned reference and the public raw
     # ABI layer. A failed generator must not ship a package whose raw
     # signatures belong to the previous pin, so publishing and the pin move are
     # held; the next nightly retries. The job-level `if` runs on `!cancelled()`
-    # plus explicit check-upstream/build-package result checks so this job can
-    # make that decision instead of being skipped.
+    # plus explicit check-upstream/build-package/validate-pack-windows result
+    # checks so this job can make that decision instead of being skipped.
+    #
+    # A package that does not load on Windows is not publishable, so
+    # `validate-pack-windows` must have passed.
     #
     # This job holds `id-token: write` and therefore must not run code from the
-    # new upstream commit or from restored dependencies. Build/Test/Pack and
-    # the package-consumer test live in `build-package`; this job only stages
-    # the already-built package, checks it, and pushes it.
-    needs: [check-upstream, build-package, regenerate-bindings]
+    # new upstream commit or from restored dependencies. Build/Test/Pack, the
+    # Linux package-consumer test, and the Windows load check live in their own
+    # jobs; this job only stages the already-built package, checks it, and
+    # pushes it.
+    needs: [check-upstream, build-package, regenerate-bindings, validate-pack-windows]
     if: |
       !cancelled() &&
       needs.check-upstream.result == 'success' &&
-      needs.build-package.result == 'success'
+      needs.build-package.result == 'success' &&
+      needs.validate-pack-windows.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write   # commit updated ghostty-upstream.json + create release
@@ -853,7 +929,9 @@ jobs:
     #
     # `build-package` is listed explicitly: a failure there skips `publish`,
     # and the alert must still fire for the job that actually ran.
-    needs: [check-upstream, build-package, regenerate-bindings, publish]
+    # `validate-pack-windows` is listed for the same reason: a Windows-only
+    # load failure skips `publish` and must still reach the tracker.
+    needs: [check-upstream, build-package, regenerate-bindings, validate-pack-windows, publish]
     if: failure()
     runs-on: ubuntu-latest
     permissions:

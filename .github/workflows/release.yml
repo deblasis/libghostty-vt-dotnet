@@ -215,6 +215,14 @@ jobs:
             rid: win-x64
             machine: x64
             artifact: ghostty-vt.dll
+            pdb: ghostty-vt.pdb
+            src_dir: bin
+          - os: windows-latest
+            zig_target: aarch64-windows-gnu
+            rid: win-arm64
+            machine: arm64
+            artifact: ghostty-vt.dll
+            pdb: ghostty-vt.pdb
             src_dir: bin
           - os: ubuntu-latest
             zig_target: x86_64-linux-gnu.2.31
@@ -263,6 +271,12 @@ jobs:
           mkdir -p "${{ github.workspace }}/runtimes/${{ matrix.rid }}/native"
           cp "zig-out/${{ matrix.src_dir }}/${{ matrix.artifact }}" \
             "${{ github.workspace }}/runtimes/${{ matrix.rid }}/native/"
+          # Symbols are Windows-only; Linux and macOS entries leave matrix.pdb
+          # empty and skip this copy.
+          if [ -n "${{ matrix.pdb }}" ]; then
+            cp "zig-out/${{ matrix.src_dir }}/${{ matrix.pdb }}" \
+              "${{ github.workspace }}/runtimes/${{ matrix.rid }}/native/"
+          fi
 
       # The MSVC ABI silently adds a VCRUNTIME140.dll dependency. Keep the
       # GNU build honest: this fails on the import table, not on a rebuild.
@@ -271,16 +285,18 @@ jobs:
         run: |
           python build/check-windows-abi.py \
             "runtimes/${{ matrix.rid }}/native/ghostty-vt.dll" \
-            --machine "${{ matrix.machine }}"
+            --machine "${{ matrix.machine }}" \
+            --pdb "runtimes/${{ matrix.rid }}/native/ghostty-vt.pdb"
           python build/selftest-windows-abi.py \
             "runtimes/${{ matrix.rid }}/native/ghostty-vt.dll" \
-            --machine "${{ matrix.machine }}"
+            --machine "${{ matrix.machine }}" \
+            --pdb "runtimes/${{ matrix.rid }}/native/ghostty-vt.pdb"
 
       - name: Upload native artifact
         uses: actions/upload-artifact@v7
         with:
           name: native-${{ matrix.rid }}
-          path: runtimes/${{ matrix.rid }}/native/${{ matrix.artifact }}
+          path: runtimes/${{ matrix.rid }}/native
 
   pack:
     needs: [preflight, build-native]
@@ -300,6 +316,12 @@ jobs:
         with:
           name: native-win-x64
           path: runtimes/win-x64/native
+
+      - name: Download native (win-arm64)
+        uses: actions/download-artifact@v8
+        with:
+          name: native-win-arm64
+          path: runtimes/win-arm64/native
 
       - name: Download native (linux-x64)
         uses: actions/download-artifact@v8
