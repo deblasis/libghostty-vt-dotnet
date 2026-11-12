@@ -16,12 +16,14 @@ the same upstream commit. A grep for the constant name proves none of that:
 So the checks are structural. Comments are removed first, then each assertion
 statement is read as an argument list:
 
-1. Each of MAJOR, MINOR, PATCH must appear as the direct first argument of an
-   `Assert.Equal(...)` whose other argument is a value expression (an
-   identifier or member access), never a literal or another constant.
+1. Each of MAJOR, MINOR, PATCH must be compared with a value expression (an
+   identifier or member access), never a literal or another constant. That is
+   either a direct `Assert.Equal((nuint)CONST, value)` or a comparison of a
+   variable that was built from all three constants in live code.
 2. No `Assert.True`/`Assert.False` may contain a version constant.
-3. No version-shaped literal may be assembled from string concatenation,
-   interpolation, `string.Concat`, `string.Join`, or `new Version(...)`.
+3. No bare version literal (`1.1.0`, `"1" + "." + "1"`, `$"1.{x}.0"`) may be
+   compared, whatever the other operand is named. Concatenation, interpolation,
+   `string.Concat`, `string.Join`, and `new Version(...)` are all rejected.
 
 Usage: check-version-assertions.py [test-root]
 Exit 0 when every requirement holds; 1 with one line per failure.
@@ -199,11 +201,51 @@ def version_literal(statement: str) -> str | None:
     return None
 
 
+def bare_version_literal(expression: str) -> str | None:
+    """Return a bare version a string expression hardcodes, if any.
+
+    `"1.1.0"`, `"1" + "." + "1" + "." + "0"`, and `$"1.{x}.0"` are all bare
+    versions: the whole expression is the version, so it re-couples the test to
+    a literal. `"PowerShell 7.5.5"` is not, because it is prose that happens to
+    contain a version, so the gate must not reject it.
+    """
+    joined = literal_value(expression)
+    if joined is not None:
+        joined = joined.strip()
+        if VERSION_SHAPE.fullmatch(joined) and joined != "0.0.0":
+            return joined
+        return None
+    for literal in re.findall(r'\$@?"(?:[^"\\]|\\.)*"', expression):
+        body = literal[literal.index('"') + 1 : literal.rindex('"')]
+        # A hole could stand for any component, so treat it as a digit. The
+        # constants inside the holes are the legitimate shape, and that shape
+        # is credited from the assignment, not from this literal.
+        normalised = re.sub(r"\{[^}]*\}", "0", body).strip()
+        if VERSION_SHAPE.fullmatch(normalised) and normalised != "0.0.0":
+            return literal
+    return None
+
+
 def check_file(path: Path) -> tuple[list[str], set[str]]:
     raw = path.read_text(encoding="utf-8")
     source = strip_comments(raw)
     problems: list[str] = []
     compared: set[str] = set()
+
+    # A variable assigned from an interpolated string that names all three
+    # constants is the other legitimate shape: the expected version is built
+    # from the generated constants, then compared with the library's value.
+    # Only live code counts, so `_ = CONST;` three times binds nothing.
+    bindings: dict[str, set[str]] = {}
+    for match in re.finditer(
+        r"\b(?:var\s+)?([A-Za-z_]\w*)\s*=(?!=)\s*([^;]*);", source
+    ):
+        target = match.group(1)
+        if target == "_":
+            continue
+        names = set(VERSION_CONST.findall(match.group(2)))
+        if names == set(CONSTANTS):
+            bindings[target] = names
 
     for match in re.finditer(
         r"\bAssert\.(Equal|True|False|StartsWith|Contains)\s*\(", source
@@ -218,7 +260,28 @@ def check_file(path: Path) -> tuple[list[str], set[str]]:
                 f"{statement.strip()}"
             )
 
+        if function in ("Equal", "StartsWith", "Contains"):
+            for argument in split_arguments(statement) or []:
+                bare = bare_version_literal(argument)
+                if bare is not None:
+                    problems.append(
+                        f"{path}: assertion compares a bare version literal "
+                        f"{bare!r}, whatever the other operand is called: "
+                        f"{statement.strip()}"
+                    )
+
         constants = VERSION_CONST.findall(statement)
+
+        # Credit a comparison whose expected value was built from the three
+        # constants. The other operands must still be values, not literals.
+        if function in ("Equal", "StartsWith"):
+            args = split_arguments(statement) or []
+            if len(args) >= 2:
+                bound = bindings.get(args[0].strip())
+                rest = [argument.strip() for argument in args[1:]]
+                if bound and rest and all(VALUE_EXPR.fullmatch(a) for a in rest):
+                    compared.update(bound)
+
         if not constants:
             continue
 
@@ -248,13 +311,6 @@ def check_file(path: Path) -> tuple[list[str], set[str]]:
             )
             continue
         compared.update(matched)
-
-    # An interpolated `expected` string built from all three constants and
-    # compared with the library's version string is the other legitimate shape.
-    if re.search(r"Assert\.(?:StartsWith|Contains|Equal)\s*\(\s*expected", source) and all(
-        f"GHOSTTY_VT_VERSION_{name}" in source for name in CONSTANTS
-    ):
-        compared.update(CONSTANTS)
 
     # Every constant the file text mentions must be checked structurally here.
     # This is what catches a test gutted to `Assert.True(true); // CONST`: the
