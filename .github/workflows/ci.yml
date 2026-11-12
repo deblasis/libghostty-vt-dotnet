@@ -154,6 +154,12 @@ jobs:
         # about it.
         run: bash build/check-binding-delta-selftest.sh
 
+      # The wrapper invokes this too, but that call is one line a refactor can
+      # drop while the wrapper still prints a clean run. As its own step, the
+      # gate that fails on the builder's output cannot disappear with it.
+      - name: Check the API-delta body builder
+        run: bash build/check-binding-delta-behaviour.sh
+
   bindings-drift:
     runs-on: ubuntu-latest
     steps:

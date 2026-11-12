@@ -19,14 +19,14 @@
 #                    a stub); defaults to build/selftest-binding-delta.sh
 #   MIN_CASES=<n>    minimum number of executed self-test cases (default 30)
 #   MIN_BEHAVIOUR_CASES=<n>
-#                    minimum number of executed behaviour cases (default 20)
+#                    minimum number of executed behaviour cases (default 22)
 
 set -uo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 SELFTEST=${SELFTEST:-$HERE/selftest-binding-delta.sh}
 MIN_CASES=${MIN_CASES:-30}
-MIN_BEHAVIOUR_CASES=${MIN_BEHAVIOUR_CASES:-20}
+MIN_BEHAVIOUR_CASES=${MIN_BEHAVIOUR_CASES:-22}
 
 if [ ! -f "$SELFTEST" ]; then
   echo "self-test not found: $SELFTEST"
