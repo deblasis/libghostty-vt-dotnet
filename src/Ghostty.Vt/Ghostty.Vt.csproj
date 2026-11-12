@@ -98,12 +98,14 @@
     exits 0, producing an assembly that throws DllNotFoundException at the
     first P/Invoke. Everywhere else in this repo a missing native is a gate
     failure, and a publish is the last point where it can be caught, so fail
-    the build. Only Windows RIDs are checked: the copy glob is RID-specific and
-    other platforms' natives use a different file name in the same layout.
+    the build. Only Windows RIDs are checked, and that covers every spelling:
+    win-x64 and win-arm64, the versioned win10-x64/win7-x64 that NuGet also
+    resolves, and windows*. Other platforms' natives use a different file name
+    in the same layout, so they cannot be checked from the RID alone.
   -->
   <Target Name="RequireStagedWindowsNativeForPublish"
           BeforeTargets="PrepareForBuild"
-          Condition="'$(RuntimeIdentifier)' != '' and $(RuntimeIdentifier.StartsWith('win-'))">
+          Condition="'$(RuntimeIdentifier)' != '' and $(RuntimeIdentifier.StartsWith('win'))">
     <Error Condition="!Exists('$(MSBuildThisFileDirectory)../../runtimes/$(RuntimeIdentifier)/native/ghostty-vt.dll')"
            Text="publish for $(RuntimeIdentifier) has no staged native: runtimes/$(RuntimeIdentifier)/native/ghostty-vt.dll is missing. Stage the tree with build/build-native.ps1 first." />
   </Target>

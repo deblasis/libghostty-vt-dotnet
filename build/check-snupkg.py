@@ -19,6 +19,11 @@ writes canonical lowercase forward-slash paths; any other spelling of a
 absolute path, a drive prefix, or a `..` segment is rejected as well, because
 an extractor can map it somewhere other than the tree its name implies.
 
+A name that appears more than once is rejected. `zipfile` returns the last
+entry of a repeated name while NuGet extracts the first, so a symbol package
+built by anything other than a single `dotnet pack` run can carry a Portable
+PDB for the gate and an MSF PDB for the push.
+
 Usage: check-snupkg.py <snupkg>
 """
 
@@ -53,6 +58,18 @@ def check_entry_name(name: str) -> None:
 def check(path: Path) -> list[str]:
     with zipfile.ZipFile(path) as package:
         names = [info.filename for info in package.infolist()]
+
+    seen: set[str] = set()
+    repeated: list[str] = []
+    for name in names:
+        if name in seen:
+            repeated.append(name)
+        seen.add(name)
+    if repeated:
+        raise SymbolPackageError(
+            "symbol package repeats entry name(s), so the bytes checked here "
+            "are not the bytes NuGet pushes: " + ", ".join(sorted(set(repeated)))
+        )
 
     for name in names:
         check_entry_name(name)

@@ -8,19 +8,28 @@ produced package and requires, for every expected RID, a non-empty
 `check-windows-abi.py` on the extracted pair. The import table and the PDB
 identity are therefore checked against the exact bytes that would publish.
 
-It also enumerates every `runtimes/win-*/native/` tree rather than trusting a
+A package that repeats an entry name is rejected before any of that: NuGet's
+extractor writes the first copy of a name, while `zipfile.getinfo()` returns
+the last, so the two disagree about which file the gate inspected. There is no
+correct way to resolve that ambiguity, and a package assembled by anything
+other than a single `dotnet pack` run can contain it.
+
+It also enumerates every `runtimes/win*/native/` tree rather than trusting a
 fixed list: an unexpected Windows RID, or an extra file inside a checked tree,
 fails the gate. The embedded README must name every Windows RID the package
 ships, so the package never advertises less than it contains. A RID that may be
 absent must be worded as conditional, so it never advertises more than it
 contains either.
 
-The `win` and `any` trees are rejected outright. They are not in the RID graph
-for decoration: NuGet falls back from `win-x64` to `win` to `any` when the
-specific tree is absent, so a native placed there is resolved for every Windows
-RID while sitting outside every tree this gate inspects. This package ships
-architecture-specific natives, so an arch-neutral fallback is never a shape it
-should accept.
+The arch-neutral fallback trees (`win`, `any`, `base`) are rejected outright.
+They are not in the RID graph for decoration: NuGet falls back from `win-x64`
+to `win` to `any` to `base` when the specific tree is absent, so a native placed
+there is resolved for a Windows RID while sitting outside every tree this gate
+inspects. This package ships architecture-specific natives, so an arch-neutral
+fallback is never a shape it should accept. Every other Windows-resolvable
+spelling (`windows*`, `win<digit>*`, `win-*`) is enumerated and rejected unless
+it is exactly `win-x64` or `win-arm64`; non-Windows trees (`linux-*`, `osx-*`)
+are skipped because this gate is about Windows payload.
 
 Entry names are classified case-insensitively and with backslashes treated as
 separators, so a differently spelled tree cannot slip past the enumeration.
@@ -28,9 +37,11 @@ A non-canonical spelling is then rejected outright rather than accepted: NuGet
 writes `runtimes/<rid>/native/<file>` in lowercase with forward slashes, and on
 Windows a backslash is a path separator, so such an entry would land beside the
 files this gate inspects while remaining invisible to an exact-name match.
-Entry names with an absolute path, a drive prefix, or a `..` segment fail before
-classification, because an extractor can map them somewhere other than the tree
-their name implies.
+Entry names with an absolute path, a drive prefix, a `.` or `..` segment, or
+surrounding whitespace fail before classification, because an extractor can map
+them somewhere other than the tree their name implies. `./runtimes/any/...` is
+the worked example: NuGet normalizes the leading `./` and resolves the tree,
+while a name-based sweep sees `"."` and would otherwise skip it.
 
 By default both Windows RIDs are required. `--allow-missing-rid` relaxes one
 with a warning, for the case where the ARM64 build leg failed and the x64
@@ -43,6 +54,7 @@ Usage: check-nupkg.py <nupkg> [--require-rid RID]... [--allow-missing-rid RID]..
 from __future__ import annotations
 
 import argparse
+import re
 import subprocess
 import sys
 import tempfile
@@ -52,11 +64,11 @@ from pathlib import Path
 DEFAULT_RIDS = ("win-x64", "win-arm64")
 MACHINES = {"win-x64": "x64", "win-arm64": "arm64"}
 NATIVE_FILES = ("ghostty-vt.dll", "ghostty-vt.pdb")
-WINDOWS_PREFIX = "win-"
-# NuGet's RID graph falls back from `win-x64`/`win-arm64` to `win` and then to
-# `any`. A native in either tree resolves on Windows without living in a tree
-# this gate checks, so the package must not contain one.
-FALLBACK_RIDS = ("win", "any")
+# NuGet's portable RID graph falls back from `win-x64`/`win-arm64` to `win`,
+# `any`, and finally `base`. A native in any of those trees resolves on Windows
+# without living in a tree this gate checks, so the package must not contain
+# one.
+FALLBACK_RIDS = ("win", "any", "base")
 README = "README.md"
 CHECKER = Path(__file__).with_name("check-windows-abi.py")
 
@@ -67,6 +79,23 @@ class PackageError(Exception):
 
 def native_path(rid: str, name: str) -> str:
     return f"runtimes/{rid}/native/{name}"
+
+
+def windows_rid(rid: str) -> bool:
+    """Whether a RID is a Windows shape, known to this gate or not.
+
+    `win-x64` and `win-arm64` are the trees this package ships. NuGet also
+    accepts `win` and `any` (the fallbacks, rejected separately), versioned
+    spellings such as `win10-x64`, and `windows*`. A gate that only looked at
+    `win-` would skip a `win10-x64` tree, which NuGet resolves for a Windows
+    10/11 consumer, without opening it.
+    """
+    return (
+        rid in FALLBACK_RIDS
+        or rid.startswith("win-")
+        or rid.startswith("windows")
+        or (rid.startswith("win") and rid[3:4].isdigit())
+    )
 
 
 def read_member(package: zipfile.ZipFile, name: str) -> bytes:
@@ -86,14 +115,26 @@ def check_entry_name(name: str) -> None:
     outside the tree implied by its name once an extractor normalizes it. The
     gate must not print success for a package whose paths it cannot map.
     """
+    if name != name.strip():
+        raise PackageError(f"package entry has surrounding whitespace: {name!r}")
     normalized = name.replace("\\", "/")
-    parts = normalized.split("/")
+    # `runtimes/win-x64/` is a directory entry: the trailing separator is not an
+    # empty segment. Any other empty segment is a path this gate cannot map.
+    trimmed = normalized[:-1] if normalized.endswith("/") else normalized
+    parts = trimmed.split("/")
     if normalized.startswith("/") or (
         len(parts[0]) == 2 and parts[0][1] == ":"
     ):
         raise PackageError(f"package entry has an absolute path: {name}")
     if ".." in parts:
         raise PackageError(f"package entry escapes its directory: {name}")
+    if "." in parts:
+        raise PackageError(
+            "package entry uses a . path segment, which NuGet normalizes but a "
+            f"name-based sweep does not: {name}"
+        )
+    if "" in parts:
+        raise PackageError(f"package entry has an empty path segment: {name}")
 
 
 def windows_trees(names: set[str]) -> dict[str, set[str]]:
@@ -136,7 +177,7 @@ def windows_trees(names: set[str]) -> dict[str, set[str]]:
                 f"runtimes/{rid}/native/, which NuGet resolves for a Windows "
                 f"RID with no specific tree of its own: {name}"
             )
-        if not rid.startswith(WINDOWS_PREFIX):
+        if not windows_rid(rid):
             continue
         trees.setdefault(rid, set()).add("/".join(parts[3:]))
     return trees
@@ -159,6 +200,19 @@ def check_trees(trees: dict[str, set[str]]) -> None:
 
 
 README_OPTIONAL_MARKER = "is included when"
+# The packaged README states the ARM64 caveat in prose and in a table row, and
+# both phrasings are legitimate. What matters is that the clause naming the RID
+# is conditional, not that it uses one exact sentence.
+README_CONDITIONAL = (
+    re.compile(r"is included when", re.IGNORECASE),
+    re.compile(r"when (?:the|its) .*build succeeds", re.IGNORECASE),
+)
+# A RID that may be absent must not be described as unconditionally shipped.
+README_ABSOLUTE = (
+    re.compile(r"\b(?:are|is)\s+bundled\b", re.IGNORECASE),
+    re.compile(r"\balways\b", re.IGNORECASE),
+    re.compile(r"\ball four\b", re.IGNORECASE),
+)
 
 
 def check_readme(
@@ -174,6 +228,10 @@ def check_readme(
     (the ARM64 leg failed, `--allow-missing-rid`) must be described as
     conditional, because the same README ships whether or not that tree was
     staged. A reader of an x64-only package must not be told ARM64 is bundled.
+
+    Every clause that names the optional RID is checked, not just one line.
+    A README can say the right thing once and contradict it in a table row or a
+    following sentence; a single-line search treats that as conditional.
     """
     if README not in names:
         raise PackageError(f"package is missing {README}")
@@ -186,19 +244,27 @@ def check_readme(
         )
     lines = text.splitlines()
     for rid in optional:
-        if rid not in text:
+        token = f"`{rid}`"
+        mentions = [line for line in lines if token in line]
+        if not mentions:
             raise PackageError(
                 f"{README} does not mention {rid}, which this package may omit"
             )
-        conditional = any(
-            f"`{rid}`" in line and README_OPTIONAL_MARKER in line for line in lines
-        )
-        if not conditional:
-            raise PackageError(
-                f"{README} describes {rid} as bundled, but this package omits "
-                f"it; mark it conditional with \"`{rid}` {README_OPTIONAL_MARKER} "
-                'the ARM64 build succeeds."'
-            )
+        for line in mentions:
+            for claim in re.split(r"(?<=[.!?])\s+", line):
+                if token not in claim:
+                    continue
+                conditional = any(
+                    pattern.search(claim) for pattern in README_CONDITIONAL
+                )
+                absolute = any(pattern.search(claim) for pattern in README_ABSOLUTE)
+                if absolute or not conditional:
+                    raise PackageError(
+                        f"{README} describes {rid} as unconditional in a package "
+                        f"that omits it: {claim.strip()!r}. Mark every clause that "
+                        f"names it conditional, e.g. \"`{rid}` "
+                        f'{README_OPTIONAL_MARKER} the ARM64 build succeeds."'
+                    )
 
 
 def check_rid(package: zipfile.ZipFile, rid: str, machine: str, root: Path) -> None:
@@ -232,7 +298,25 @@ def check_rid(package: zipfile.ZipFile, rid: str, machine: str, root: Path) -> N
 
 
 def member_names(package: zipfile.ZipFile) -> set[str]:
-    return {info.filename for info in package.infolist()}
+    """Every entry name, after rejecting a name that appears more than once.
+
+    `zipfile.getinfo()` returns the last entry with a given name, while NuGet's
+    extractor writes the first. A package containing both would pass this gate
+    on one copy and install the other, so the duplicate is a failure rather
+    than something to deduplicate.
+    """
+    seen: set[str] = set()
+    repeated: list[str] = []
+    for info in package.infolist():
+        if info.filename in seen:
+            repeated.append(info.filename)
+        seen.add(info.filename)
+    if repeated:
+        raise PackageError(
+            "package repeats entry name(s), so the bytes checked here are not "
+            "the bytes NuGet installs: " + ", ".join(sorted(set(repeated)))
+        )
+    return seen
 
 
 def parse_args() -> argparse.Namespace:

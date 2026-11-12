@@ -14,6 +14,7 @@ Builds throwaway `.snupkg` files and asserts:
 9. an absolute native path: must fail
 10. a drive-prefixed native path: must fail
 11. a `..` segment: must fail
+12. a repeated entry name: must fail (zipfile reads the last copy, NuGet pushes the first)
 
 Usage: selftest-check-snupkg.py
 """
@@ -108,6 +109,20 @@ def main() -> int:
                 {MANAGED: PORTABLE, "runtimes/win-x64/native/ghostty-vt.dll": b"MZ"},
             )
             expect("native payload under runtimes/", run(native_file), accepted=False)
+
+            # A repeated name lets the gate read a Portable PDB while the push
+            # carries a differently formatted one.
+            duplicate = root / "duplicate-member.snupkg"
+            write_package(duplicate, {MANAGED: PORTABLE})
+            with zipfile.ZipFile(duplicate, "a") as archive:
+                archive.writestr(MANAGED, b"Microsoft C/C++ MSF 7.00\r\n\x1aDS\0\0\0")
+            result = run(duplicate)
+            expect("repeated managed PDB entry", result, accepted=False)
+            if MANAGED not in result.stderr:
+                raise SelftestError(
+                    f"the duplicate rejection did not name {MANAGED}\n"
+                    f"stderr: {result.stderr.strip()}"
+                )
 
             no_pdb = root / "no-pdb.snupkg"
             write_package(no_pdb, {"lib/net9.0/Ghostty.Vt.dll": b"MZ"})

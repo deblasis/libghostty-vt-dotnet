@@ -24,6 +24,10 @@ Builds throwaway .nupkg files from real DLL/PDB fixtures and asserts:
 18. an absolute path: must fail
 19. a drive-prefixed path: must fail
 20. a `..` segment: must fail
+21. a repeated entry name: must fail (zipfile reads the last copy, NuGet writes the first)
+22. a `win10-x64` runtime tree: must fail (a Windows RID the gate does not know)
+23. a `base` runtime tree: must fail (the RID graph root fallback)
+24. a `./runtimes/any/...` entry: must fail (NuGet normalizes the leading `./`)
 
 Usage: selftest-check-nupkg.py --x64-dir DIR --arm64-dir DIR
 """
@@ -237,6 +241,50 @@ def main() -> int:
                 accepted=True,
             )
 
+            # One correct sentence does not excuse a contradicting one. The
+            # same RID is conditional in the prose and absolute in the table
+            # row, which is how a README edit usually goes wrong.
+            mixed = (
+                "# Package\nNative runtimes for `win-x64` are bundled. "
+                "`win-arm64` is included when the ARM64 build succeeds.\n\n"
+                "| Platform | RID |\n| --- | --- |\n"
+                "| Windows ARM64 | `win-arm64` | always bundled |\n"
+            )
+            result = run(
+                package(
+                    root,
+                    "mixed-arm64.nupkg",
+                    {"win-x64": x64},
+                    readme=mixed,
+                ),
+                *optional,
+            )
+            expect("README contradicts itself about an absent RID", result, accepted=False)
+            if "win-arm64" not in result.stderr:
+                raise SelftestError(
+                    "the contradicting-README rejection did not name win-arm64\n"
+                    f"stderr: {result.stderr.strip()}"
+                )
+
+            # The absolute words the reviewers named, one at a time.
+            for claim in ("always bundled", "all four runtimes", "are bundled"):
+                text = (
+                    "# Package\nNative runtimes for `win-x64` are bundled. "
+                    f"`win-arm64` is {claim}.\n"
+                )
+                result = run(
+                    package(
+                        root,
+                        f"absolute-{claim.split()[0]}.nupkg",
+                        {"win-x64": x64},
+                        readme=text,
+                    ),
+                    *optional,
+                )
+                expect(
+                    f"README calls an absent RID {claim!r}", result, accepted=False
+                )
+
             partial = package(
                 root, "partial-arm64.nupkg", {"win-x64": x64, "win-arm64": {DLL: arm64[DLL]}}
             )
@@ -253,13 +301,14 @@ def main() -> int:
             )
             expect("unknown Windows runtime tree", run(stray), accepted=False)
 
-            # `win` and `any` are not shipped RIDs; they are the RID graph
-            # fallbacks NuGet uses when a specific tree is absent. A native
-            # there would be selected on Windows without ever entering the
-            # trees this gate inspects, so the package must not contain one.
+            # `win`, `any` and `base` are not shipped RIDs; they are the RID
+            # graph fallbacks NuGet uses when a specific tree is absent. A
+            # native there would be selected on Windows without ever entering
+            # the trees this gate inspects, so the package must not contain one.
             for case, entry in (
                 ("win fallback tree", "runtimes/win/native/" + DLL),
                 ("any fallback tree", "runtimes/any/native/" + DLL),
+                ("base fallback tree", "runtimes/base/native/" + DLL),
             ):
                 fallback = package(
                     root,
@@ -280,6 +329,55 @@ def main() -> int:
             with zipfile.ZipFile(extra_file, "a") as archive:
                 archive.writestr("runtimes/win-x64/native/vcruntime140.dll", b"MZ")
             expect("extra file in a checked tree", run(extra_file), accepted=False)
+
+            # NuGet's extractor writes the first copy of a repeated name while
+            # `zipfile.getinfo()` returns the last. Accepting the package would
+            # mean the gate checked bytes the consumer never installs.
+            duplicate = package(
+                root, "duplicate-member.nupkg", {"win-x64": x64, "win-arm64": arm64}
+            )
+            repeated = "runtimes/win-x64/native/" + DLL
+            with zipfile.ZipFile(duplicate, "a") as archive:
+                archive.writestr(repeated, x64[DLL])
+            result = run(duplicate)
+            expect("repeated native entry", result, accepted=False)
+            if repeated not in result.stderr:
+                raise SelftestError(
+                    f"the duplicate rejection did not name {repeated}\n"
+                    f"stderr: {result.stderr.strip()}"
+                )
+
+            # `win10-x64` is a Windows RID NuGet resolves, so the gate must not
+            # skip it for the sole reason that it does not start with `win-`.
+            versioned = package(
+                root, "win10-tree.nupkg", {"win-x64": x64, "win-arm64": arm64}
+            )
+            with zipfile.ZipFile(versioned, "a") as archive:
+                archive.writestr("runtimes/win10-x64/native/" + DLL, x64[DLL])
+            result = run(versioned)
+            expect("versioned Windows RID tree", result, accepted=False)
+            if "win10-x64" not in result.stderr:
+                raise SelftestError(
+                    "the versioned-RID rejection did not name win10-x64\n"
+                    f"stderr: {result.stderr.strip()}"
+                )
+
+            # NuGet normalizes a leading `./`, so this entry lands under the
+            # `any` fallback; a sweep that splits the name sees `"."` and skips
+            # it. The gate has to reject the spelling, not normalize it.
+            dot_relative = package(
+                root, "dot-relative.nupkg", {"win-x64": x64, "win-arm64": arm64}
+            )
+            dotted = "./runtimes/any/native/" + DLL
+            with zipfile.ZipFile(dot_relative, "a") as archive:
+                archive.writestr(dotted, x64[DLL])
+            result = run(dot_relative)
+            expect("dot-relative fallback tree", result, accepted=False)
+            if dotted not in result.stderr:
+                raise SelftestError(
+                    f"the dot-relative rejection did not name {dotted}\n"
+                    f"stderr: {result.stderr.strip()}"
+                )
 
             for case, entry in (
                 ("backslash extra file", "runtimes\\win-x64\\native\\vcruntime140.dll"),
