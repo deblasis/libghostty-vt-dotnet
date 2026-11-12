@@ -177,7 +177,11 @@ pack version="0.0.1-dev":
         --configuration Release \
         --output artifacts \
         -p:Version={{ version }}
-    @echo "Package created: artifacts/DeBlasis.GhosttyVt.{{ version }}.nupkg"
+    @# NuGet drops `+metadata` from the file name, so ask the same selector
+    @# `validate-pack` uses instead of rebuilding the name from `{{ version }}`.
+    @echo "Package created: $(python3 build/select-nupkg.py \
+        --directory artifacts \
+        --version '{{ version }}')"
 
 # Validate the packed NuGet package by consuming it as a real client would.
 # Requires `just pack version=<same version>` to have populated artifacts/

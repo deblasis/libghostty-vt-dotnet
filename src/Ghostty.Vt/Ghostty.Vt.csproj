@@ -105,7 +105,7 @@
   -->
   <Target Name="RequireStagedWindowsNativeForPublish"
           BeforeTargets="PrepareForBuild"
-          Condition="'$(RuntimeIdentifier)' != '' and $(RuntimeIdentifier.StartsWith('win'))">
+          Condition="'$(RuntimeIdentifier)' != '' and $(RuntimeIdentifier.ToLowerInvariant().StartsWith('win'))">
     <Error Condition="!Exists('$(MSBuildThisFileDirectory)../../runtimes/$(RuntimeIdentifier)/native/ghostty-vt.dll')"
            Text="publish for $(RuntimeIdentifier) has no staged native: runtimes/$(RuntimeIdentifier)/native/ghostty-vt.dll is missing. Stage the tree with build/build-native.ps1 first." />
   </Target>
