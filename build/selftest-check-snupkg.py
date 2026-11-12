@@ -118,6 +118,15 @@ def main() -> int:
                 archive.writestr(MANAGED, b"Microsoft C/C++ MSF 7.00\r\n\x1aDS\0\0\0")
             result = run(duplicate)
             expect("repeated managed PDB entry", result, accepted=False)
+            # Without the duplicate guard the gate still rejects this package,
+            # because the second copy is an MSF PDB. Requiring the duplicate
+            # message makes the case fail when the guard is reverted.
+            if "repeats entry name" not in result.stderr:
+                raise SelftestError(
+                    "the repeated entry was rejected for the wrong reason, so "
+                    "the duplicate guard is not exercised\n"
+                    f"stderr: {result.stderr.strip()}"
+                )
             if MANAGED not in result.stderr:
                 raise SelftestError(
                     f"the duplicate rejection did not name {MANAGED}\n"
