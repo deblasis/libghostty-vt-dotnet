@@ -3144,14 +3144,14 @@ namespace Ghostty.Vt.Native
         [NativeTypeName("#define GHOSTTY_VT_VERSION_MAJOR 1")]
         public const int GHOSTTY_VT_VERSION_MAJOR = 1;
 
-        [NativeTypeName("#define GHOSTTY_VT_VERSION_MINOR 1")]
-        public const int GHOSTTY_VT_VERSION_MINOR = 1;
+        [NativeTypeName("#define GHOSTTY_VT_VERSION_MINOR 0")]
+        public const int GHOSTTY_VT_VERSION_MINOR = 0;
 
-        [NativeTypeName("#define GHOSTTY_VT_VERSION_PATCH 0")]
-        public const int GHOSTTY_VT_VERSION_PATCH = 0;
+        [NativeTypeName("#define GHOSTTY_VT_VERSION_PATCH 2")]
+        public const int GHOSTTY_VT_VERSION_PATCH = 2;
 
-        [NativeTypeName("#define GHOSTTY_VT_VERSION \"1.1.0\"")]
-        public static ReadOnlySpan<byte> GHOSTTY_VT_VERSION => "1.1.0"u8;
+        [NativeTypeName("#define GHOSTTY_VT_VERSION \"1.0.2\"")]
+        public static ReadOnlySpan<byte> GHOSTTY_VT_VERSION => "1.0.2"u8;
 
         [NativeTypeName("#define GHOSTTY_ENUM_MAX_VALUE INT_MAX")]
         public const int GHOSTTY_ENUM_MAX_VALUE = 2147483647;
