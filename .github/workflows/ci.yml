@@ -136,6 +136,37 @@ jobs:
       - name: Self-test the release version guards
         run: bash build/selftest-release-guards.sh
 
+  # The nightly's API-delta issue body is the durable record of what changed
+  # upstream when a pin moves. When a delta touched only generated constants
+  # the body used to show an empty code block, so the record said nothing. The
+  # body builder is cheap to test and does not need the headers, unlike the
+  # binding gates below.
+  binding-delta:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Self-test the API-delta issue body
+        # Running the self-test is not enough on its own: a stub that prints a
+        # plausible pass count would satisfy an exit-status check. The script
+        # below cross-checks the reported count against the assertions that
+        # actually ran, and then runs build/check-binding-delta-behaviour.sh,
+        # which fails on the body the builder wrote rather than on a report
+        # about it.
+        run: bash build/check-binding-delta-selftest.sh
+
+      # The wrapper invokes this too, but that call is one line a refactor can
+      # drop while the wrapper still prints a clean run. As its own step, the
+      # gate that fails on the builder's output cannot disappear with it.
+      - name: Check the API-delta body builder
+        run: bash build/check-binding-delta-behaviour.sh
+
+      # The constants are generated from the pinned headers; the tests are what
+      # fails when a pin bump leaves them disagreeing with the native library.
+      # A test that only mentions the constants proves nothing, so this reads
+      # each assertion instead of grepping for the name.
+      - name: Check the version assertions
+        run: python3 build/check-version-assertions.py tests
+
   bindings-drift:
     runs-on: ubuntu-latest
     steps:

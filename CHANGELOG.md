@@ -59,6 +59,25 @@ the package version does not mirror the upstream version.
   `ghostty_formatter_set`, and `ghostty_formatter_get`. The raw surface is now
   209 entry points.
 
+### Fixed
+
+- The version tests compare the loaded library with the generated
+  `GHOSTTY_VT_VERSION_*` constants instead of literals such as `1.1.0`.
+  Upstream moves its libghostty-vt version independently of the package
+  version, so the literal assertions failed on a pin bump that was otherwise
+  correct.
+- The nightly API-delta issue carries the generated diff, truncated on a line
+  boundary when it is larger than the body budget. A delta made only of
+  constants used to produce an empty code block, so the issue asked for a
+  review and showed nothing to review.
+- The API-delta issue treats a changed declaration as a signature change when
+  it has an accessibility modifier before `static`, an `unsafe` modifier, an
+  attribute on the same line, or is a `static partial` declaration (including
+  one split before its argument list), instead of accepting only
+  `public static extern`. A diff with no changed line is refused rather than
+  rendered as an empty block, and a diff containing a NUL byte is refused
+  rather than rendered as `Binary file … matches`.
+
 ## 1.4.1 (2026-10-22)
 
 - The curated `Ghostty.Vt` API now forwards to the generated raw ABI layer.
