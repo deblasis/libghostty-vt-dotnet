@@ -22,7 +22,7 @@ public class RawSurfaceTests
     }
 
     [Fact]
-    public unsafe void BuildInfo_ReportsThePinnedVersionAndBuildMode()
+    public unsafe void BuildInfo_ReportsTheVersionOfThePinnedBindings()
     {
         RawString version;
         Assert.Equal(
@@ -30,7 +30,6 @@ public class RawSurfaceTests
             GhosttyVtNative.ghostty_build_info(
                 GhosttyBuildInfo.GHOSTTY_BUILD_INFO_VERSION_STRING, &version));
         var text = Encoding.UTF8.GetString(version.ptr, checked((int)version.len));
-        Assert.StartsWith("1.1.0", text, StringComparison.Ordinal);
 
         nuint major = 0;
         nuint minor = 0;
@@ -47,9 +46,20 @@ public class RawSurfaceTests
             GhosttyResult.GHOSTTY_SUCCESS,
             GhosttyVtNative.ghostty_build_info(
                 GhosttyBuildInfo.GHOSTTY_BUILD_INFO_VERSION_PATCH, &patch));
-        Assert.Equal((nuint)1, major);
-        Assert.Equal((nuint)1, minor);
-        Assert.Equal((nuint)0, patch);
+
+        // The generated constants come from the pinned headers, so this fails
+        // when the loaded native library and the bindings come from different
+        // upstream commits. Do not compare against literals: upstream moves
+        // its libghostty-vt version independently of the application version
+        // (including across major/minor resets), and a literal turns every pin
+        // bump into a test failure that says nothing about this repo.
+        Assert.Equal((nuint)GhosttyVtNative.GHOSTTY_VT_VERSION_MAJOR, major);
+        Assert.Equal((nuint)GhosttyVtNative.GHOSTTY_VT_VERSION_MINOR, minor);
+        Assert.Equal((nuint)GhosttyVtNative.GHOSTTY_VT_VERSION_PATCH, patch);
+
+        var expected = $"{major}.{minor}.{patch}";
+        Assert.NotEqual("0.0.0", expected);
+        Assert.StartsWith(expected, text, StringComparison.Ordinal);
 
         GhosttyOptimizeMode optimize = default;
         Assert.Equal(

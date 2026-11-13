@@ -8,7 +8,7 @@ namespace Ghostty.Vt.PackageConsumer.Tests;
 public class RawSurfaceTests
 {
     [Fact]
-    public unsafe void BuildInfo_ReportsTheLibraryVersion()
+    public unsafe void BuildInfo_ReportsTheVersionOfThePackagedBindings()
     {
         RawString version;
         Assert.Equal(
@@ -17,7 +17,16 @@ public class RawSurfaceTests
                 GhosttyBuildInfo.GHOSTTY_BUILD_INFO_VERSION_STRING, &version));
 
         var text = Encoding.UTF8.GetString(version.ptr, checked((int)version.len));
-        Assert.StartsWith("1.1.0", text, StringComparison.Ordinal);
+        // The constants are compiled into this assembly from the same pinned
+        // headers as the packaged native library. A mismatch means the package
+        // mixed files from two upstream commits. Literals would instead fail
+        // on every upstream version change without saying anything useful.
+        var expected =
+            $"{GhosttyVtNative.GHOSTTY_VT_VERSION_MAJOR}." +
+            $"{GhosttyVtNative.GHOSTTY_VT_VERSION_MINOR}." +
+            $"{GhosttyVtNative.GHOSTTY_VT_VERSION_PATCH}";
+        Assert.NotEqual("0.0.0", expected);
+        Assert.StartsWith(expected, text, StringComparison.Ordinal);
     }
 
     [Fact]
