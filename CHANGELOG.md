@@ -55,12 +55,70 @@ the package version does not mirror the upstream version.
 - The curated key/mouse setters, grid-ref lookup, point lookup, and render-state
   style read now throw `GhosttyException` when the native call fails instead of
   returning a zeroed or stale value.
+- Windows native builds use the `x86_64-windows-gnu` target, matching the
+  upstream release. The packaged DLL no longer imports `VCRUNTIME140.dll`;
+  `build/check-windows-abi.py` fails the build if a non-system runtime import
+  comes back.
+- Windows packages now include `ghostty-vt.pdb` beside `ghostty-vt.dll`. A
+  build copies only the native tree for the RID being built, so
+  `dotnet publish -r win-x64` copies the x64 DLL and PDB even when the source
+  tree also holds `win-arm64`, and a publish for any Windows RID fails when
+  `runtimes/<rid>/native/` does not hold both `ghostty-vt.dll` and
+  `ghostty-vt.pdb`, instead of producing an assembly that cannot load. The RID
+  comparison ignores case and covers `win10-x64`/`win7-x64`, so `WIN-X64` and
+  the legacy spellings reach the same check. The PDB
+  adds 9.0 MiB unpacked and 2.4 MiB to the
+  `.nupkg`. The build checks that the PDB is named by the DLL's CodeView debug
+  entry, that it is an MSF 7.00 file, and that its GUID and age match the DLL.
+  A second check reads the packed `.nupkg`, enumerates every `runtimes/win*`
+  tree, rejects any Windows-resolvable RID it does not ship (including the
+  `win`, `any`, and `base` fallbacks, `windows*`, and `win<digit>*`), an extra
+  file in a checked tree, or a repeated entry name. It requires the packaged
+  README to name every Windows RID present, and requires every clause that
+  names an optional RID to describe it as conditional, including a bare table
+  cell or "Windows ARM64", so the README cannot promise
+  a tree the package omits. It applies
+  the same ABI and PDB rules to each pair (it requires `win-arm64` whenever
+  that build produced one). The symbol package carries only the managed
+  Portable PDB; the native PDBs stay in the main package because nuget.org
+  cannot index MSF symbols, and a third check fails the build if a
+  `runtimes/` entry reappears in the `.snupkg`. The Windows package-consumer
+  test checks that the PDB lands next to the native library the runtime loads.
+- Added Windows ARM64 (`win-arm64`) native builds for `aarch64-windows-gnu`,
+  with the same ABI check. The package ships
+  `runtimes/win-arm64/native/ghostty-vt.dll` when that build succeeds. ARM64
+  builds in their own job with a 30-minute timeout, so an ARM64 failure or hang
+  still publishes the x64 package and is reported as a follow-up; runtime
+  testing on ARM64 is a manual spot check.
+- The daily workflow runs the package-consumer tests against the packed
+  `.nupkg` on Windows x64 before `publish`. A package whose Windows natives do
+  not load no longer reaches the feed.
+- The workflows that pack for Windows are checked for the gates they must run.
+  `build/check-package-gate-wiring.rb` fails when either publish chain stops
+  invoking `check-nupkg.py`, `check-snupkg.py`, or their self-tests, when the
+  Windows x64 consumer test is removed, silenced, or run against another
+  project, when `publish` no longer waits for that job, when the consumer
+  result is one branch of an `||`, or when a gate is wrapped in another
+  command or a shell condition. It runs each gate step twice, with workflow
+  expressions empty and non-empty, and requires the stub to record that the
+  gate was reached, so a condition that skips the gate on the runner cannot
+  pass. It fails too when a gate's exit status is discarded by `|| true`, a
+  backslash continuation, `set +e`, or a command after the gate. `ci.yml` runs
+  it.
+- `build/select-nupkg.py` matches the version `dotnet pack` writes, which has
+  build metadata removed, so a version such as `1.2.3+abc` selects
+  `…1.2.3.nupkg` instead of reporting the package as missing.
 - Added raw coverage for `ghostty_sized_init`, `ghostty_version`,
   `ghostty_formatter_set`, and `ghostty_formatter_get`. The raw surface is now
   209 entry points.
 
 ### Fixed
 
+- `OscParser.CommandData` no longer corrupts the caller's stack. The native
+  `ghostty_osc_command_data` out parameter is a `GhosttyString` (pointer plus
+  length); the wrapper passed an 8-byte pointer local, so the native side
+  wrote 16 bytes over it. Reading a window title crashed the process on
+  Windows x64.
 - The version tests compare the loaded library with the generated
   `GHOSTTY_VT_VERSION_*` constants instead of literals such as `1.1.0`.
   Upstream moves its libghostty-vt version independently of the package

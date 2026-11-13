@@ -210,10 +210,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # win-arm64 runs in `build-native-arm64` so a failure there cannot
+          # block x64 packaging or the release.
           - os: windows-latest
-            zig_target: x86_64-windows
+            zig_target: x86_64-windows-gnu
             rid: win-x64
+            machine: x64
             artifact: ghostty-vt.dll
+            pdb: ghostty-vt.pdb
             src_dir: bin
           - os: ubuntu-latest
             zig_target: x86_64-linux-gnu.2.31
@@ -262,15 +266,102 @@ jobs:
           mkdir -p "${{ github.workspace }}/runtimes/${{ matrix.rid }}/native"
           cp "zig-out/${{ matrix.src_dir }}/${{ matrix.artifact }}" \
             "${{ github.workspace }}/runtimes/${{ matrix.rid }}/native/"
+          # Symbols are Windows-only; Linux and macOS entries leave matrix.pdb
+          # empty and skip this copy.
+          if [ -n "${{ matrix.pdb }}" ]; then
+            cp "zig-out/${{ matrix.src_dir }}/${{ matrix.pdb }}" \
+              "${{ github.workspace }}/runtimes/${{ matrix.rid }}/native/"
+          fi
+
+      # The MSVC ABI silently adds a VCRUNTIME140.dll dependency. Keep the
+      # GNU build honest: this fails on the import table, not on a rebuild.
+      # Keyed on the RID, not on the optional `machine` field.
+      - name: Check Windows ABI
+        if: startsWith(matrix.rid, 'win-')
+        run: |
+          python build/check-windows-abi.py \
+            "runtimes/${{ matrix.rid }}/native/ghostty-vt.dll" \
+            --machine "${{ matrix.machine }}" \
+            --pdb "runtimes/${{ matrix.rid }}/native/ghostty-vt.pdb"
+          python build/selftest-windows-abi.py \
+            "runtimes/${{ matrix.rid }}/native/ghostty-vt.dll" \
+            --machine "${{ matrix.machine }}" \
+            --pdb "runtimes/${{ matrix.rid }}/native/ghostty-vt.pdb"
 
       - name: Upload native artifact
         uses: actions/upload-artifact@v7
         with:
           name: native-${{ matrix.rid }}
-          path: runtimes/${{ matrix.rid }}/native/${{ matrix.artifact }}
+          path: runtimes/${{ matrix.rid }}/native
+
+  # Windows ARM64 is built separately so a failure here does not block the
+  # x64 package or the release. `pack` requires only `build-native` success
+  # and records whether this job produced an artifact.
+  build-native-arm64:
+    needs: preflight
+    runs-on: windows-latest
+    # A hung ARM64 runner must not hold the x64 release for the 6-hour default.
+    # ARM64 is a non-blocking follow-up, so cap it well below the x64 path.
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Setup Zig
+        uses: ./.github/actions/setup-zig
+        with:
+          ghostty-ref: ${{ needs.preflight.outputs.upstream_commit }}
+
+      - name: Clone Ghostty at pinned commit
+        env:
+          UPSTREAM_COMMIT: ${{ needs.preflight.outputs.upstream_commit }}
+        run: |
+          git init ghostty-src
+          cd ghostty-src
+          git remote add origin https://github.com/ghostty-org/ghostty.git
+          git fetch --depth 1 origin "$UPSTREAM_COMMIT"
+          git checkout FETCH_HEAD
+
+      - name: Build native libghostty-vt (win-arm64)
+        run: |
+          cd ghostty-src
+          zig build install -Demit-lib-vt=true -Demit-xcframework=false -Dtarget=aarch64-windows-gnu -Doptimize=ReleaseSafe
+          mkdir -p "${{ github.workspace }}/runtimes/win-arm64/native"
+          cp "zig-out/bin/ghostty-vt.dll" \
+            "${{ github.workspace }}/runtimes/win-arm64/native/"
+          cp "zig-out/bin/ghostty-vt.pdb" \
+            "${{ github.workspace }}/runtimes/win-arm64/native/"
+
+      - name: Check Windows ABI
+        run: |
+          python build/check-windows-abi.py \
+            "runtimes/win-arm64/native/ghostty-vt.dll" \
+            --machine arm64 \
+            --pdb "runtimes/win-arm64/native/ghostty-vt.pdb"
+          python build/selftest-windows-abi.py \
+            "runtimes/win-arm64/native/ghostty-vt.dll" \
+            --machine arm64 \
+            --pdb "runtimes/win-arm64/native/ghostty-vt.pdb"
+
+      - name: Upload native artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-win-arm64
+          path: runtimes/win-arm64/native
 
   pack:
-    needs: [preflight, build-native]
+    needs: [preflight, build-native, build-native-arm64]
+    # A failed ARM64 leg is a follow-up, not an x64 release blocker. The
+    # package-content check below then requires win-arm64 only when this job
+    # produced one.
+    if: |
+      !cancelled() &&
+      needs.preflight.result == 'success' &&
+      needs.build-native.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -287,6 +378,17 @@ jobs:
         with:
           name: native-win-x64
           path: runtimes/win-x64/native
+
+      - name: Download native (win-arm64)
+        # A failed or timed-out ARM64 build is a follow-up, not an x64 blocker.
+        # The package check below reads the extracted tree, not the upstream
+        # job result, so a missing artifact cannot make an x64-only package
+        # look complete.
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: native-win-arm64
+          path: runtimes/win-arm64/native
 
       - name: Download native (linux-x64)
         uses: actions/download-artifact@v8
@@ -335,6 +437,52 @@ jobs:
             "$(find artifacts -name '*.nupkg' -print -quit)" \
             "$PKG_VERSION"
 
+      # `dotnet pack` never proves the Windows trees are in the package. Check
+      # the exact bytes that would publish, including the import table and the
+      # PDB identity. Whether win-arm64 is required is read from the extracted
+      # tree, not from the upstream job result: a missing artifact must produce
+      # an x64-only package, never an unchecked one.
+      - name: Check Windows natives in the package
+        run: |
+          NUPKG=$(find artifacts -name '*.nupkg' -print -quit)
+          if [ -z "$NUPKG" ]; then
+            echo "::error::no .nupkg under artifacts/"
+            exit 1
+          fi
+          rids=(--require-rid win-x64)
+          if [ -n "$(ls -A runtimes/win-arm64/native 2>/dev/null)" ]; then
+            rids+=(--require-rid win-arm64)
+          else
+            echo "::warning title=Windows ARM64::no win-arm64 native tree; this package is x64-only"
+            rids+=(--allow-missing-rid win-arm64)
+          fi
+          python3 build/check-nupkg.py "$NUPKG" "${rids[@]}"
+
+      # The symbol package is pushed automatically beside the .nupkg, so its
+      # shape must be checked before the push too. nuget.org rejects native
+      # MSF PDBs asynchronously, long after `dotnet nuget push` exits 0.
+      - name: Check symbol package shape
+        run: |
+          SNUPKG=$(find artifacts -name '*.snupkg' -print -quit)
+          if [ -z "$SNUPKG" ]; then
+            echo "::error::no .snupkg under artifacts/"
+            exit 1
+          fi
+          python3 build/check-snupkg.py "$SNUPKG"
+
+      # The gates above are only trustworthy if they reject the inputs they
+      # exist for. Run their self-tests against real packaged bytes.
+      - name: Prove the package gates reject bad input
+        run: |
+          python3 build/selftest-check-snupkg.py
+          if [ -d runtimes/win-x64/native ] && [ -d runtimes/win-arm64/native ]; then
+            python3 build/selftest-check-nupkg.py \
+              --x64-dir runtimes/win-x64/native \
+              --arm64-dir runtimes/win-arm64/native
+          else
+            echo "Skipping the Windows package self-test: both native trees are required."
+          fi
+
       - name: Upload package
         uses: actions/upload-artifact@v7
         with:
@@ -368,9 +516,12 @@ jobs:
           path: artifacts
 
       - name: Validate pack (real NuGet consumer)
+        env:
+          PKG_VERSION: ${{ needs.preflight.outputs.package_version }}
         run: |
           dotnet test tests/Ghostty.Vt.PackageConsumer.Tests/Ghostty.Vt.PackageConsumer.Tests.csproj \
             --configuration Release \
+            -p:GhosttyVtVersionOverride="$PKG_VERSION" \
             --logger "trx"
 
   publish:

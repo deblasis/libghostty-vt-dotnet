@@ -55,23 +55,112 @@
   </ItemGroup>
 
   <!--
-    Native runtimes. A single glob handles both packing and copy-to-output:
-    - Pack="true" + PackagePath="runtimes/" lets NuGet append the glob's
-      RecursiveDir automatically, producing runtimes/<rid>/native/<file> in
-      the .nupkg. (Repeating %(RecursiveDir) in PackagePath would double it.)
-    - CopyToOutputDirectory + Link="%(Filename)%(Extension)" copies each file
-      next to the built assembly (for local P/Invoke in dev and tests).
-    Glob is anchored via $(MSBuildThisFileDirectory) so path resolution does
+    Native runtimes are packed and copied by two separate item groups.
+
+    Packing takes the whole tree. Pack="true" + PackagePath="runtimes/" lets
+    NuGet append the glob's RecursiveDir automatically, producing
+    runtimes/<rid>/native/<file> in the .nupkg. (Repeating %(RecursiveDir) in
+    PackagePath would double it.) A package is how one artifact carries every
+    platform's native library, so every staged RID must be packed.
+
+    Copy-to-output takes exactly one RID: the one being published when
+    RuntimeIdentifier is set, otherwise the host RID. Flattening every staged
+    RID next to the assembly makes `dotnet publish -r win-x64` fail with
+    NETSDK1152 once both Windows trees are present, because win-x64 and
+    win-arm64 each contain ghostty-vt.dll. A plain build or test copies the
+    host's native so local P/Invoke keeps working.
+
+    Globs are anchored via $(MSBuildThisFileDirectory) so path resolution does
     not depend on the invoking working directory — this matters on CI where
     `dotnet pack` is invoked from the repo root. An empty runtimes/ tree
-    (local dev without build-native) produces an empty item list and the
-    project still builds; it just cannot produce a usable pack.
+    (local dev without build-native) produces empty item lists and the project
+    still builds; it just cannot produce a usable pack.
   -->
+  <PropertyGroup>
+    <NativeCopyRid Condition="'$(NativeCopyRid)' == '' and '$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</NativeCopyRid>
+    <NativeCopyRid Condition="'$(NativeCopyRid)' == ''">$(NETCoreSdkRuntimeIdentifier)</NativeCopyRid>
+  </PropertyGroup>
+
   <ItemGroup>
     <None Include="$(MSBuildThisFileDirectory)../../runtimes/**/*"
           Pack="true"
-          PackagePath="runtimes/"
+          PackagePath="runtimes/" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(NativeCopyRid)' != ''">
+    <None Include="$(MSBuildThisFileDirectory)../../runtimes/$(NativeCopyRid)/native/*"
           CopyToOutputDirectory="PreserveNewest"
           Link="%(Filename)%(Extension)" />
   </ItemGroup>
+
+  <!--
+    A publish for a Windows RID with no staged tree copies nothing and still
+    exits 0, producing an assembly that throws DllNotFoundException at the
+    first P/Invoke. Everywhere else in this repo a missing native is a gate
+    failure, and a publish is the last point where it can be caught, so fail
+    the build. Only Windows RIDs are checked, and that covers every spelling:
+    win-x64 and win-arm64, the versioned win10-x64/win7-x64 that NuGet also
+    resolves, and windows*. The match is case-insensitive because the RID is
+    copied verbatim, so `WIN-X64` must reach the same check. The tree must hold
+    both `ghostty-vt.dll` and `ghostty-vt.pdb`: a native without its symbols is
+    not the pair the package promises. Other platforms' natives use a different
+    file name in the same layout, so they cannot be checked from the RID alone.
+  -->
+  <Target Name="RequireStagedWindowsNativeForPublish"
+          BeforeTargets="PrepareForBuild"
+          Condition="'$(RuntimeIdentifier)' != '' and $(RuntimeIdentifier.ToLowerInvariant().StartsWith('win'))">
+    <Error Condition="!Exists('$(MSBuildThisFileDirectory)../../runtimes/$(RuntimeIdentifier)/native/ghostty-vt.dll') or !Exists('$(MSBuildThisFileDirectory)../../runtimes/$(RuntimeIdentifier)/native/ghostty-vt.pdb')"
+           Text="publish for $(RuntimeIdentifier) has no staged native: runtimes/$(RuntimeIdentifier)/native/ghostty-vt.dll and ghostty-vt.pdb are required. Stage the tree with build/build-native.ps1 first." />
+  </Target>
+
+  <!--
+    NuGet builds the .snupkg by taking every packed file whose extension is
+    .pdb, and there is no item metadata that says "main package only". The
+    native PDBs must stay in the .nupkg (they are what a debugger loads beside
+    the DLL) but nuget.org's symbol server accepts only managed Portable PDBs;
+    an MSF native PDB makes the symbol push fail validation asynchronously,
+    long after the job went green. So the SDK packs them, and this target
+    removes the runtimes/ entries from the symbol package before it leaves the
+    build. The managed Portable PDB stays. The match treats backslashes as
+    separators and ignores case, so a differently spelled native entry is
+    removed as well.
+
+    check-snupkg.py asserts the resulting shape, and its self-test proves the
+    checker rejects a symbol package that still carries native PDBs.
+  -->
+  <UsingTask TaskName="RemoveNativePdbsFromSymbolPackage"
+             TaskFactory="RoslynCodeTaskFactory"
+             AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <SymbolPackage ParameterType="System.String" Required="true" />
+    </ParameterGroup>
+    <Task>
+      <Using Namespace="System" />
+      <Using Namespace="System.IO" />
+      <Using Namespace="System.IO.Compression" />
+      <Using Namespace="System.Linq" />
+      <Code Type="Fragment" Language="cs"><![CDATA[
+        if (!File.Exists(SymbolPackage)) return true;
+        using (var archive = ZipFile.Open(SymbolPackage, ZipArchiveMode.Update))
+        {
+            var native = archive.Entries
+                .Where(e => e.FullName.Replace('\\', '/')
+                                .StartsWith("runtimes/", StringComparison.OrdinalIgnoreCase)
+                            && e.FullName.EndsWith(".pdb", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            foreach (var entry in native)
+            {
+                entry.Delete();
+            }
+        }
+      ]]></Code>
+    </Task>
+  </UsingTask>
+
+  <Target Name="TrimNativePdbsFromSymbolPackage"
+          AfterTargets="Pack"
+          Condition="'$(IncludeSymbols)' == 'true' and '$(SymbolPackageFormat)' == 'snupkg'">
+    <RemoveNativePdbsFromSymbolPackage
+        SymbolPackage="$(PackageOutputAbsolutePath)/$(PackageId).$(PackageVersion.Split('+')[0]).snupkg" />
+  </Target>
 </Project>

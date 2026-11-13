@@ -4,26 +4,32 @@
 set dotenv-load := false
 set positional-arguments := true
 
-# Default host triple (override with: just build-native target=x86_64-linux)
-target   := "x86_64-windows"
-rid      := if target == "x86_64-windows" { "win-x64" } \
+# Default host triple (override with: just target=x86_64-linux build-native)
+# The Windows default is the GNU ABI, matching the upstream release. Zig's
+# plain `x86_64-windows` picks MSVC and adds a VCRUNTIME140.dll dependency.
+target   := "x86_64-windows-gnu"
+rid      := if target == "x86_64-windows-gnu" { "win-x64" } \
+         else if target == "aarch64-windows-gnu" { "win-arm64" } \
          else if target == "x86_64-linux"   { "linux-x64" } \
          else if target == "aarch64-macos"  { "osx-arm64" } \
          else { "unknown" }
 
-artifact := if target == "x86_64-windows" { "ghostty-vt.dll" } \
+artifact := if target =~ "windows" { "ghostty-vt.dll" } \
          else if target == "x86_64-linux"   { "libghostty-vt.so" } \
          else if target == "aarch64-macos"  { "libghostty-vt.dylib" } \
          else { "ghostty-vt.unknown" }
 
 # Zig puts shared libs in bin/ on Windows, lib/ elsewhere
-artifact_dir := if target == "x86_64-windows" { "bin" } else { "lib" }
+artifact_dir := if target =~ "windows" { "bin" } else { "lib" }
 
 # .NET expects libghostty-vt.* naming; zig produces ghostty-vt.dll on Windows
-dotnet_artifact := if target == "x86_64-windows" { "ghostty-vt.dll" } \
+dotnet_artifact := if target =~ "windows" { "ghostty-vt.dll" } \
                 else if target == "x86_64-linux"   { "libghostty-vt.so" } \
                 else if target == "aarch64-macos"  { "libghostty-vt.dylib" } \
                 else { "ghostty-vt.unknown" }
+
+# Windows builds emit a PDB next to the DLL; the other targets have none.
+pdb := if target =~ "windows" { "ghostty-vt.pdb" } else { "" }
 
 ghostty_dir := env_var_or_default("GHOSTTY_SOURCE", "")
 
@@ -43,10 +49,26 @@ ci: build-native restore build test pack
 #  Native library build
 # ──────────────────────────────────────────────
 
+# Reject triples this project does not ship. Zig's plain `x86_64-windows`
+# selects the MSVC ABI, which would add a VCRUNTIME140.dll dependency.
+validate-target:
+    #!/bin/bash
+    set -euo pipefail
+    case "{{ target }}" in
+        x86_64-windows-gnu|aarch64-windows-gnu|x86_64-linux|aarch64-macos) ;;
+        *)
+            echo "ERROR: unsupported target '{{ target }}'." >&2
+            echo "For Windows use x86_64-windows-gnu or aarch64-windows-gnu;" >&2
+            echo "plain x86_64-windows selects the MSVC ABI." >&2
+            exit 1
+            ;;
+    esac
+
 # Clone ghostty upstream (shallow) into C:\tmp\ghostty\ghostty.<timestamp>
 # Whitelist C:\tmp\ghostty in your antivirus to avoid build failures
 clone-ghostty:
     #!/bin/bash
+    set -euo pipefail
     dir="{{ ghostty_dir }}"
     if [ -z "$dir" ]; then
         base="C:\\tmp\\ghostty"
@@ -66,12 +88,24 @@ clone-ghostty:
     echo "$dir" > "{{ justfile_directory() }}/.ghostty-clone-dir"
 
 # Build the native libghostty-vt library for the current platform
-build-native: clone-ghostty
+build-native: validate-target clone-ghostty
     #!/bin/bash
+    set -euo pipefail
     dir="{{ ghostty_dir }}"
     if [ -z "$dir" ]; then
         dir=$(cat "{{ justfile_directory() }}/.ghostty-clone-dir")
     fi
+    # Remove the marker and a temporary clone even when the build fails, so a
+    # later run cannot reuse a half-built tree.
+    cleanup() {
+        rc=$?
+        rm -f "{{ justfile_directory() }}/.ghostty-clone-dir"
+        if [ -z "{{ ghostty_dir }}" ] && [ -n "${dir:-}" ]; then
+            rm -rf "$dir"
+        fi
+        exit "$rc"
+    }
+    trap cleanup EXIT
     echo "Building libghostty-vt for {{ target }}..."
     cd "$dir" || { echo "ERROR: failed to cd into $dir"; exit 1; }
     # -Demit-xcframework=false: on macOS, Ghostty otherwise also builds a
@@ -82,19 +116,21 @@ build-native: clone-ghostty
     mkdir -p "{{ justfile_directory() }}/runtimes/{{ rid }}/native"
     cp "zig-out/{{ artifact_dir }}/{{ artifact }}" "{{ justfile_directory() }}/runtimes/{{ rid }}/native/{{ dotnet_artifact }}"
     echo "Copied {{ artifact }} → runtimes/{{ rid }}/native/{{ dotnet_artifact }}"
-    # Clean up random tmp clone
-    if [ -z "{{ ghostty_dir }}" ]; then
-        rm -rf "$dir"
+    if [ -n "{{ pdb }}" ]; then
+        cp "zig-out/{{ artifact_dir }}/{{ pdb }}" "{{ justfile_directory() }}/runtimes/{{ rid }}/native/{{ pdb }}"
+        echo "Copied {{ pdb }} → runtimes/{{ rid }}/native/{{ pdb }}"
     fi
-    rm -f "{{ justfile_directory() }}/.ghostty-clone-dir"
 
 # Build native for a specific upstream tag/branch
-build-native-ref ref:
+build-native-ref ref: validate-target
     #!/bin/bash
+    set -euo pipefail
     base="C:\\tmp\\ghostty"
     mkdir -p "$base"
     dir="$base\\ghostty-ref.$(date +%s)"
     mkdir -p "$dir"
+    cleanup() { rc=$?; rm -rf "$dir"; exit "$rc"; }
+    trap cleanup EXIT
     echo "Cloning ghostty at ref '{{ ref }}' to $dir..."
     git clone --depth 1 --branch "{{ ref }}" https://github.com/ghostty-org/ghostty.git "$dir"
     cd "$dir"
@@ -106,7 +142,10 @@ build-native-ref ref:
     mkdir -p "{{ justfile_directory() }}/runtimes/{{ rid }}/native"
     cp "zig-out/{{ artifact_dir }}/{{ artifact }}" "{{ justfile_directory() }}/runtimes/{{ rid }}/native/{{ dotnet_artifact }}"
     echo "Copied {{ artifact }} → runtimes/{{ rid }}/native/{{ dotnet_artifact }}"
-    rm -rf "$dir"
+    if [ -n "{{ pdb }}" ]; then
+        cp "zig-out/{{ artifact_dir }}/{{ pdb }}" "{{ justfile_directory() }}/runtimes/{{ rid }}/native/{{ pdb }}"
+        echo "Copied {{ pdb }} → runtimes/{{ rid }}/native/{{ pdb }}"
+    fi
 
 # ──────────────────────────────────────────────
 #  .NET build / test / pack
@@ -138,11 +177,17 @@ pack version="0.0.1-dev":
         --configuration Release \
         --output artifacts \
         -p:Version={{ version }}
-    @echo "Package created: artifacts/DeBlasis.GhosttyVt.{{ version }}.nupkg"
+    @# NuGet drops `+metadata` from the file name, so ask the same selector
+    @# `validate-pack` uses instead of rebuilding the name from `{{ version }}`.
+    @echo "Package created: $(python3 build/select-nupkg.py \
+        --directory artifacts \
+        --version '{{ version }}')"
 
 # Validate the packed NuGet package by consuming it as a real client would.
-# Requires a fresh `just pack` to have populated artifacts/ first.
-validate-pack:
+# Requires `just pack version=<same version>` to have populated artifacts/
+# first. The version is explicit so the content gate and the consumer restore
+# can never disagree about which package is under test.
+validate-pack version="0.0.1-dev":
     #!/bin/bash
     set -euo pipefail
     # Scrub per-project package cache + build outputs so a stale nupkg with a
@@ -150,9 +195,46 @@ validate-pack:
     rm -rf tests/Ghostty.Vt.PackageConsumer.Tests/packages \
            tests/Ghostty.Vt.PackageConsumer.Tests/bin \
            tests/Ghostty.Vt.PackageConsumer.Tests/obj
+    # Select the exact package this run packed, by version, not by mtime.
+    nupkg=$(python3 build/select-nupkg.py \
+        --directory artifacts \
+        --version "{{ version }}")
+    snupkg="${nupkg%.nupkg}.snupkg"
+    python3 build/check-snupkg.py "$snupkg"
+    # Check the package contents before restoring it: a nupkg that is missing
+    # a Windows runtime fails to load, and a wrong-architecture or stale pair
+    # only shows up in the import table / PDB identity.
+    rids=(--require-rid win-x64)
+    if [ -d runtimes/win-arm64/native ]; then
+        rids+=(--require-rid win-arm64)
+    else
+        rids+=(--allow-missing-rid win-arm64)
+    fi
+    python3 build/check-nupkg.py "$nupkg" "${rids[@]}"
     dotnet test tests/Ghostty.Vt.PackageConsumer.Tests/Ghostty.Vt.PackageConsumer.Tests.csproj \
         --configuration Release \
+        -p:GhosttyVtVersionOverride="{{ version }}" \
         --logger "trx"
+
+# Prove the package and runtime gates reject the inputs they exist for. The
+# Windows cases need both native trees staged; the rest run anywhere.
+validate-gates:
+    #!/bin/bash
+    set -euo pipefail
+    python3 build/selftest-check-snupkg.py
+    python3 build/selftest-select-nupkg.py
+    ruby build/check-package-gate-wiring.rb
+    if [ -d runtimes/win-x64/native ] && [ -d runtimes/win-arm64/native ]; then
+        python3 build/selftest-check-nupkg.py \
+            --x64-dir runtimes/win-x64/native \
+            --arm64-dir runtimes/win-arm64/native
+        python3 build/selftest-windows-abi.py \
+            runtimes/win-x64/native/ghostty-vt.dll \
+            --machine x64 \
+            --pdb runtimes/win-x64/native/ghostty-vt.pdb
+    else
+        echo "Skipping the Windows gate self-tests: both native trees are required."
+    fi
 
 # ──────────────────────────────────────────────
 #  Upstream sync helpers
@@ -198,7 +280,9 @@ clean:
 
 # Remove native binaries (runtimes/)
 clean-native:
-    rm -rf runtimes/*/native/libghostty-vt.*
+    rm -rf runtimes/*/native/ghostty-vt.dll \
+           runtimes/*/native/ghostty-vt.pdb \
+           runtimes/*/native/libghostty-vt.*
 
 # Verify the solution builds without native binaries (compile-only check)
 check:

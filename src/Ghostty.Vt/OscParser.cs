@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using Ghostty.Vt.Enums;
 using Ghostty.Vt.Internals;
 using Ghostty.Vt.Native;
@@ -48,16 +47,16 @@ public sealed class OscParser : IDisposable
         get
         {
             ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
-            nint strPtr;
+            // The native out parameter is a GhosttyString (pointer plus
+            // length), not a bare char*. Passing an 8-byte local lets the
+            // native side write 16 bytes over the caller's stack.
+            GhosttyStringNative value;
             if (NativeMethods.ghostty_osc_command_data(
-                _lastCommand, (int)OscCommandData.ChangeWindowTitleStr, &strPtr) != 0)
+                _lastCommand, (int)OscCommandData.ChangeWindowTitleStr, &value) != 0)
             {
                 return new GhosttyString(nint.Zero, 0);
             }
-            // Native returns a null-terminated UTF-8 string with no length;
-            // measure it before wrapping so GhosttyString.ToString() can decode it.
-            var bytes = MemoryMarshal.CreateReadOnlySpanFromNullTerminated((byte*)strPtr);
-            return new GhosttyString(strPtr, (nuint)bytes.Length);
+            return new GhosttyString(value.Ptr, value.Len);
         }
     }
 
