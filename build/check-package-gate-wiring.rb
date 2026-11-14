@@ -34,9 +34,28 @@ CONSUMER_LABEL = "Windows package consumer test"
 STUBBED = %w[python python3 dotnet].freeze
 
 # A job or step guarded by one of these never runs, so a gate inside it is not
-# evidence that the publish chain is checked.
+# evidence that the publish chain is checked. `${{ … }}` is GitHub's rendering
+# of the same value, so both spellings are stripped first.
 def constant_false?(expression)
-  expression.to_s.strip.match?(/\A(?:false|0|'false'|"false")\z/)
+  cleaned = expression.to_s.gsub(/\$\{\{|\}\}/, "").strip
+  cleaned.match?(/\A(?:false|0|'false'|"false")\z/)
+end
+
+# A step-level `if:` decides on the runner whether a gate step runs at all, and
+# the probe executes the step body but never evaluates the condition, so the
+# condition must be a fact the check can rely on being equally true on every
+# run: a property of the build matrix (`startsWith(matrix.rid, 'win-')`).
+# Contexts that vary by event (`github.*`), by input, by secret, by another
+# job's outcome (`needs.*`, the status functions) or by runner identity can
+# skip the gate on exactly the runs that publish, which is the round-4b
+# step-`if:` bypass.
+def matrix_structural?(condition)
+  cleaned = condition.to_s.gsub(/\$\{\{|\}\}/, "").strip
+  return false unless cleaned.match?(/\bmatrix\./)
+  return false if cleaned.match?(/\b(github|env|inputs|vars|secrets|needs|runner)\b/)
+  return false if cleaned.match?(/\b(failure|success|cancelled|always)\s*\(/)
+
+  true
 end
 
 # One shell command, with backslash continuations folded in. Checking each
@@ -144,6 +163,17 @@ def probe(body, env, code, substitute:)
     script = File.join(directory, "step.sh")
     File.write(script, body.to_s.gsub(/\$\{\{[^}]*\}\}/, substitute))
 
+    # A real runner's workspace is a checkout: it has a `.git` and its package
+    # artifacts carry real names (`*.nupkg`, not `probe.nupkg`). The probe's
+    # work dir must look the same, or a condition on any of those differences
+    # is true in one world and false in the other (SEC-R4B-1).
+    FileUtils.mkdir_p(File.join(work, ".git"))
+    %w[probe.nupkg probe.snupkg].each do |staged|
+      FileUtils.rm_f(File.join(work, "artifacts", staged))
+    end
+    File.write(File.join(work, "artifacts", "package.1.0.0.nupkg"), "")
+    File.write(File.join(work, "artifacts", "package.1.0.0.snupkg"), "")
+
     probe_env = {
       "PATH" => "#{bin}:#{ENV.fetch("PATH", "")}",
       "CI" => "true",
@@ -152,7 +182,6 @@ def probe(body, env, code, substitute:)
       "GITHUB_OUTPUT" => File.join(directory, "output"),
       "GITHUB_ENV" => File.join(directory, "env"),
       "RUNNER_TEMP" => File.join(directory, "tmp"),
-      "PKG_VERSION" => "0.0.0",
       "PROBE_LOG" => log,
     }.merge(env)
     ok = system(probe_env, "bash", "-e", script, chdir: work, out: File::NULL, err: File::NULL)
@@ -221,10 +250,39 @@ files.each do |file|
     (job["steps"] || []).each do |step|
       body = step["run"].to_s
       commands = logical_commands(body)
-      invoked = GATES.select { |script| commands.any? { |command| gate_command(command, script) } }
+      # `python3 "$NUCHK"` with `env: NUCHK: /dev/null` hides the gate from
+      # every literal scan while a same-script invocation elsewhere in the
+      # chain keeps `found` satisfied. Substitute known env values into the
+      # commands so the alias resolves to what the runner would run.
+      step_env = job_env.merge(step["env"] || {})
+      expand_env = lambda do |text|
+        text.gsub(/\$\{?([A-Z_][A-Z0-9_]*)\}?/) do
+          value = step_env[Regexp.last_match(1)]
+          value.nil? ? Regexp.last_match(0) : value.to_s
+        end
+      end
+      expanded = commands.map { |command| expand_env.call(command) }
+      invoked = GATES.select { |script| expanded.any? { |command| gate_command(command, script) } }
       mentioned = GATES.select { |script| commands.any? { |command| command.include?(script) } }
-      consumer = commands.any? { |command| consumer_command(command) }
+      consumer = expanded.any? { |command| consumer_command(command) }
       consumer_mentioned = commands.any? { |command| command.include?(CONSUMER_PROJECT) }
+      # An interpreter invocation whose script argument still holds an
+      # unresolved variable after env substitution is either an alias to
+      # something outside the repo (the env-alias no-op) or a path the
+      # check cannot resolve — either way it is not a gate the check sees.
+      variable_routed = commands.select do |command|
+        command.lstrip.match?(/\A(?:python3?|dotnet)\s+"\$[A-Za-z_][A-Za-z0-9_]*"?(\s|\z)/)
+      end
+      unless variable_routed.empty?
+        red << "#{file}: the #{name} job routes a gate/consumer script through a " \
+               "variable the check cannot resolve: #{variable_routed.first.strip}"
+      end
+      # PROBE_LOG exists only in the probe's environment; a condition on it
+      # is true under the check and false on every real runner (SEC-R4B-1).
+      if body.include?("PROBE_LOG")
+        red << "#{file}: the #{(invoked + mentioned).uniq.join(', ')} step reads PROBE_LOG, " \
+               "which exists only in the wiring check's probe"
+      end
 
       if consumer
         unless body.include?("GhosttyVtVersionOverride")
@@ -243,6 +301,13 @@ files.each do |file|
           red << "#{file}: the #{CONSUMER_LABEL} step is behind an if: (#{step["if"]}), so it can be skipped"
         elsif constant_false?(step["if"])
           red << "#{file}: the #{name} step is behind a constant-false if: (#{step["if"]})"
+        elsif !matrix_structural?(step["if"])
+          # The probe runs the body but never evaluates this condition, so a
+          # condition on anything but the matrix can skip the gate on the
+          # runner while the check stays green.
+          red << "#{file}: the #{(invoked + mentioned).uniq.join(', ')} step is behind an " \
+                 "if: (#{step["if"].to_s.strip}) the check cannot treat as " \
+                 "always-true; only matrix conditions are allowed on gate steps"
         end
       end
       label = consumer ? CONSUMER_LABEL : (invoked + mentioned).uniq.join(", ")
@@ -254,10 +319,13 @@ files.each do |file|
         red << "#{file}: the #{label} step disables errexit (set +e / set +o errexit / trap EXIT)"
       end
 
-      # `dotnet test --list-tests` exits 0 without running a test, so the step
+      # `dotnet test --list-tests` exits 0 without running a test, and
+      # `--filter` with zero matches prints "No test matches" and also exits
+      # 0 — VSTest treats an empty selection as success. Either way the step
       # is green on a package that does not load.
-      if consumer && body.match?(/--list-tests\b/)
-        red << "#{file}: the #{CONSUMER_LABEL} step lists tests instead of running them"
+      if consumer && body.match?(/--list-tests\b|--filter\b/)
+        red << "#{file}: the #{CONSUMER_LABEL} step does not run the tests " \
+               "(--list-tests / --filter): #{body[/--(list-tests|filter)[^\n]*/]&.strip}"
       end
 
       # The invocation must be the whole command. `if [ ... ]; then python3
@@ -365,20 +433,28 @@ files.each do |file|
       end
 
       condition = jobs.dig(publish, "if").to_s
-      next unless condition.match?(/!\s*cancelled\(\)|always\(\)/)
+      # `failure()` alone (or as a conjunct) makes publish run exactly when a
+      # need failed; `success()` is the default; `cancelled()`/`always()`
+      # override the implicit `success()`. Any status function means the
+      # publish decision is explicit, so the required result term must be a
+      # top-level conjunct of a plain conjunction in that case.
+      has_status_function = condition.match?(
+        /\b(?:failure|success|cancelled|always)\s*\(\s*\)/
+      )
+      next unless has_status_function
 
       # The result term must be a top-level conjunct of a plain conjunction.
       # `A || term`, `term || true`, or `(term || B)` all let the publish run
       # while the consumer job failed. Parentheses around the status functions
-      # are part of the allowed shape, so strip those two before looking for
+      # are part of the allowed shape, so strip those before looking for
       # grouping.
-      residual = condition.gsub(/!?\s*cancelled\s*\(\s*\)/, "").gsub(/always\s*\(\s*\)/, "")
+      residual = condition.gsub(/!?\s*(?:cancelled|always|failure|success)\s*\(\s*\)/, "")
       grouped = residual.include?("||") || residual.include?("(") || residual.include?(")")
       required = "needs.#{consumer}.result == 'success'"
       conjuncts = condition.split("&&").map { |term| term.strip.gsub(/\s+/, " ") }
       unless !grouped && conjuncts.include?(required)
         red << "#{file}: publish can run after #{consumer} fails; add " \
-               "needs.#{consumer}.result == 'success' to its if:"
+               "#{required} to its if:"
       end
     end
   end

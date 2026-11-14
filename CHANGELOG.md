@@ -96,13 +96,16 @@ the package version does not mirror the upstream version.
 - The workflows that pack for Windows are checked for the gates they must run.
   `build/check-package-gate-wiring.rb` fails when either publish chain stops
   invoking `check-nupkg.py`, `check-snupkg.py`, or their self-tests, when the
-  Windows x64 consumer test is removed, silenced, or run against another
-  project, when `publish` no longer waits for that job, when the consumer
-  result is one branch of an `||`, or when a gate is wrapped in another
-  command or a shell condition. It runs each gate step twice, with workflow
+  Windows x64 consumer test is removed, silenced, hollowed with `--list-tests`
+  or `--filter`, or run against another project, when `publish` no longer
+  waits for that job, when the consumer result is one branch of an `||` or the
+  condition is a bare `failure()`, or when a gate is wrapped in another
+  command, a shell condition, a step-level `if:` that is not a matrix fact, or
+  an env-aliased script path. It runs each gate step twice, with workflow
   expressions empty and non-empty, and requires the stub to record that the
-  gate was reached, so a condition that skips the gate on the runner cannot
-  pass. It fails too when a gate's exit status is discarded by `|| true`, a
+  gate was reached, so a condition on a workflow expression or on the probe's
+  environment cannot skip the gate on the runner and still pass. It fails too
+  when a gate's exit status is discarded by `|| true`, a
   backslash continuation, `set +e`, or a command after the gate. `ci.yml` runs
   it.
 - `build/select-nupkg.py` matches the version `dotnet pack` writes, which has
