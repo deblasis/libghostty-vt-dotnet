@@ -50,18 +50,30 @@ public sealed class MouseEncoder : IDisposable
         GhosttyException.ThrowIfFailure(result);
     }
 
-    public unsafe ReadOnlySpan<byte> Encode(MouseEvent mouseEvent)
+    /// <summary>
+    /// Encodes the given mouse event with this encoder and returns the encoded
+    /// bytes.
+    /// </summary>
+    /// <remarks>
+    /// The result is a heap copy: the native encoder writes into a stack
+    /// buffer that dies with this call, so returning a span over it would
+    /// hand the caller dangling memory (observed as garbage bytes in the
+    /// consumer golden test).
+    /// </remarks>
+    public unsafe byte[] Encode(MouseEvent mouseEvent)
     {
         ObjectDisposedException.ThrowIf(_handle.IsInvalid, this);
         Span<byte> buf = stackalloc byte[64];
+        nuint len;
+        int result;
         fixed (byte* ptr = buf)
         {
-            nuint len;
-            var result = NativeMethods.ghostty_mouse_encoder_encode(
+            result = NativeMethods.ghostty_mouse_encoder_encode(
                 _handle.DangerousGetHandle(), mouseEvent.NativeHandle, ptr, 64, &len);
-            GhosttyException.ThrowIfFailure(result);
-            return new ReadOnlySpan<byte>(ptr, (int)len);
         }
+
+        GhosttyException.ThrowIfFailure(result);
+        return buf.Slice(0, checked((int)len)).ToArray();
     }
 
     public void Reset()

@@ -101,10 +101,13 @@ the package version does not mirror the upstream version.
   waits for that job, when the consumer result is one branch of an `||` or the
   condition is a bare `failure()`, or when a gate is wrapped in another
   command, a shell condition, a step-level `if:` that is not a matrix fact, or
-  an env-aliased script path. It runs each gate step twice, with workflow
-  expressions empty and non-empty, and requires the stub to record that the
-  gate was reached, so a condition on a workflow expression or on the probe's
-  environment cannot skip the gate on the runner and still pass. It fails too
+  an env-aliased script path. It runs each gate step under two expression
+  substitutions (empty and non-empty) and two deliberately different probe
+  environments — divergent staged-file names, temp paths, and stub locations —
+  and requires the stub to record that the gate was reached in every one, so a
+  condition that discriminates between the probes (on staged names, PATH or
+  temp layout, `PROBE_LOG`, or a workflow expression) cannot skip the gate on
+  the runner and still pass. It fails too
   when a gate's exit status is discarded by `|| true`, a
   backslash continuation, `set +e`, or a command after the gate. `ci.yml` runs
   it.

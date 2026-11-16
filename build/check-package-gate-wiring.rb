@@ -48,12 +48,26 @@ end
 # Contexts that vary by event (`github.*`), by input, by secret, by another
 # job's outcome (`needs.*`, the status functions) or by runner identity can
 # skip the gate on exactly the runs that publish, which is the round-4b
-# step-`if:` bypass.
-def matrix_structural?(condition)
+# step-`if:` bypass. A matrix condition must also be *satisfiable*: comparing a
+# matrix key to a value the matrix never produces (`matrix.rid == 'win-x86'`
+# against a `win-x64`/`linux-x64`/`osx-arm64` matrix) is false on every leg,
+# which silences the gate without any probe-detectable difference.
+def matrix_structural?(condition, job = {})
   cleaned = condition.to_s.gsub(/\$\{\{|\}\}/, "").strip
   return false unless cleaned.match?(/\bmatrix\./)
   return false if cleaned.match?(/\b(github|env|inputs|vars|secrets|needs|runner)\b/)
   return false if cleaned.match?(/\b(failure|success|cancelled|always)\s*\(/)
+
+  # Satisfiability: every `matrix.<key> == '<value>'` conjunct must match at
+  # least one leg of the job's matrix. A key not in the matrix, or a value no
+  # leg produces, makes the whole condition dead on every run.
+  matrix = (job["strategy"] || {})["matrix"] || {}
+  legs = matrix.to_h { |key, value| [key.to_s, Array(value).map(&:to_s)] }
+  cleaned.scan(/matrix\.([A-Za-z_][A-Za-z0-9_]*)\s*==\s*(['"])(.*?)\2/).each do |key, _quote, value|
+    values = legs[key]
+    return false if values.nil? || values.empty?
+    return false unless values.include?(value)
+  end
 
   true
 end
@@ -136,21 +150,37 @@ end
 # that only reaches its gate for one of those values can be skipped on the
 # runner by a condition the probe would otherwise never exercise.
 #
-# The stub records the command line so the caller can require the gate to have
-# been reached, not merely that the step failed for some other reason.
-def probe(body, env, code, substitute:)
-  Dir.mktmpdir("gate-probe-") do |directory|
-    bin = File.join(directory, "bin")
-    work = File.join(directory, "work")
+# The same reasoning applies to the probe's own environment: no single
+# envelope can be made indistinguishable from a real runner's, so a condition
+# discriminating probe from runner would always exist (SEC-R4B-1, SEC-R4C-1).
+# The gate must therefore be reached under *two* deliberately divergent
+# envelopes: whatever observable a guard keys on — staged file names, PATH
+# layout, temp paths — differs between them, so a guard that is true in one is
+# false in the other, and reachability fails in one flavour. Only facts that
+# hold on every real runner (a `.git` in the workspace, `RUNNER_OS`, existing
+# `GITHUB_ENV`/`GITHUB_OUTPUT` files, real package names) are held constant.
+def probe(body, env, code, substitute:, flavour: 0)
+  Dir.mktmpdir(flavour.zero? ? "gate-probe-a-" : "wiring-envelope-b-") do |directory|
+    layout = flavour.zero? ? "bin" : "stub"
+    bin = File.join(directory, layout)
+    work = File.join(directory, flavour.zero? ? "work" : "checkout")
     FileUtils.mkdir_p(bin)
-    FileUtils.mkdir_p(File.join(work, "artifacts"))
+    artifacts = File.join(work, "artifacts")
+    FileUtils.mkdir_p(artifacts)
     # The gates fail closed when they cannot find a package, so the probe
-    # supplies the files a real pack job would have produced.
-    File.write(File.join(work, "artifacts", "probe.nupkg"), "")
-    File.write(File.join(work, "artifacts", "probe.snupkg"), "")
+    # supplies the files a real pack job would have produced. The names differ
+    # per flavour: a real name is version-derived, so any fixed literal a
+    # guard names is wrong in at least one flavour.
+    nupkg = flavour.zero? ? "package.1.0.0.nupkg" : "DeBlasis.GhosttyVt.2.3.4.nupkg"
+    snupkg = flavour.zero? ? "package.1.0.0.snupkg" : "DeBlasis.GhosttyVt.2.3.4.snupkg"
+    File.write(File.join(artifacts, nupkg), "")
+    File.write(File.join(artifacts, snupkg), "")
     FileUtils.mkdir_p(File.join(work, "runtimes", "win-x64", "native"))
     FileUtils.mkdir_p(File.join(work, "runtimes", "win-arm64", "native"))
-    FileUtils.mkdir_p(File.join(directory, "tmp"))
+    # A real runner's workspace is a checkout: `.git` exists.
+    FileUtils.mkdir_p(File.join(work, ".git"))
+    tmp = File.join(directory, flavour.zero? ? "tmp" : "temp")
+    FileUtils.mkdir_p(tmp)
 
     log = File.join(directory, "invoked.log")
     File.write(log, "")
@@ -163,25 +193,26 @@ def probe(body, env, code, substitute:)
     script = File.join(directory, "step.sh")
     File.write(script, body.to_s.gsub(/\$\{\{[^}]*\}\}/, substitute))
 
-    # A real runner's workspace is a checkout: it has a `.git` and its package
-    # artifacts carry real names (`*.nupkg`, not `probe.nupkg`). The probe's
-    # work dir must look the same, or a condition on any of those differences
-    # is true in one world and false in the other (SEC-R4B-1).
-    FileUtils.mkdir_p(File.join(work, ".git"))
-    %w[probe.nupkg probe.snupkg].each do |staged|
-      FileUtils.rm_f(File.join(work, "artifacts", staged))
-    end
-    File.write(File.join(work, "artifacts", "package.1.0.0.nupkg"), "")
-    File.write(File.join(work, "artifacts", "package.1.0.0.snupkg"), "")
+    github_env = File.join(directory, "gh.env")
+    github_output = File.join(directory, "gh.output")
+    File.write(github_env, "")
+    File.write(github_output, "")
 
+    # A minimal, runner-realistic environment. Everything a real runner sets
+    # is present (`RUNNER_OS`, both GITHUB_* file targets as existing files,
+    # `CI`); nothing the probe invented is present except `PROBE_LOG`, which
+    # the stub requires and whose textual or indirect use in a step body is
+    # rejected by the caller.
     probe_env = {
-      "PATH" => "#{bin}:#{ENV.fetch("PATH", "")}",
+      "PATH" => "#{bin}:/usr/bin:/bin",
       "CI" => "true",
       "GITHUB_ACTIONS" => "true",
       "GITHUB_WORKSPACE" => work,
-      "GITHUB_OUTPUT" => File.join(directory, "output"),
-      "GITHUB_ENV" => File.join(directory, "env"),
-      "RUNNER_TEMP" => File.join(directory, "tmp"),
+      "GITHUB_ENV" => github_env,
+      "GITHUB_OUTPUT" => github_output,
+      "RUNNER_TEMP" => tmp,
+      "RUNNER_OS" => "Linux",
+      "RUNNER_ARCH" => "X64",
       "PROBE_LOG" => log,
     }.merge(env)
     ok = system(probe_env, "bash", "-e", script, chdir: work, out: File::NULL, err: File::NULL)
@@ -277,11 +308,15 @@ files.each do |file|
         red << "#{file}: the #{name} job routes a gate/consumer script through a " \
                "variable the check cannot resolve: #{variable_routed.first.strip}"
       end
-      # PROBE_LOG exists only in the probe's environment; a condition on it
-      # is true under the check and false on every real runner (SEC-R4B-1).
-      if body.include?("PROBE_LOG")
-        red << "#{file}: the #{(invoked + mentioned).uniq.join(', ')} step reads PROBE_LOG, " \
-               "which exists only in the wiring check's probe"
+      # PROBE_LOG exists only in the probe's environment; a condition on it is
+      # true under the check and false on every real runner (SEC-R4B-1). The
+      # literal name and its indirect spellings (`V=PROBE_LOG; ${!V}`, the
+      # printf/eval reconstruction) are all reads of a variable the runner
+      # never sets.
+      if body.include?("PROBE_LOG") || body.match?(/\$\{!/) || body.match?(/eval\s+/)
+        red << "#{file}: the #{(invoked + mentioned).uniq.join(', ')} step reads PROBE_LOG " \
+               "directly or through indirection, which exists only in the wiring " \
+               "check's probe"
       end
 
       if consumer
@@ -301,7 +336,7 @@ files.each do |file|
           red << "#{file}: the #{CONSUMER_LABEL} step is behind an if: (#{step["if"]}), so it can be skipped"
         elsif constant_false?(step["if"])
           red << "#{file}: the #{name} step is behind a constant-false if: (#{step["if"]})"
-        elsif !matrix_structural?(step["if"])
+        elsif !matrix_structural?(step["if"], job)
           # The probe runs the body but never evaluates this condition, so a
           # condition on anything but the matrix can skip the gate on the
           # runner while the check stays green.
@@ -371,22 +406,29 @@ files.each do |file|
       step_env = job_env.merge(step["env"] || {})
       expected = invoked + (consumer ? [CONSUMER_PROJECT] : [])
       { "" => "expressions empty", "probe-expression" => "expressions non-empty" }.each do |substitute, flavour|
-        ok, calls = probe(body, step_env, 1, substitute: substitute)
-        if ok
-          red << "#{file}: the #{label} step does not fail when its gate fails (#{flavour})"
-        elsif expected.any? && expected.none? { |needle| calls.include?(needle) }
-          red << "#{file}: the #{label} step fails before reaching its gate (#{flavour})"
-        end
-        # The failure probe stops at the first failing gate, so only the success
-        # probe can require every gate in the step to have been reached.
-        ok, calls = probe(body, step_env, 0, substitute: substitute)
-        unless ok
-          red << "#{file}: the #{label} step fails when its gate succeeds (#{flavour})"
-        end
-        missing = expected.reject { |needle| calls.include?(needle) }
-        unless missing.empty?
-          red << "#{file}: the #{label} step does not reach #{missing.join(', ')} " \
-                 "(#{flavour}), so a condition can skip it on the runner"
+        # Each substitution runs under two deliberately divergent probe
+        # envelopes (see `probe`), so a condition keying on anything the probe
+        # controls — staged names, PATH or temp layout — fails reachability in
+        # one envelope.
+        [0, 1].each do |envelope|
+          flavour_text = "#{flavour}, envelope #{envelope}"
+          ok, calls = probe(body, step_env, 1, substitute: substitute, flavour: envelope)
+          if ok
+            red << "#{file}: the #{label} step does not fail when its gate fails (#{flavour_text})"
+          elsif expected.any? && expected.none? { |needle| calls.include?(needle) }
+            red << "#{file}: the #{label} step fails before reaching its gate (#{flavour_text})"
+          end
+          # The failure probe stops at the first failing gate, so only the
+          # success probe can require every gate in the step to be reached.
+          ok, calls = probe(body, step_env, 0, substitute: substitute, flavour: envelope)
+          unless ok
+            red << "#{file}: the #{label} step fails when its gate succeeds (#{flavour_text})"
+          end
+          missing = expected.reject { |needle| calls.include?(needle) }
+          unless missing.empty?
+            red << "#{file}: the #{label} step does not reach #{missing.join(', ')} " \
+                    "(#{flavour_text}), so a condition can skip it on the runner"
+          end
         end
       end
 
