@@ -58,15 +58,38 @@ def matrix_structural?(condition, job = {})
   return false if cleaned.match?(/\b(github|env|inputs|vars|secrets|needs|runner)\b/)
   return false if cleaned.match?(/\b(failure|success|cancelled|always)\s*\(/)
 
-  # Satisfiability: every `matrix.<key> == '<value>'` conjunct must match at
-  # least one leg of the job's matrix. A key not in the matrix, or a value no
-  # leg produces, makes the whole condition dead on every run.
+  # Satisfiability: the condition must be true for at least one leg of the
+  # job's matrix. Every `matrix.<key> == '<value>'` conjunct is evaluated
+  # against the actual legs — an `include:`-style matrix enumerates its legs
+  # entry by entry, a direct-key matrix is the cartesian product of its
+  # values, and `exclude:` removes matching combinations. A key no leg
+  # carries, or a value no leg produces, is dead on every run.
   matrix = (job["strategy"] || {})["matrix"] || {}
-  legs = matrix.to_h { |key, value| [key.to_s, Array(value).map(&:to_s)] }
-  cleaned.scan(/matrix\.([A-Za-z_][A-Za-z0-9_]*)\s*==\s*(['"])(.*?)\2/).each do |key, _quote, value|
-    values = legs[key]
-    return false if values.nil? || values.empty?
-    return false unless values.include?(value)
+  legs = []
+  if matrix.is_a?(Hash)
+    base_keys = matrix.keys.map(&:to_s).reject { |key| %w[include exclude].include?(key) }
+    if base_keys.empty?
+      legs = Array(matrix["include"]).map(&:to_h)
+    else
+      combos = base_keys.map { |key| Array(matrix[key]).map { |value| { key => value } } }
+      legs = combos.reduce([{}]) do |acc, values|
+        acc.flat_map { |combo| values.map { |value| combo.merge(value) } }
+      end
+      Array(matrix["include"]).each { |entry| legs << entry.to_h }
+    end
+    Array(matrix["exclude"]).each do |excluded|
+      legs.reject! do |leg|
+        excluded.all? { |key, value| Array(value).map(&:to_s).include?(leg[key.to_s].to_s) }
+      end
+    end
+  end
+  equalities = cleaned.scan(/matrix\.([A-Za-z_][A-Za-z0-9_]*)\s*==\s*(['"])(.*?)\2/)
+                     .map { |key, _quote, value| [key, value] }
+  unless equalities.empty?
+    satisfiable = legs.any? do |leg|
+      equalities.all? { |key, value| leg[key.to_s].to_s == value }
+    end
+    return false unless satisfiable
   end
 
   true
