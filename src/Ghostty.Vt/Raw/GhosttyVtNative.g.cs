@@ -2750,10 +2750,10 @@ namespace Ghostty.Vt.Raw;
         public const int GHOSTTY_VT_VERSION_MAJOR = 1;
         [NativeTypeName("#define GHOSTTY_VT_VERSION_MINOR 0")]
         public const int GHOSTTY_VT_VERSION_MINOR = 0;
-        [NativeTypeName("#define GHOSTTY_VT_VERSION_PATCH 2")]
-        public const int GHOSTTY_VT_VERSION_PATCH = 2;
-        [NativeTypeName("#define GHOSTTY_VT_VERSION \"1.0.2\"")]
-        public static ReadOnlySpan<byte> GHOSTTY_VT_VERSION => "1.0.2"u8;
+        [NativeTypeName("#define GHOSTTY_VT_VERSION_PATCH 3")]
+        public const int GHOSTTY_VT_VERSION_PATCH = 3;
+        [NativeTypeName("#define GHOSTTY_VT_VERSION \"1.0.3\"")]
+        public static ReadOnlySpan<byte> GHOSTTY_VT_VERSION => "1.0.3"u8;
         [NativeTypeName("#define GHOSTTY_ENUM_MAX_VALUE INT_MAX")]
         public const int GHOSTTY_ENUM_MAX_VALUE = 2147483647;
         [NativeTypeName("#define GHOSTTY_IMAGE_LAYER_MASK_BELOW_BACKGROUND (1u << GHOSTTY_IMAGE_LAYER_BELOW_BACKGROUND)")]
